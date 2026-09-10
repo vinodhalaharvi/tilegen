@@ -1,0 +1,126 @@
+(gomod
+  (module "github.com/acme/shop")
+  (go "1.22")
+  (require "github.com/google/uuid" "v1.6.0"))
+
+(go/file "orders/orders_gen.go"
+  (mode generated)
+  (package orders)
+  (doc "Package orders tracks customer orders.")
+  (import uuid "github.com/google/uuid")
+  (go/struct Order
+    (doc "Order is a placed customer order.")
+    (field ID uuid.UUID (tag "json:\"id\""))
+    (field CustomerEmail string (tag "json:\"customer_email\""))
+    (field TotalCents int64
+      (doc "Total in minor currency units.")
+      (tag "json:\"total_cents\""))
+    (field PlacedAt time.Time (tag "json:\"placed_at\""))
+    (field ShippedAt *time.Time (tag "json:\"shipped_at\"")))
+  (go/interface OrderStore
+    (doc "OrderStore persists Order values.")
+    (method Get
+      (doc "Get returns the Order with the given ID.")
+      (params (ctx context.Context) (id uuid.UUID))
+      (returns *Order error))
+    (method List
+      (doc "List returns all Order values ordered by ID.")
+      (params (ctx context.Context))
+      (returns []*Order error))
+    (method Save
+      (doc "Save inserts or replaces order by ID.")
+      (params (ctx context.Context) (order *Order))
+      (returns error))
+    (method Delete
+      (doc "Delete removes the Order with the given ID.")
+      (params (ctx context.Context) (id uuid.UUID))
+      (returns error)))
+  (go/assert OrderStore MemoryOrderStore)
+  (go/var ErrNotFound "errors.New(\"orders: not found\")"
+    (doc "ErrNotFound is returned when a requested value does not exist."))
+  (go/interface Pricer
+    (doc "Pricer computes order totals.")
+    (method Quote
+      (doc "Quote returns the total for o in minor units.")
+      (params (ctx context.Context) (o *Order))
+      (returns int64 error))))
+
+(go/file "orders/memory_order_store.go"
+  (mode keep)
+  (package orders)
+  (import uuid "github.com/google/uuid")
+  (go/struct MemoryOrderStore
+    (doc "MemoryOrderStore implements OrderStore using memory storage.")
+    (field mu sync.Mutex)
+    (field m "map[uuid.UUID]*Order"))
+  (go/func NewMemoryOrderStore
+    (doc "NewMemoryOrderStore returns a ready-to-use MemoryOrderStore.")
+    (params)
+    (returns *MemoryOrderStore)
+    (body "return &MemoryOrderStore{m: make(map[uuid.UUID]*Order)}"))
+  (go/func Get
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context) (id uuid.UUID))
+    (returns *Order error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Get\")"))
+  (go/func List
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context))
+    (returns []*Order error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.List\")"))
+  (go/func Save
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context) (order *Order))
+    (returns error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Save\")"))
+  (go/func Delete
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context) (id uuid.UUID))
+    (returns error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Delete\")")))
+
+(llm/task
+  (id "orders.MemoryOrderStore.Get")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).Get")
+  (contract "Get(ctx context.Context, id uuid.UUID) (*Order, error)")
+  (intent "Look up id in s.m while holding s.mu. Return ErrNotFound when absent.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.MemoryOrderStore.List")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).List")
+  (contract "List(ctx context.Context) ([]*Order, error)")
+  (intent "Collect every value in s.m while holding s.mu and sort them by ID.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.MemoryOrderStore.Save")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).Save")
+  (contract "Save(ctx context.Context, order *Order) error")
+  (intent "Store the value in s.m keyed by its ID while holding s.mu, replacing any existing one.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.MemoryOrderStore.Delete")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).Delete")
+  (contract "Delete(ctx context.Context, id uuid.UUID) error")
+  (intent "Remove id from s.m while holding s.mu. Deleting a missing ID is not an error.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.llm-1")
+  (intent "Write a Pricer that applies a 10% discount to orders over 100.00.")
+  (context-file "orders/orders_gen.go"))
+

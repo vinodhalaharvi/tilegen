@@ -1,0 +1,19 @@
+# Build output
+/bin/
+/dist/
+*.exe
+*.test
+coverage.out
+
+# Generated demo projects (make demo / make demo-postgres)
+/out/
+
+# Local Go workspace
+go.work
+go.work.sum
+
+# Editors and OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
