@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -251,4 +252,53 @@ func read(t *testing.T, dir, rel string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+const twoPkgs = `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package orders (struct Order (field ID uuid.UUID) %s))
+  (package billing (entity Invoice (field ID uuid.UUID) %s (store get))))`
+
+func TestCrossPackageImport(t *testing.T) {
+	out := t.TempDir()
+	if err := run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, false, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "billing/billing_gen.go")
+	for _, want := range []string{`"github.com/acme/shop/orders"`, "o *orders.Order, p orders.Pricer"} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("billing_gen.go missing %q", want)
+		}
+	}
+}
+
+func TestImportCycleRejected(t *testing.T) {
+	src := fmt.Sprintf(twoPkgs, "(field Inv *billing.Invoice)", "(field Order *orders.Order)")
+	err := validateSrc(t, src, false)
+	if err == nil || !strings.Contains(err.Error(), "import cycle between project packages: orders -> billing -> orders") {
+		t.Fatalf("want import cycle error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "spec.sexp:4:70:") { // billing's *orders.Order closes the loop
+		t.Fatalf("cycle error should point at the type that closes the loop: %v", err)
+	}
+}
+
+func TestSelfQualifierRejected(t *testing.T) {
+	src := fmt.Sprintf(twoPkgs, "(field Parent *orders.Order)", "")
+	err := validateSrc(t, src, false)
+	if err == nil || !strings.Contains(err.Error(), "without its package qualifier (*Order)") {
+		t.Fatalf("want self-qualifier error, got %v", err)
+	}
+}
+
+func TestTasksIncludeForeignContext(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, fmt.Sprintf(twoPkgs, "", "(field Order *orders.Order)"), "")
+	out := filepath.Join(dir, "out")
+	if err := run(sp, "", out, false, false, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if tasks := read(t, out, "tilegen.tasks.json"); !strings.Contains(tasks, `"orders/orders_gen.go"`) {
+		t.Fatalf("billing store tasks should list orders' generated file as context:\n%s", tasks)
+	}
 }

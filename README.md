@@ -68,7 +68,9 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 Types are Go syntax, parsed by `go/parser`. Quote them if they contain spaces
 or parentheses: `(field F "func(int) error")`. Standard-library qualifiers
 (`time`, `context`) need no declaration; anything else must come from a
-`require` or a project package, or tilegen reports the exact line.
+`require` or a project package, or tilegen reports the exact line. Types from
+another project package are written qualified (`orders.Order`); tilegen adds
+the import and rejects import cycles between packages.
 
 ## The config
 

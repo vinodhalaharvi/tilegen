@@ -124,3 +124,74 @@
   (intent "Write a Pricer that applies a 10% discount to orders over 100.00.")
   (context-file "orders/orders_gen.go"))
 
+(go/file "billing/billing_gen.go"
+  (mode generated)
+  (package billing)
+  (doc "Package billing invoices orders.")
+  (import orders "github.com/acme/shop/orders")
+  (import uuid "github.com/google/uuid")
+  (go/struct Invoice
+    (doc "Invoice bills one order.")
+    (field ID uuid.UUID (tag "json:\"id\""))
+    (field OrderID uuid.UUID (tag "json:\"order_id\""))
+    (field AmountCents int64 (tag "json:\"amount_cents\""))
+    (field IssuedAt time.Time (tag "json:\"issued_at\"")))
+  (go/interface InvoiceStore
+    (doc "InvoiceStore persists Invoice values.")
+    (method Get
+      (doc "Get returns the Invoice with the given ID.")
+      (params (ctx context.Context) (id uuid.UUID))
+      (returns *Invoice error))
+    (method Save
+      (doc "Save inserts or replaces invoice by ID.")
+      (params (ctx context.Context) (invoice *Invoice))
+      (returns error)))
+  (go/assert InvoiceStore MemoryInvoiceStore)
+  (go/var ErrNotFound "errors.New(\"billing: not found\")"
+    (doc "ErrNotFound is returned when a requested value does not exist."))
+  (go/interface Invoicer
+    (doc "Invoicer turns orders into invoices.")
+    (method InvoiceFor
+      (doc "InvoiceFor builds the invoice for o, priced by p.")
+      (params (ctx context.Context) (o *orders.Order) (p orders.Pricer))
+      (returns *Invoice error))))
+
+(go/file "billing/memory_invoice_store.go"
+  (mode keep)
+  (package billing)
+  (import uuid "github.com/google/uuid")
+  (go/struct MemoryInvoiceStore
+    (doc "MemoryInvoiceStore implements InvoiceStore using memory storage.")
+    (field mu sync.Mutex)
+    (field m "map[uuid.UUID]*Invoice"))
+  (go/func NewMemoryInvoiceStore
+    (doc "NewMemoryInvoiceStore returns a ready-to-use MemoryInvoiceStore.")
+    (params)
+    (returns *MemoryInvoiceStore)
+    (body "return &MemoryInvoiceStore{m: make(map[uuid.UUID]*Invoice)}"))
+  (go/func Get
+    (recv s *MemoryInvoiceStore)
+    (params (ctx context.Context) (id uuid.UUID))
+    (returns *Invoice error)
+    (body "panic(\"tilegen:hole billing.MemoryInvoiceStore.Get\")"))
+  (go/func Save
+    (recv s *MemoryInvoiceStore)
+    (params (ctx context.Context) (invoice *Invoice))
+    (returns error)
+    (body "panic(\"tilegen:hole billing.MemoryInvoiceStore.Save\")")))
+
+(llm/task
+  (id "billing.MemoryInvoiceStore.Get")
+  (file "billing/memory_invoice_store.go")
+  (symbol "(*MemoryInvoiceStore).Get")
+  (contract "Get(ctx context.Context, id uuid.UUID) (*Invoice, error)")
+  (intent "Look up id in s.m while holding s.mu. Return ErrNotFound when absent.")
+  (context-file "billing/billing_gen.go"))
+
+(llm/task
+  (id "billing.MemoryInvoiceStore.Save")
+  (file "billing/memory_invoice_store.go")
+  (symbol "(*MemoryInvoiceStore).Save")
+  (contract "Save(ctx context.Context, invoice *Invoice) error")
+  (intent "Store the value in s.m keyed by its ID while holding s.mu, replacing any existing one.")
+  (context-file "billing/billing_gen.go"))

@@ -237,14 +237,14 @@ func (n *Node) pretty(b *strings.Builder, indent int) {
 	b.WriteByte(')')
 }
 
-// Dump pretty-prints a sequence of top-level forms.
+// Dump pretty-prints a sequence of top-level forms, separated by blank
+// lines and ending with exactly one newline.
 func Dump(nodes []*Node) string {
-	var b strings.Builder
-	for _, n := range nodes {
-		b.WriteString(n.String())
-		b.WriteString("\n\n")
+	parts := make([]string, len(nodes))
+	for i, n := range nodes {
+		parts[i] = n.String()
 	}
-	return b.String()
+	return strings.Join(parts, "\n\n") + "\n"
 }
 
 // inheritPos gives every position-less node in n the position p, so

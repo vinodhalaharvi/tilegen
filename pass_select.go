@@ -45,7 +45,7 @@ func rename(head string) func(*Munch, Bindings, *Node) ([]*Node, error) {
 func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	c := m.C
 	c.Module = n.Text("module")
-	c.Requires, c.Local = map[string]string{}, map[string]string{}
+	c.Requires, c.Local, c.PkgDirs = map[string]string{}, map[string]string{}, map[string]string{}
 	mod := L(Sym("gomod"), L(Sym("module"), Str(c.Module)), L(Sym("go"), Str(n.Text("go"))))
 	for _, req := range n.FindAll("require") {
 		for _, r := range req.Args() {
@@ -61,6 +61,7 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	pkgs := n.FindAll("package")
 	for _, p := range pkgs {
 		c.Local[p.List[1].Atom] = c.Module + "/" + p.Text("dir")
+		c.PkgDirs[p.List[1].Atom] = p.Text("dir")
 	}
 	if c.Cfg.Storage == "postgres" {
 		c.Local["db"] = c.Module + "/internal/db"
@@ -199,6 +200,13 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return nil, fmt.Errorf("unknown backend %q", backend)
 	}
 
+	contextFiles := []string{genFile}
+	asDecl := func(head string, n *Node) *Node { return L(append([]*Node{Sym(head)}, n.Args()...)...) }
+	contextFiles = append(contextFiles, foreignGenFiles(c, declTypes([]*Node{asDecl("go/interface", iface), asDecl("go/struct", st)}))...)
+	if backend == "postgres" {
+		contextFiles = append(contextFiles, "db/query.sql")
+	}
+
 	decls := []*Node{decl, ctor}
 	var tasks []*Node
 	for _, meth := range iface.FindAll("method") {
@@ -223,10 +231,9 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			L(Sym("file"), Str(file)),
 			L(Sym("symbol"), Str(fmt.Sprintf("(%s).%s", ptr, name))),
 			L(Sym("contract"), Str(signature(meth))),
-			L(Sym("intent"), Str(intent)),
-			L(Sym("context-file"), Str(genFile)))
-		if backend == "postgres" {
-			task.List = append(task.List, L(Sym("context-file"), Str("db/query.sql")))
+			L(Sym("intent"), Str(intent)))
+		for _, f := range contextFiles {
+			task.List = append(task.List, L(Sym("context-file"), Str(f)))
 		}
 		for _, k := range constraints {
 			task.List = append(task.List, L(Sym("constraint"), Str(k)))
@@ -244,6 +251,22 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			L(Sym("doc"), Str("ErrNotFound is returned when a requested value does not exist."))),
 	}, out...)
 	return append(out, tasks...), nil
+}
+
+// foreignGenFiles returns the generated files of other project packages
+// whose types appear in ts, so an LLM filling a hole sees orders.Order's
+// definition when a billing method takes one.
+func foreignGenFiles(c *Ctx, ts []*Node) []string {
+	seen := map[string]bool{}
+	for _, t := range ts {
+		qs, _ := typeQualifiers(t.Atom)
+		for _, q := range qs {
+			if dir, ok := c.PkgDirs[q]; ok && q != c.Pkg.Name {
+				seen[path.Join(dir, q+"_gen.go")] = true
+			}
+		}
+	}
+	return sortedKeys(seen)
 }
 
 // holeBody is the marker the emitter later finds with go/ast to report the
