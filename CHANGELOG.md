@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- CI runs the postgres example through real sqlc (v1.31.1) and requires the
+  result to build and vet. `make demo-postgres` explains how to install sqlc
+  when it is missing, and honors `SQLC=/path/to/sqlc`.
+
 ## v0.1.0
 
 First release: the smallest compiler that is still a compiler.

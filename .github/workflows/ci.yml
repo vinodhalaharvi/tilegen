@@ -15,3 +15,15 @@ jobs:
           go-version-file: go.mod
       - run: make check
       - run: make demo # generated project must build and vet
+
+  postgres:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: sqlc-dev/setup-sqlc@v5
+        with:
+          sqlc-version: "1.31.1"
+      - run: make demo-postgres # sqlc generate, then the result must build and vet
