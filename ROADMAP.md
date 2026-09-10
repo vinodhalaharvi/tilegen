@@ -23,7 +23,7 @@ real costs come from the measurements in v0.3.
 
 Make what exists trustworthy before adding anything clever.
 
-- [ ] **Run demo-postgres with real sqlc in CI**: Done when CI runs `sqlc generate` on the postgres example and the result builds and vets. (v0.1 generated sqlc inputs without executing sqlc.)
+- [x] **Run demo-postgres with real sqlc in CI**: Done when CI runs `sqlc generate` on the postgres example and the result builds and vets. (v0.1 generated sqlc inputs without executing sqlc.)
 - [ ] **Multi-package example**: Done when an `examples/` spec has `billing` using `orders.Order`, the cross-package import resolves, and `make demo` builds it.
 - [ ] **Enum tile**: Done when `(enum Status pending paid shipped)` emits a string type, constants, and a `Valid()` method, covered by a golden test.
 - [ ] **`tilegen check` command**: Done when it exits non-zero if holes remain or generated files are stale, so CI can gate on it.
