@@ -5,6 +5,14 @@
 - CI runs the postgres example through real sqlc (v1.31.1) and requires the
   result to build and vet. `make demo-postgres` explains how to install sqlc
   when it is missing, and honors `SQLC=/path/to/sqlc`.
+- The shop example has a second package, `billing`, whose types use
+  `orders.Order`, so both demos and CI exercise cross-package imports.
+- Import cycles between project packages are rejected at the spec, pointing
+  at the type that closes the loop, instead of failing later in `go build`.
+- Writing `orders.Order` inside package `orders` gets a clear error that
+  suggests the unqualified type.
+- LLM tasks list the generated files of other project packages whose types
+  the store uses, as extra context.
 
 ## v0.1.0
 
