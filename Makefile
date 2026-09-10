@@ -3,6 +3,7 @@ BIN    := bin/tilegen
 SPEC   ?= examples/shop/spec.sexp
 CONFIG ?= examples/shop/config.sexp
 OUT    ?= out/shop
+SQLC   ?= sqlc
 
 .DEFAULT_GOAL := help
 .PHONY: help build install test cover golden vet fmt fmt-check check demo demo-postgres dump tidy clean
@@ -40,9 +41,10 @@ demo: build ## Generate the example (memory storage) and prove it compiles
 	$(BIN) -config $(CONFIG) -out $(OUT) -dump $(SPEC)
 	cd $(OUT) && go mod tidy && go build ./... && go vet ./...
 
-demo-postgres: build ## Postgres variant: runs sqlc, then builds (needs sqlc on PATH)
+demo-postgres: build ## Postgres variant: sqlc generate, then build and vet (needs sqlc)
+	@command -v $(SQLC) >/dev/null || { echo "sqlc not found: brew install sqlc, or see https://docs.sqlc.dev/en/latest/overview/install.html"; exit 1; }
 	$(BIN) -config examples/shop/config.postgres.sexp -out out/shop-pg -dump $(SPEC)
-	cd out/shop-pg && sqlc generate && go mod tidy && go build ./... && go vet ./...
+	cd out/shop-pg && $(SQLC) generate && go mod tidy && go build ./... && go vet ./...
 
 dump: build ## Print the S-expression after every pass
 	@$(BIN) -config $(CONFIG) -out $(OUT) -dump $(SPEC) 2>/dev/null
