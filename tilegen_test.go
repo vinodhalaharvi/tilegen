@@ -1058,3 +1058,56 @@ func TestImplementReconcilesAndSweeps(t *testing.T) {
 		t.Errorf("dropping the implement should remove its untouched file:\n%s", log.String())
 	}
 }
+
+// noNetRunner fails every query: generation must not need gh.
+type noNetRunner struct{ did []string }
+
+func (n *noNetRunner) Query(dir, name string, args ...string) (string, error) {
+	return "", fmt.Errorf("unexpected network call: %s %s", name, strings.Join(args, " "))
+}
+func (n *noNetRunner) Do(dir, name string, args ...string) error {
+	n.did = append(n.did, name)
+	return nil
+}
+
+const ownerlessSpec = `(project shop (go 1.22) (repo (github shop)) (package a (struct S (field X int))))`
+
+func TestModulePathFromGoModWithoutNetwork(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ownerlessSpec, "")
+	out := filepath.Join(dir, "out")
+	os.MkdirAll(out, 0o755)
+	os.WriteFile(filepath.Join(out, "go.mod"), []byte("module github.com/acme/shop\n\ngo 1.22\n"), 0o644)
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: out, Runner: &noNetRunner{}}, &log); err != nil {
+		t.Fatal(err)
+	}
+	if mod := read(t, out, "go.mod"); !strings.Contains(mod, "module github.com/acme/shop") {
+		t.Fatalf("module path should come from go.mod:\n%s", mod)
+	}
+	if !strings.Contains(log.String(), "github.com/acme/shop") {
+		t.Errorf("the repository owner should come from go.mod too:\n%s", log.String())
+	}
+}
+
+func TestOwnerlessWithoutGoModIsAnErrorNotANetworkCall(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ownerlessSpec, "")
+	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "write (github OWNER/shop)") || strings.Contains(err.Error(), "network") {
+		t.Fatalf("want a clear error without touching the network, got %v", err)
+	}
+}
+
+func TestOwnerFromExplicitModule(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project shop (module github.com/acme/shop) (go 1.22) (repo (github shop))
+  (package a (struct S (field X int))))`, "")
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, &log); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "github.com/acme/shop") || strings.Contains(log.String(), "differs") {
+		t.Errorf("owner should come from the module path:\n%s", log.String())
+	}
+}
