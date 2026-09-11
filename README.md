@@ -270,6 +270,29 @@ Give it to your LLM together with the listed files. Then:
 3. Re-run tilegen at any time. Holes are found by parsing the real files, so
    filled ones drop off the list and line numbers stay current.
 
+## Checking in CI
+
+```sh
+tilegen check spec/                # fail on out-of-date files, drift, or open holes
+tilegen check -allow-holes spec/   # while the LLM work is still in progress
+```
+
+`check` runs the same plan as generation and compares it with the disk,
+writing nothing. It exits 1 if regenerating would change a file (someone
+edited generated code, or the spec changed without regenerating), if a
+method you implemented has drifted from the spec, or, unless
+`-allow-holes` is set, while holes remain:
+
+```
+  stale    orders/orders_gen.go: differs from what the spec generates
+  stub     Count to billing/memory_invoice_store.go: new in the spec
+  holes    10 open (listed in tilegen.tasks.json)
+tilegen: check failed: 2 file(s) out of date. Run `tilegen spec` to update, then fill the holes
+```
+
+Generation itself is plan-then-apply, like `terraform plan` and `apply`,
+so the two can never disagree.
+
 ## Reconciliation: the spec changes, the code follows
 
 Spec forms come and go, and every run brings the code in line. One rule:

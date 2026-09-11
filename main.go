@@ -13,6 +13,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 const version = "v0.1.0"
@@ -31,12 +32,21 @@ type Options struct {
 	Strict bool
 	Git    bool // clone the GitHub repo if it exists, else create it
 	DryRun bool // run every pass, print the -git plan, write nothing
-	Runner Runner
+
+	Check      bool // plan only, and fail if the output differs or holes remain
+	AllowHoles bool // with Check: open holes are not a failure
+	Runner     Runner
 }
 
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "check":
+			if err := checkCmd(os.Args[2:], os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "up", "status", "down":
 			if err := workspaceCmd(os.Args[1], os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -56,6 +66,7 @@ func main() {
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen [flags] SPEC        generate\n"+
+			"       tilegen check [SPEC]         fail if generated code is out of date or holes remain\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -143,6 +154,14 @@ func run(o Options, log io.Writer) error {
 	if o.Git && gitRepo == nil {
 		gitRepo = L(Sym("git/repo"), L(Sym("visibility"), Sym("private"))) // local repository only
 	}
+	if o.Check {
+		rep, err := Emit(nodes, o.Out, c, false)
+		if err != nil {
+			return err
+		}
+		return checkReport(rep, c, o, log)
+	}
+
 	mode := ""
 	if o.Git {
 		if mode, err = gitPrepare(o.Out, gitRepo, o.Runner, o.DryRun); err != nil {
@@ -179,7 +198,7 @@ func run(o Options, log io.Writer) error {
 		}
 	}
 
-	rep, err := Emit(nodes, o.Out, c)
+	rep, err := Emit(nodes, o.Out, c, true)
 	for _, w := range c.Warnings {
 		fmt.Fprintln(log, "warning:", w)
 	}
@@ -188,6 +207,9 @@ func run(o Options, log io.Writer) error {
 	}
 	for _, f := range rep.Written {
 		fmt.Fprintln(log, "  wrote ", f)
+	}
+	if rep.Unchanged > 0 {
+		fmt.Fprintf(log, "  (%d file(s) already up to date)\n", rep.Unchanged)
 	}
 	for _, f := range rep.Kept {
 		fmt.Fprintln(log, "  kept  ", f, "(yours, not overwritten)")
@@ -256,4 +278,98 @@ func workspaceCmd(cmd string, args []string, stdout, log io.Writer) error {
 		return Down(ws, r, log, prune)
 	}
 	return Status(ws, r, stdout)
+}
+
+// checkCmd runs `tilegen check`: the same plan as generation, compared
+// with the disk. Nothing is written.
+func checkCmd(args []string, log io.Writer) error {
+	fs := flag.NewFlagSet("tilegen check", flag.ExitOnError)
+	var o Options
+	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
+	fs.StringVar(&o.Out, "out", "", "the generated project (default: the workspace's (out ...), else ./out)")
+	fs.StringVar(&o.Name, "name", "", "project name, as given to generation")
+	fs.BoolVar(&o.AllowHoles, "allow-holes", false, "do not fail on open holes, only on out-of-date files and drift")
+	fs.BoolVar(&o.Strict, "strict", false, "fail on spec forms no tile covers")
+	fs.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: tilegen check [flags] [SPEC]\n\nExit status 1 if generating would change any file, if a method you wrote\nhas drifted from the spec, or (without -allow-holes) if holes remain.\n\n")
+		fs.PrintDefaults()
+	}
+	fs.Parse(args)
+	o.Spec = "spec"
+	if fs.NArg() > 0 {
+		o.Spec = fs.Arg(0)
+	}
+	o.Check = true
+	return run(o, log)
+}
+
+// checkReport prints what generation would change and decides pass/fail.
+func checkReport(rep *Report, c *Ctx, o Options, log io.Writer) error {
+	for _, w := range c.Warnings {
+		fmt.Fprintln(log, "warning:", w)
+	}
+	updated := map[string]bool{}
+	for _, f := range rep.Updated {
+		updated[f] = true
+	}
+	stale := 0
+	for _, f := range rep.New {
+		fmt.Fprintf(log, "  missing  %s\n", f)
+		stale++
+	}
+	for _, f := range rep.Changed {
+		if !updated[f] {
+			fmt.Fprintf(log, "  stale    %s: differs from what the spec generates\n", f)
+		}
+		stale++
+	}
+	for _, a := range rep.Added {
+		fmt.Fprintf(log, "  stub     %s: new in the spec\n", a)
+	}
+	for _, a := range rep.Restubbed {
+		fmt.Fprintf(log, "  stub     %s: signature changed in the spec\n", a)
+	}
+	for _, a := range rep.Dropped {
+		fmt.Fprintf(log, "  stub     %s: no longer in the spec\n", a)
+	}
+	for _, f := range append(append([]string{}, rep.Removed...), rep.RemovedScaffold...) {
+		fmt.Fprintf(log, "  remove   %s: no longer in the spec\n", f)
+		stale++
+	}
+	drift := 0
+	for _, nt := range rep.Notes {
+		what := nt.File
+		if nt.Symbol != "" {
+			what = nt.Symbol + " in " + nt.File
+		}
+		if nt.Kind == "drift" {
+			drift++
+			fmt.Fprintf(log, "  drift    %s: %s\n", what, nt.Detail)
+		} else {
+			fmt.Fprintf(log, "  orphan   %s: %s (warning)\n", what, nt.Detail)
+		}
+	}
+	if rep.Tasks > 0 {
+		fmt.Fprintf(log, "  holes    %d open (listed in tilegen.tasks.json)\n", rep.Tasks)
+	}
+
+	var problems []string
+	if stale > 0 {
+		problems = append(problems, fmt.Sprintf("%d file(s) out of date", stale))
+	}
+	if drift > 0 {
+		problems = append(problems, fmt.Sprintf("%d drifted method(s)", drift))
+	}
+	if rep.Tasks > 0 && !o.AllowHoles {
+		problems = append(problems, fmt.Sprintf("%d open hole(s)", rep.Tasks))
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("check failed: %s. Run `tilegen %s` to update, then fill the holes", strings.Join(problems, ", "), o.Spec)
+	}
+	holes := "no open holes"
+	if rep.Tasks > 0 {
+		holes = fmt.Sprintf("%d open hole(s) allowed", rep.Tasks)
+	}
+	fmt.Fprintf(log, "ok: %d generated file(s) match the spec; %s\n", rep.Unchanged, holes)
+	return nil
 }

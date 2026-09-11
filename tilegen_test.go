@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1235,5 +1236,93 @@ func TestEnumTile(t *testing.T) {
 	if !strings.Contains(tasks, "Convert Status with ParseStatus, Prev with ParseStatus") ||
 		!strings.Contains(tasks, "Convert OrderStatus with orders.ParseStatus") {
 		t.Errorf("postgres tasks should say how to convert enum columns:\n%s", tasks)
+	}
+}
+
+// ---- tilegen check ----
+
+// snapshot records every file under dir, so tests can prove check wrote nothing.
+func snapshot(t *testing.T, dir string) map[string]string {
+	t.Helper()
+	files := map[string]string{}
+	filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			b, _ := os.ReadFile(p)
+			files[p] = string(b)
+		}
+		return nil
+	})
+	return files
+}
+
+func checkRun(t *testing.T, spec, out string, allowHoles bool) (string, error) {
+	t.Helper()
+	var log strings.Builder
+	err := run(Options{Spec: spec, Out: out, Check: true, AllowHoles: allowHoles}, &log)
+	return log.String(), err
+}
+
+func TestCheckPassesRightAfterGenerate(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	sp := filepath.Join(p.dir, "spec.sexp")
+	if log, err := checkRun(t, sp, p.out, true); err != nil || !strings.Contains(log, "ok:") {
+		t.Fatalf("check right after generate must pass: %v\n%s", err, log)
+	}
+	if _, err := checkRun(t, sp, p.out, false); err == nil || !strings.Contains(err.Error(), "2 open hole(s)") {
+		t.Fatalf("without -allow-holes, open holes fail: %v", err)
+	}
+}
+
+func TestCheckReportsAndWritesNothing(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	sp := filepath.Join(p.dir, "spec.sexp")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get save count", "yes", "memory"), "")
+	before := snapshot(t, p.out)
+	log, err := checkRun(t, sp, p.out, true)
+	if err == nil || !strings.Contains(err.Error(), "out of date") {
+		t.Fatalf("a spec change must fail check: %v", err)
+	}
+	for _, want := range []string{"stale    notes/notes_gen.go", "stub     Count to notes/memory_note_store.go"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("missing %q in:\n%s", want, log)
+		}
+	}
+	after := snapshot(t, p.out)
+	if len(before) != len(after) {
+		t.Fatalf("check created or deleted files: %d -> %d", len(before), len(after))
+	}
+	for f, content := range before {
+		if after[f] != content {
+			t.Fatalf("check modified %s", f)
+		}
+	}
+}
+
+func TestCheckDriftFailsEvenWithAllowHoles(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "_ = ctx\n\treturn s.m[id], nil")
+	p.gen("get save", "yes", "memory")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get save", "no", "memory"), "")
+	log, err := checkRun(t, filepath.Join(p.dir, "spec.sexp"), p.out, true)
+	if err == nil || !strings.Contains(err.Error(), "1 drifted method(s)") || !strings.Contains(log, "drift    (*MemoryNoteStore).Get") {
+		t.Fatalf("drift must fail check: %v\n%s", err, log)
+	}
+}
+
+func TestCheckPlannedRemovals(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "postgres")
+	p.gen("get save", "yes", "memory") // switch back: sql files would be removed
+	p.gen("get save", "yes", "postgres")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get save", "yes", "memory"), "")
+	log, err := checkRun(t, filepath.Join(p.dir, "spec.sexp"), p.out, true)
+	if err == nil || !strings.Contains(log, "remove   db/schema.sql") {
+		t.Fatalf("planned removals must be reported: %v\n%s", err, log)
+	}
+	if _, err := os.Stat(filepath.Join(p.out, "db", "schema.sql")); err != nil {
+		t.Fatal("check must not delete anything")
 	}
 }

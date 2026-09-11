@@ -23,8 +23,16 @@ import (
 
 // Report summarizes what Emit did.
 type Report struct {
-	Written, Kept []string
+	Written, Kept []string // Written = New + Changed
+	New, Changed  []string
+	Unchanged     int
 	Tasks, Done   int
+
+	// The plan (see plan.go).
+	out      string
+	staged   map[string][]byte
+	order    []string
+	unlinked map[string]bool
 
 	// Reconciliation (see reconcile.go).
 	Produced        map[string]bool // every file this run produces, written or kept
@@ -40,8 +48,8 @@ type Report struct {
 // Emit turns target forms into files. It is deliberately dumb: every
 // decision was made by the passes, and every format is handled by the
 // tool that owns it.
-func Emit(nodes []*Node, out string, c *Ctx) (*Report, error) {
-	r := &Report{Produced: map[string]bool{}}
+func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
+	r := &Report{Produced: map[string]bool{}, out: out, staged: map[string][]byte{}, unlinked: map[string]bool{}}
 	var tables, queries, tasks []*Node
 	var sqlc *Node
 	for _, n := range nodes {
@@ -85,24 +93,26 @@ func Emit(nodes []*Node, out string, c *Ctx) (*Report, error) {
 	}
 	r.Produced["tilegen.tasks.json"] = true
 	sweep(out, r)
-	return r, emitTasks(tasks, out, c, r)
+	if err := emitTasks(tasks, out, c, r); err != nil {
+		return nil, err
+	}
+	r.finalize()
+	if apply {
+		return r, r.Apply()
+	}
+	return r, nil
 }
 
 func writeFile(out, rel string, data []byte, r *Report) error {
-	p := filepath.Join(out, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	r.Produced[rel] = true
-	r.Written = append(r.Written, rel)
-	return os.WriteFile(p, data, 0o644)
+	r.stage(rel, data)
+	return nil
 }
 
 // emitTextFile writes (text/file path (mode keep|generated) content).
 func emitTextFile(n *Node, out string, r *Report) error {
 	rel := n.List[1].Atom
 	if n.Text("mode") == "keep" {
-		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel))); err == nil {
+		if r.exists(rel) {
 			r.Produced[rel] = true
 			r.Kept = append(r.Kept, rel)
 			return nil
@@ -117,7 +127,7 @@ func emitTextFile(n *Node, out string, r *Report) error {
 func emitGoMod(n *Node, out string, r *Report) error {
 	p := filepath.Join(out, "go.mod")
 	f := new(modfile.File)
-	if data, err := os.ReadFile(p); err == nil {
+	if data, err := r.read("go.mod"); err == nil {
 		if f, err = modfile.Parse(p, data, nil); err != nil {
 			return err
 		}
@@ -159,13 +169,10 @@ func emitGoFile(n *Node, out string, r *Report) error {
 	rel := n.List[1].Atom
 	full := filepath.Join(out, filepath.FromSlash(rel))
 	if n.Text("mode") == "keep" {
-		if _, err := os.Stat(full); err == nil {
+		if r.exists(rel) {
 			r.Produced[rel] = true
 			return reconcileKeep(n, full, rel, r)
 		}
-	}
-	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
-		return err
 	}
 	final, err := finishGo(n, full, rel, renderGo(n))
 	if err != nil {
@@ -391,7 +398,11 @@ func emitTasks(tasks []*Node, out string, c *Ctx, r *Report) error {
 			h, ok := holes[t.File]
 			if !ok {
 				var err error
-				if h, err = findHoles(filepath.Join(out, filepath.FromSlash(t.File))); err != nil {
+				src, err := r.read(t.File)
+				if err != nil {
+					return err
+				}
+				if h, err = findHolesSrc(t.File, src); err != nil {
 					return err
 				}
 				holes[t.File] = h
@@ -436,6 +447,10 @@ func findHoles(file string) (map[string]int, error) {
 	if err != nil {
 		return nil, err
 	}
+	return findHolesSrc(file, src)
+}
+
+func findHolesSrc(file string, src []byte) (map[string]int, error) {
 	fset := token.NewFileSet()
 	af, err := parser.ParseFile(fset, file, src, 0)
 	if err != nil {
