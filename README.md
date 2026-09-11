@@ -345,8 +345,8 @@ the same instructions, that convention is a tile waiting to be written.
 
 ## Status
 
-v0.1.0. Next ideas: an `enum` tile, numeric tile costs for competing tiles,
-`tilegen check` to fail CI while holes remain, multi-package examples.
+v0.2.0. Next up is v0.3, the LLM handoff: `tilegen prompt` and `tilegen fill`,
+with metrics on every fill. See [ROADMAP.md](ROADMAP.md).
 
 ## License
 

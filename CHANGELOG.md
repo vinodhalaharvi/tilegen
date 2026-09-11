@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.2.0 - 2026-09-11
+
+v0.2 made tilegen trustworthy on real projects: specs across files, git and
+GitHub setup, a workstation with worktrees and tmux, reconciliation as the
+spec changes, store query ops, implementing any interface, enums,
+did-you-mean, and `tilegen check` for CI.
+
 - Fix: regenerating a postgres project could delete sqlc's `query.sql.go`.
   sqlc copied the `db/query.sql` header comment into its Go, and the sweep
   looked for tilegen's marker in a file's first 256 bytes. Markers now

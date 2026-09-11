@@ -19,7 +19,7 @@ real costs come from the measurements in v0.3.
 - [x] **Emitters reusing modfile, go/parser, astutil, go/format, goimports, sqlc.**
 - [x] **Safe regeneration**: go.mod merged, implementation files kept, holes tracked by AST.
 
-## v0.2.0 - Proven
+## v0.2.0 - Released
 
 Make what exists trustworthy before adding anything clever.
 
