@@ -61,7 +61,8 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 | `(package name ...)` | a Go package |
 | `(entity Name fields... (store ops...))` | struct + `NameStore` interface + implementation stub |
 | `(struct Name (field N T (tag "...") (doc "..."))...)` | plain struct |
-| `(interface Name (method N (params (n T)...) (returns T...)))` | plain interface |
+| `(interface Name (method N (params (n T)...) (returns T...)) (embed T))` | an interface |
+| `(implement Iface (as Name) (field n T)...)` | an implementation of any interface in the package |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -92,6 +93,35 @@ sqlc query, and the LLM only maps rows to domain types.
 
 Add or remove ops at any time: reconciliation appends new stubs to your
 implementation and never touches the methods you wrote.
+
+### Implementing any interface
+
+```lisp
+(interface Mailer
+  (method Send (params (to string) (subject string) (body string)) (returns error)))
+
+(interface AuditLog
+  (embed io.Writer)                ; embedded interfaces: project or standard library
+  (method Flush (returns error)))
+
+(implement Sharer (as EmailSharer)
+  (doc "EmailSharer shares notes by email.")
+  (field store ShareStore)         ; dependencies, injected by the constructor
+  (field mailer Mailer)
+  (constraint "Never share a note twice with the same email."))
+
+(implement AuditLog (as FileAuditLog) (field path string))
+```
+
+`implement` works for any interface in the package, including generated
+store interfaces. It scaffolds a struct, a `New...` constructor taking the
+dependencies, one stub per method, and a `var _ Iface = (*Impl)(nil)`
+check. It also writes tasks that list the dependencies and constraints.
+Methods of embedded interfaces are included: project interfaces directly,
+and standard-library ones like `io.Writer` from Go's own type checker, so no
+method lists are hardcoded. Variadic last parameters are written
+`(args "...any")`. Like every scaffolded file, it is reconciled as the
+interface changes.
 
 ## Specs across files
 

@@ -230,9 +230,14 @@ func renderGo(f *Node) string {
 		case "go/interface":
 			b.WriteString(docLines(d, ""))
 			fmt.Fprintf(&b, "type %s interface {\n", d.List[1].Atom)
-			for _, m := range d.FindAll("method") {
-				b.WriteString(docLines(m, "\t"))
-				fmt.Fprintf(&b, "\t%s\n", signature(m))
+			for _, m := range d.Args() {
+				switch m.Head() {
+				case "embed":
+					fmt.Fprintf(&b, "\t%s\n", m.List[1].Atom)
+				case "method":
+					b.WriteString(docLines(m, "\t"))
+					fmt.Fprintf(&b, "\t%s\n", signature(m))
+				}
 			}
 			b.WriteString("}\n\n")
 		case "go/func":

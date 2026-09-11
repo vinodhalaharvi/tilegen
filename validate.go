@@ -245,12 +245,15 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 	v.cur = name.Atom
 	v.order = append(v.order, name.Atom)
 	types := map[string]bool{}
+	ifaces := packageInterfaces(b.Rest("items"))
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
 		case "entity", "struct":
 			v.structLike(it, types)
 		case "interface":
 			v.iface(it, types)
+		case "implement":
+			v.implement(it, ifaces, types)
 		case "doc", "llm":
 			v.shape(it, "(_ ?text ?more...)")
 		default:
@@ -364,8 +367,12 @@ func (v *validator) iface(i *Node, types map[string]bool) {
 			v.shape(it, "(doc ?text)")
 		case "method":
 			v.method(it)
+		case "embed":
+			if eb := v.shape(it, "(embed ?type)"); eb != nil {
+				v.typ(eb.One("type"))
+			}
 		default:
-			v.bad(it, "unexpected %s in interface", short(it))
+			v.bad(it, "unexpected %s in interface (want method, embed, doc)", short(it))
 		}
 	}
 }
@@ -379,11 +386,22 @@ func (v *validator) method(m *Node) {
 	for _, part := range b.Rest("parts") {
 		switch part.Head() {
 		case "params":
-			for _, p := range part.Args() {
-				if pb := v.shape(p, "(?name ?type)"); pb != nil {
-					v.ident(pb.One("name"), "parameter name", false)
-					v.typ(pb.One("type"))
+			ps := part.Args()
+			for i, p := range ps {
+				pb := v.shape(p, "(?name ?type)")
+				if pb == nil {
+					continue
 				}
+				v.ident(pb.One("name"), "parameter name", false)
+				t := pb.One("type")
+				if !t.IsList && strings.HasPrefix(t.Atom, "...") { // variadic
+					if i != len(ps)-1 {
+						v.bad(t, "only the last parameter can be variadic")
+						continue
+					}
+					t = &Node{Atom: strings.TrimPrefix(t.Atom, "..."), Pos: t.Pos}
+				}
+				v.typ(t)
 			}
 		case "returns":
 			for _, t := range part.Args() {
@@ -403,6 +421,10 @@ func (v *validator) typ(n *Node) {
 	}
 	if n.IsList {
 		v.bad(n, "type must be an atom or string, got %s (quote types that contain spaces or parens)", n.Flat())
+		return
+	}
+	if strings.HasPrefix(n.Atom, "...") {
+		v.bad(n, "only a method's last parameter can be variadic, got %s", n.Atom)
 		return
 	}
 	qs, err := typeQualifiers(n.Atom)
@@ -429,7 +451,7 @@ func (v *validator) typ(n *Node) {
 // typeQualifiers parses a Go type expression with go/parser - no hand-written
 // type grammar - and returns the package qualifiers it uses (uuid in uuid.UUID).
 func typeQualifiers(src string) ([]string, error) {
-	e, err := parser.ParseExpr(src)
+	e, err := parser.ParseExpr(strings.TrimPrefix(src, "...")) // variadic: validated separately
 	if err != nil || !isType(e) {
 		return nil, fmt.Errorf("invalid Go type %q", src)
 	}

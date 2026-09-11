@@ -33,6 +33,7 @@ var Select = &Pass{
 		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl},
 		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct")},
 		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface},
+		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement},
 		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM},
 		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered},
 	},
@@ -290,39 +291,8 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		contextFiles = append(contextFiles, "db/query.sql")
 	}
 
-	decls := []*Node{decl, ctor}
-	var tasks []*Node
-	for _, meth := range iface.FindAll("method") {
-		name := meth.List[1].Atom
-		id := pkg.Name + "." + impl + "." + name
-		fn := L(Sym("go/func"), Sym(name), L(Sym("recv"), Sym("s"), Sym(ptr)))
-		if p := meth.Find("params"); p != nil {
-			fn.List = append(fn.List, p)
-		}
-		if r := meth.Find("returns"); r != nil {
-			fn.List = append(fn.List, r)
-		}
-		fn.List = append(fn.List, L(Sym("body"), Str(holeBody(id))))
-		decls = append(decls, fn)
-
-		intent := hint(meth)
-		if intent == "" {
-			intent = fmt.Sprintf("Implement %s so that %s satisfies %s.", name, impl, ifaceName)
-		}
-		task := L(Sym("llm/task"),
-			L(Sym("id"), Str(id)),
-			L(Sym("file"), Str(file)),
-			L(Sym("symbol"), Str(fmt.Sprintf("(%s).%s", ptr, name))),
-			L(Sym("contract"), Str(signature(meth))),
-			L(Sym("intent"), Str(intent)))
-		for _, f := range contextFiles {
-			task.List = append(task.List, L(Sym("context-file"), Str(f)))
-		}
-		for _, k := range constraints {
-			task.List = append(task.List, L(Sym("constraint"), Str(k)))
-		}
-		tasks = append(tasks, task)
-	}
+	stubs, tasks := stubsAndTasks(pkg, impl, ifaceName, file, iface.FindAll("method"), hint, contextFiles, constraints)
+	decls := append([]*Node{decl, ctor}, stubs...)
 
 	f, err := goFile(c, file, "keep", "", decls)
 	if err != nil {
@@ -350,6 +320,45 @@ func foreignGenFiles(c *Ctx, ts []*Node) []string {
 		}
 	}
 	return sortedKeys(seen)
+}
+
+// stubsAndTasks makes one hole-bodied method and one LLM task per method,
+// for any tile that implements an interface.
+func stubsAndTasks(pkg *PkgScope, impl, iface, file string, methods []*Node, hint func(*Node) string,
+	contextFiles, constraints []string) (stubs, tasks []*Node) {
+	ptr := "*" + impl
+	for _, meth := range methods {
+		name := meth.List[1].Atom
+		id := pkg.Name + "." + impl + "." + name
+		fn := L(Sym("go/func"), Sym(name), L(Sym("recv"), Sym("s"), Sym(ptr)))
+		if p := meth.Find("params"); p != nil {
+			fn.List = append(fn.List, p)
+		}
+		if r := meth.Find("returns"); r != nil {
+			fn.List = append(fn.List, r)
+		}
+		fn.List = append(fn.List, L(Sym("body"), Str(holeBody(id))))
+		stubs = append(stubs, fn)
+
+		intent := hint(meth)
+		if intent == "" {
+			intent = fmt.Sprintf("Implement %s so that %s satisfies %s.", name, impl, iface)
+		}
+		task := L(Sym("llm/task"),
+			L(Sym("id"), Str(id)),
+			L(Sym("file"), Str(file)),
+			L(Sym("symbol"), Str(fmt.Sprintf("(%s).%s", ptr, name))),
+			L(Sym("contract"), Str(signature(meth))),
+			L(Sym("intent"), Str(intent)))
+		for _, f := range contextFiles {
+			task.List = append(task.List, L(Sym("context-file"), Str(f)))
+		}
+		for _, k := range constraints {
+			task.List = append(task.List, L(Sym("constraint"), Str(k)))
+		}
+		tasks = append(tasks, task)
+	}
+	return stubs, tasks
 }
 
 // holeBody is the marker the emitter later finds with go/ast to report the
@@ -451,6 +460,9 @@ func declTypes(decls []*Node) []*Node {
 			for _, m := range d.FindAll("method") {
 				sig(m)
 			}
+			for _, e := range d.FindAll("embed") {
+				out = append(out, e.List[1])
+			}
 		case "go/func":
 			sig(d)
 		}
@@ -460,22 +472,39 @@ func declTypes(decls []*Node) []*Node {
 
 var (
 	stdOnce  sync.Once
-	stdNames map[string]bool
+	stdPaths map[string][]string // package name -> import paths, e.g. rand -> crypto/rand, math/rand
 )
 
 // isStd asks the go command itself which standard packages exist.
 func isStd(name string) bool {
+	loadStd()
+	return len(stdPaths[name]) > 0
+}
+
+// stdPath resolves a standard-library package name to its import path.
+func stdPath(name string) (string, error) {
+	loadStd()
+	switch ps := stdPaths[name]; len(ps) {
+	case 0:
+		return "", fmt.Errorf("%s is not a standard-library package", name)
+	case 1:
+		return ps[0], nil
+	default:
+		return "", fmt.Errorf("%s is ambiguous in the standard library (%s)", name, strings.Join(ps, ", "))
+	}
+}
+
+func loadStd() {
 	stdOnce.Do(func() {
-		stdNames = map[string]bool{}
+		stdPaths = map[string][]string{}
 		out, err := exec.Command("go", "list", "std").Output()
 		if err != nil {
 			return
 		}
 		for _, p := range strings.Fields(string(out)) {
 			if !strings.Contains(p, "internal") && !strings.HasPrefix(p, "vendor/") {
-				stdNames[path.Base(p)] = true
+				stdPaths[path.Base(p)] = append(stdPaths[path.Base(p)], p)
 			}
 		}
 	})
-	return stdNames[name]
 }
