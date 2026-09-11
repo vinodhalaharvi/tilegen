@@ -28,6 +28,17 @@ Make what exists trustworthy before adding anything clever.
 - [ ] **Enum tile**: Done when `(enum Status pending paid shipped)` emits a string type, constants, and a `Valid()` method, covered by a golden test.
 - [ ] **`tilegen check` command**: Done when it exits non-zero if holes remain or generated files are stale, so CI can gate on it.
 - [ ] **Did-you-mean for uncovered forms**: Done when `(entiy ...)` warns `did you mean entity?` instead of silently becoming an LLM task.
+- [ ] **Module path without the network**: Done when a spec with `(github name)` and no `(module ...)` takes its module path from the project's go.mod, so plain generation never calls `gh` and every machine gets the same module; `gh` is only asked on the first `-git` run.
+
+Shipped in this cycle beyond the plan, found by using tilegen on a real test project:
+
+- [x] **Specs across files**: a folder of `.sexp` files, linked by a merge pass; `(config ...)` can live in the spec.
+- [x] **Git and GitHub setup**: `(repo ...)` with starter files; `-git` clones or creates the repository, commits and adds topics; `-name`, `-dry-run`.
+- [x] **Workstation**: `(workspace ...)` with git worktrees and a tmux session; `tilegen up`, `status`, `down`.
+- [x] **Reconciliation**: the code follows the spec as forms come and go; your code is only added to, never changed.
+- [x] **Store query ops**: `count`, `(list-by F)`, `(get-by F)`, `(count-by F)`, `(exists-by F)`, `(delete-by F)`, custom methods; sqlc queries for postgres.
+- [x] **Implement any interface**: `(implement ...)`, embedded interfaces (standard library via Go's type checker), variadic parameters.
+- [x] **go.mod never lowers versions** that `go mod tidy` raised.
 
 ## v0.3.0 - Handoff
 
@@ -42,6 +53,8 @@ Make the LLM step one command, and measure everything it does.
 
 The compiler chooses between tiles, explains why, and stays stable.
 
+- [ ] **Tile registry**: Done when the storage backends are registered tiles that declare what they cover, produce and cost, and `tilegen tiles` lists the registry.
+- [ ] **Event bus tile**: Done when `(events (event Name (field ...))...)` generates event structs, a typed bus interface and an in-process implementation, added through the registry without changing the core.
 - [ ] **Legality guards on tiles**: Done when a tile can declare conditions (for example "no dynamic queries") and illegal tiles are skipped before costing.
 - [ ] **Forms and chain rules**: Done when tiles declare the form they produce (`db-rows`, `domain`) and converters between forms are costed tiles, so a mapper's cost counts.
 - [ ] **Bottom-up cost selection**: Done when select finds the cheapest covering by dynamic programming (iburg-style), with maximal munch kept as a fallback, and the sqlc-vs-pgx example picks pgx when the mapper is expensive.
@@ -65,6 +78,12 @@ Runs alongside v0.3. Submit once experiment 1 has numbers.
 - [ ] **Talk abstract**: Done when submitted to a meetup.
 - [ ] **Slides**: Done when the deck covers the hook, tiling in five minutes, the catch-all-tile reframe, the demo, and honest limits.
 - [ ] **Recorded demo**: Done when there's a backup video of spec, dump, build, tasks, fill, and regenerate.
+
+## Known gaps
+
+- Generic interfaces (`Repo[T any]`) and named results are not supported.
+- `implement` covers interfaces from the same package only.
+- Tasks from `(llm ...)` and uncovered forms have no file, so they never close on their own.
 
 ## Not doing (for now)
 
