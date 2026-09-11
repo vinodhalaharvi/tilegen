@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Event bus tile: `(events (event NoteShared (field ...))...)` generates
+  event structs, a typed `Bus` interface and `LocalBus`, a synchronous
+  in-process implementation (ordered delivery, joined errors, safe
+  unsubscribe and concurrency), with no holes. It follows `context-first`
+  and needs Go 1.20+. The shop example publishes OrderPlaced and
+  OrderShipped.
+- Package tiles register themselves: `RegisterPackageTile` adds a rule to a
+  pass just before the catch-all, with its own validation and did-you-mean
+  names. The event bus is the first; nothing in the core names it.
+- `tilegen tiles` fits the terminal width (`-v` for full rows) and shows
+  costs compactly.
 - Tile registry. Every pass tile declares the capability it produces, a
   doc line and a declared cost; storage backends are registered tiles in
   their own files (`RegisterBackend`, like database/sql drivers) that also

@@ -1604,7 +1604,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "Storage backends: memory, postgres."} {
+		"memory", "postgres-sqlc", "events", "event-bus", "Storage backends: memory, postgres."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1668,5 +1668,114 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
 	bad, _ := Parse("c.sexp", "(config (storage fak))")
 	if _, err := ParseConfig(bad[0]); err == nil || !strings.Contains(err.Error(), "(did you mean fake?)") {
 		t.Errorf("unknown backends should suggest registered ones: %v", err)
+	}
+}
+
+// ---- events ----
+
+const eventsSpec = `(project app (module example.com/app) (go 1.22)
+  (package sharing
+    (events
+      (event NoteShared (field NoteID int64) (field Email string))
+      (event NoteUnshared (field NoteID int64)))))
+(config (context-first %s))`
+
+// TestEventsBusBehaves generates the bus and runs a behavior test inside
+// the generated package: the tile has no holes, so its code must be right.
+func TestEventsBusBehaves(t *testing.T) {
+	for _, ctx := range []string{"yes", "no"} {
+		dir := t.TempDir()
+		sp, _ := writeSpec(t, dir, fmt.Sprintf(eventsSpec, ctx), "")
+		out := filepath.Join(dir, "out")
+		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+		gen := read(t, out, "sharing/events_gen.go")
+		c, h := "ctx context.Context, ", "context.Context, "
+		if ctx == "no" {
+			c, h = "", ""
+		}
+		for _, want := range []string{
+			"// " + generatedMarker, "type NoteShared struct", "`json:\"note_id\"`",
+			"PublishNoteShared(" + c + "e NoteShared) error",
+			"OnNoteShared(h func(" + h + "NoteShared) error) func()",
+			"var _ Bus = (*LocalBus)(nil)",
+		} {
+			if !strings.Contains(gen, want) {
+				t.Errorf("context-first %s: events_gen.go missing %q", ctx, want)
+			}
+		}
+		arg := "context.Background(), "
+		hp := "_ context.Context, "
+		if ctx == "no" {
+			arg, hp = "", ""
+		}
+		test := strings.NewReplacer("ARG", arg, "HP", hp).Replace(`package sharing
+
+import (
+	"context"
+	"errors"
+	"testing"
+)
+
+var _ = context.Background
+
+func TestBus(t *testing.T) {
+	var b Bus = NewLocalBus()
+	var got []string
+	b.OnNoteShared(func(HPe NoteShared) error { got = append(got, "a"+e.Email); return nil })
+	un := b.OnNoteShared(func(HPe NoteShared) error { got = append(got, "b"+e.Email); return nil })
+	b.PublishNoteShared(ARGNoteShared{Email: "x"})
+	un()
+	un()
+	b.PublishNoteShared(ARGNoteShared{Email: "y"})
+	if len(got) != 3 || got[0] != "ax" || got[1] != "bx" || got[2] != "ay" {
+		t.Fatalf("delivery: %v", got)
+	}
+	e1, e2 := errors.New("1"), errors.New("2")
+	b.OnNoteUnshared(func(HPe NoteUnshared) error { return e1 })
+	b.OnNoteUnshared(func(HPe NoteUnshared) error { return e2 })
+	if err := b.PublishNoteUnshared(ARGNoteUnshared{}); !errors.Is(err, e1) || !errors.Is(err, e2) {
+		t.Fatalf("errors not joined: %v", err)
+	}
+}
+`)
+		os.WriteFile(filepath.Join(out, "sharing", "bus_test.go"), []byte(test), 0o644)
+		cmd := exec.Command("go", "test", "./sharing/")
+		cmd.Dir = out
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("context-first %s: generated bus fails its behavior test: %v\n%s", ctx, err, b)
+		}
+	}
+}
+
+func TestEventsValidation(t *testing.T) {
+	base := `(project p (module example.com/p) (go %s) (package a %s))`
+	for _, c := range []struct{ goVer, form, want string }{
+		{"1.22", `(events)`, "needs at least one (event ...)"},
+		{"1.22", `(events (evnt E))`, "(did you mean event?)"},
+		{"1.22", `(events (event E) (event E))`, `duplicate type "E"`},
+		{"1.22", `(struct Bus) (events (event E))`, "generates Bus, but the package already declares it"},
+		{"1.22", `(events (event E)) (events (event F))`, "one events form per package"},
+		{"1.19", `(events (event E))`, "needs (go 1.20) or later"},
+		{"1.22", `(evnts (event E))`, "(did you mean events?)"},
+	} {
+		if err := validateSrc(t, fmt.Sprintf(base, c.goVer, c.form), false); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", c.form, c.want, err)
+		}
+	}
+}
+
+func TestPackageTilesJoinBeforeTheCatchAll(t *testing.T) {
+	rules := Select.Rules
+	if last := rules[len(rules)-1]; last.Name != "catch-all" {
+		t.Fatalf("the catch-all must stay last, got %s", last.Name)
+	}
+	found := false
+	for _, r := range rules {
+		found = found || r.Name == "events"
+	}
+	if !found {
+		t.Fatal("the events tile should have registered itself into select")
 	}
 }
