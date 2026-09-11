@@ -117,8 +117,10 @@ func chooseAll(project *Node, c *Ctx) error {
 					continue
 				}
 				ch.Chosen = b
+			} else if e, ok := c.Lock[ch.Store]; ok && !c.Reselect && pinned(ch, e, c) {
+				// the pinned choice stands, even if auto would now pick another
 			} else if len(ch.Ranked) > 0 {
-				ch.Chosen = ch.Ranked[0].B
+				ch.Chosen, ch.By = ch.Ranked[0].B, "auto"
 			} else {
 				errs = append(errs, fmt.Errorf("%s: no storage backend is legal for %s (needs: %s)", store.Pos, ch.Store, strings.Join(ch.Needs, ", ")))
 				continue
@@ -231,6 +233,10 @@ func explain(ch *Choice) string {
 	}
 	for _, r := range ch.Illegal {
 		fmt.Fprintf(&b, "  illegal %-15s %s\n", r.B.Tile, r.Reason)
+	}
+	if ch.By == "lock" && len(ch.Ranked) > 0 && ch.Ranked[0].B != ch.Chosen {
+		fmt.Fprintf(&b, "  note: pinned by %s; auto would now pick %s (score %d). Run with -reselect to switch.\n",
+			lockFile, ch.Ranked[0].B.Tile, ch.Ranked[0].Score)
 	}
 	return b.String()
 }

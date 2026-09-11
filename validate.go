@@ -22,13 +22,15 @@ type Ctx struct {
 
 	// Filled in by the select pass while it walks the project.
 	Module   string
-	Requires map[string]string   // qualifier -> import path
-	Local    map[string]string   // project package name -> import path
-	PkgDirs  map[string]string   // project package name -> directory
-	Enums    map[string][]string // "pkg.Type" -> values, for SQL CHECK constraints
-	Choices  map[string]*Choice  // "pkg.XStore" -> the backend chosen for it
-	Used     []*Backend          // every backend some store uses, by name
-	curPkg   string              // package being concretized
+	Requires map[string]string    // qualifier -> import path
+	Local    map[string]string    // project package name -> import path
+	PkgDirs  map[string]string    // project package name -> directory
+	Enums    map[string][]string  // "pkg.Type" -> values, for SQL CHECK constraints
+	Choices  map[string]*Choice   // "pkg.XStore" -> the backend chosen for it
+	Used     []*Backend           // every backend some store uses, by name
+	curPkg   string               // package being concretized
+	Lock     map[string]LockEntry // tilegen.lock: pinned backend choices
+	Reselect bool                 // ignore the lock
 	Pkg      *PkgScope
 	seq      int
 }

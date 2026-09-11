@@ -1976,3 +1976,84 @@ func dumpForms(t *testing.T, text string) map[string]bool {
 	}
 	return all
 }
+
+// ---- tilegen.lock ----
+
+const lockSpec = `(project p (module example.com/p) (go 1.22)
+  (package orders
+    (enum Status placed paid)
+    (entity Order (field ID int64) %s (store get (durable))))
+  (package sessions (entity Session (field ID string) (store get %s))))`
+
+func lockRun(t *testing.T, dir, orderFields, sessionNeeds string, reselect bool) string {
+	t.Helper()
+	sp, _ := writeSpec(t, dir, fmt.Sprintf(lockSpec, orderFields, sessionNeeds), "")
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Reselect: reselect}, &log); err != nil {
+		t.Fatal(err)
+	}
+	return log.String()
+}
+
+func TestLockPinsAChoiceAgainstDrift(t *testing.T) {
+	dir := t.TempDir()
+	lockRun(t, dir, "", "", false)
+	out := filepath.Join(dir, "out")
+	lock := read(t, out, "tilegen.lock")
+	if !strings.Contains(lock, "(store orders.OrderStore (backend postgres))") || !strings.Contains(lock, "(store sessions.SessionStore (backend memory))") {
+		t.Fatalf("lock:\n%s", lock)
+	}
+	// New enum and nullable fields make sqlc's mapper expensive: auto would move to pgx.
+	heavy := "(field S Status) (field A *string) (field B *string) (field C *time.Time)"
+	lockRun(t, dir, heavy, "", false)
+	if _, err := os.Stat(filepath.Join(out, "orders", "pgx_order_store.go")); err == nil {
+		t.Fatal("the lock should keep OrderStore on postgres")
+	}
+	var ex strings.Builder
+	explainCmd([]string{"-out", out, filepath.Join(dir, "spec.sexp"), "orders.OrderStore"}, &ex, io.Discard)
+	if !strings.Contains(ex.String(), "chosen by: lock") || !strings.Contains(ex.String(), "auto would now pick postgres-pgx (score 45)") {
+		t.Errorf("explain should show the pin and the drift:\n%s", ex.String())
+	}
+	lockRun(t, dir, heavy, "", true) // -reselect
+	read(t, out, "orders/pgx_order_store.go")
+	if !strings.Contains(read(t, out, "tilegen.lock"), "(store orders.OrderStore (backend pgx))") {
+		t.Error("-reselect should update the lock")
+	}
+}
+
+func TestLockReselectsAnIllegalPin(t *testing.T) {
+	dir := t.TempDir()
+	lockRun(t, dir, "", "", false) // sessions pinned to memory
+	log := lockRun(t, dir, "", "(durable)", false)
+	if !strings.Contains(log, "tilegen.lock:5:3: tilegen.lock: memory is now illegal for sessions.SessionStore") {
+		t.Errorf("want a positioned warning:\n%s", log)
+	}
+	if !strings.Contains(read(t, filepath.Join(dir, "out"), "tilegen.lock"), "(store sessions.SessionStore (backend postgres))") {
+		t.Error("the illegal pin should be re-selected")
+	}
+}
+
+func TestLockUnknownBackendAndBadFile(t *testing.T) {
+	dir := t.TempDir()
+	lockRun(t, dir, "", "", false)
+	out := filepath.Join(dir, "out")
+	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (store sessions.SessionStore (backend memroy)))\n"), 0o644)
+	if log := lockRun(t, dir, "", "", false); !strings.Contains(log, `backend "memroy" is not registered any more; re-selected (did you mean memory?)`) {
+		t.Errorf("unknown backend in the lock:\n%s", log)
+	}
+	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (store x))\n"), 0o644)
+	sp := filepath.Join(dir, "spec.sexp")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err == nil || !strings.Contains(err.Error(), "tilegen.lock:1:7: expected (store pkg.NameStore (backend NAME))") {
+		t.Errorf("a malformed lock must be a positioned error, got %v", err)
+	}
+}
+
+func TestCheckFlagsAnUnpinnedStore(t *testing.T) {
+	dir := t.TempDir()
+	lockRun(t, dir, "", "", false)
+	writeSpec(t, dir, strings.Replace(fmt.Sprintf(lockSpec, "", ""), "(package sessions", "(package carts (entity Cart (field ID int64) (store get)))\n  (package sessions", 1), "")
+	log, err := checkRun(t, filepath.Join(dir, "spec.sexp"), filepath.Join(dir, "out"), true)
+	if err == nil || !strings.Contains(log, "stale    tilegen.lock") {
+		t.Errorf("a new store changes the lock, so check should fail: %v\n%s", err, log)
+	}
+}

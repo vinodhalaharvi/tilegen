@@ -16,6 +16,8 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen explain", flag.ExitOnError)
 	var o Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
+	fs.StringVar(&o.Out, "out", "", "the generated project, whose tilegen.lock pins choices (default: the workspace's (out ...), else ./out)")
+	fs.BoolVar(&o.Reselect, "reselect", false, "ignore tilegen.lock: show what a fresh choice would be")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen explain [flags] [SPEC] [STORE...]\n\n")
 		fs.PrintDefaults()
