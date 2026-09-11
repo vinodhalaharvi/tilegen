@@ -28,3 +28,4 @@ jobs:
         with:
           sqlc-version: "1.31.1"
       - run: make demo-postgres # sqlc generate, then the result must build and vet
+      - run: make demo-auto # per-store selection: memory and postgres-sqlc in one project

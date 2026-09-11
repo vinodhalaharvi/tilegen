@@ -65,7 +65,7 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintln(stdout, strings.TrimRight(line, " "))
 	}
-	fmt.Fprintf(stdout, "\n%d tile(s). Storage backends: %s. Costs are declared; selection by cost is next on the roadmap.\n",
+	fmt.Fprintf(stdout, "\n%d tile(s). Storage backends: %s. With (storage auto) each store gets the cheapest legal one; see tilegen explain.\n",
 		len(rows), strings.Join(backendNames(), ", "))
 	return nil
 }

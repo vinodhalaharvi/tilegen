@@ -8,6 +8,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -41,6 +42,12 @@ type Options struct {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "explain":
+			if err := explainCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "tiles":
 			if err := tilesCmd(os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -88,6 +95,7 @@ func main() {
 			"       tilegen prompt [SPEC] [ID]   print a self-contained LLM prompt for a task (no ID: list)\n"+
 			"       tilegen fill [SPEC] [ID]     fill holes with an LLM CLI; build; retry with the errors\n"+
 			"       tilegen tiles [-sexp]        list the tile registry: passes, capabilities, costs\n"+
+			"       tilegen explain [SPEC]       why each store got its backend: needs, scores, legality\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -168,6 +176,9 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 	nodes := []*Node{project}
 	stages = append(stages, Dump(nodes))
 	if err := Validate(nodes, c); err != nil {
+		return nil, err
+	}
+	if err := errors.Join(chooseAll(project, c), checkReserved(project, c)); err != nil {
 		return nil, err
 	}
 	for _, p := range Pipeline {

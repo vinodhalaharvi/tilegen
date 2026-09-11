@@ -83,8 +83,10 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 		if err := writeFile(out, "db/schema.sql", joinSQL(tables), r); err != nil {
 			return nil, err
 		}
-		if err := writeFile(out, "db/query.sql", joinSQL(queries), r); err != nil {
-			return nil, err
+		if len(queries) > 0 {
+			if err := writeFile(out, "db/query.sql", joinSQL(queries), r); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if sqlc != nil {
