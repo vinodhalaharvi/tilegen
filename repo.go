@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/modfile"
 )
 
 // (repo
@@ -119,9 +121,14 @@ func (v *validator) repo(n *Node) {
 }
 
 // resolveProject applies -name and fills in what the spec left implicit:
-// the GitHub owner (from `gh api user`) and a (module ...) derived from the
-// repository. It rewrites the tree, so -dump shows the resolved values.
-func resolveProject(project *Node, name string, needOwner bool, r Runner, c *Ctx) error {
+// the GitHub owner and a (module ...) derived from the repository. It
+// rewrites the tree, so -dump shows the resolved values.
+//
+// The owner comes from the most stable source available: the spec's own
+// (module ...), then the project's committed go.mod, and only on a -git
+// run, `gh api user`. So plain generation never needs the network, and
+// every machine derives the same module path.
+func resolveProject(project *Node, name, out string, needOwner bool, r Runner, c *Ctx) error {
 	if name != "" {
 		project.List[1] = &Node{Atom: name, Pos: project.List[1].Pos}
 	}
@@ -135,28 +142,61 @@ func resolveProject(project *Node, name string, needOwner bool, r Runner, c *Ctx
 		info.Name = name
 	}
 	hasModule := project.Find("module") != nil
-	if info.GitHub && info.Owner == "" && (needOwner || !hasModule) {
-		login, err := r.Query("", "gh", "api", "user", "--jq", ".login")
-		if err != nil || login == "" {
-			return fmt.Errorf("%s: need your GitHub login for (github %s) but `gh api user` failed (run `gh auth login`, or write (github owner/%s)): %v",
-				repo.Pos, info.Name, info.Name, err)
+	modPath, fromGoMod := project.Text("module"), false
+	if !hasModule {
+		if data, err := os.ReadFile(filepath.Join(out, "go.mod")); err == nil {
+			if m := modfile.ModulePath(data); m != "" {
+				modPath, fromGoMod = m, true
+			}
 		}
-		info.Owner = login
 	}
-	if info.GitHub {
+	if info.GitHub && info.Owner == "" {
+		if owner, ok := githubOwner(modPath); ok {
+			info.Owner = owner
+		} else if needOwner || modPath == "" {
+			if !needOwner {
+				return fmt.Errorf("%s: (github %s) has no owner, and there is no (module ...) or go.mod to take it from; write (github OWNER/%s), or run `tilegen -git` once to create the repository",
+					repo.Pos, info.Name, info.Name)
+			}
+			login, err := r.Query("", "gh", "api", "user", "--jq", ".login")
+			if err != nil || login == "" {
+				return fmt.Errorf("%s: need your GitHub login for (github %s) but `gh api user` failed (run `gh auth login`, or write (github owner/%s)): %v",
+					repo.Pos, info.Name, info.Name, err)
+			}
+			info.Owner = login
+		}
+	}
+	if info.GitHub && info.Owner != "" {
 		gh := repo.Find("github")
 		gh.List[1] = &Node{Atom: info.Full(), Pos: gh.List[1].Pos}
 	}
 	want := "github.com/" + info.Full()
-	switch {
-	case !hasModule && info.GitHub:
-		mod := &Node{IsList: true, Pos: repo.Pos, List: []*Node{Sym("module"), Sym(want)}}
+	insertModule := func(path string) {
+		mod := &Node{IsList: true, Pos: repo.Pos, List: []*Node{Sym("module"), Sym(path)}}
 		project.List = append(project.List[:2], append([]*Node{mod}, project.List[2:]...)...)
-	case hasModule && info.GitHub && project.Text("module") != want:
+	}
+	switch {
+	case fromGoMod:
+		insertModule(modPath)
+		if info.GitHub && info.Owner != "" && modPath != want {
+			c.warn(repo.Pos, "go.mod's module %s differs from repository %s; edit go.mod (and imports) to rename the module", modPath, want)
+		}
+	case !hasModule && info.GitHub:
+		insertModule(want)
+	case hasModule && info.GitHub && modPath != want:
 		c.warn(project.Find("module").Pos, "module %s differs from repository %s, so `go install %s@latest` will not work; delete (module ...) to derive it",
-			project.Text("module"), want, want)
+			modPath, want, want)
 	}
 	return nil
+}
+
+// githubOwner extracts OWNER from github.com/OWNER/REPO[/...].
+func githubOwner(module string) (string, bool) {
+	parts := strings.Split(module, "/")
+	if len(parts) >= 3 && parts[0] == "github.com" && parts[1] != "" {
+		return parts[1], true
+	}
+	return "", false
 }
 
 // selectRepo is the tile for (repo ...): starter files, created once and

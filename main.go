@@ -119,7 +119,7 @@ func run(o Options, log io.Writer) error {
 		}
 	}
 	c := &Ctx{Cfg: cfg, Strict: o.Strict}
-	if err := resolveProject(project, o.Name, o.Git, o.Runner, c); err != nil {
+	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
 		return err
 	}
 	nodes := []*Node{project}
