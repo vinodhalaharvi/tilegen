@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -1444,5 +1445,153 @@ func TestFlagsAfterPositionalArgs(t *testing.T) {
 	// flags after SPEC must still count
 	if err := checkCmd([]string{"-out", p.out, filepath.Join(p.dir, "spec.sexp"), "-allow-holes"}, &log); err != nil {
 		t.Fatalf("check SPEC -allow-holes: %v\n%s", err, log.String())
+	}
+}
+
+// ---- tilegen fill ----
+
+// fakeLLM writes a stand-in LLM script to dir. It answers each prompt from
+// dir/<task-id>.<attempt>.txt, falling back to dir/<task-id>.txt, and saves
+// every prompt it receives as dir/<task-id>.prompt.<attempt>.
+func fakeLLM(t *testing.T, dir string, answers map[string]string) string {
+	t.Helper()
+	script := `D="` + dir + `"
+cat > "$D/in.txt"
+id=$(sed -n 's/^# Task //p' "$D/in.txt" | head -1)
+n=$(cat "$D/$id.count" 2>/dev/null || echo 0); n=$((n+1)); echo $n > "$D/$id.count"
+cp "$D/in.txt" "$D/$id.prompt.$n"
+f="$D/$id.$n.txt"; [ -f "$f" ] || f="$D/$id.txt"
+cat "$f"
+`
+	os.WriteFile(filepath.Join(dir, "llm.sh"), []byte(script), 0o755)
+	fence := strings.Repeat("`", 3)
+	for name, code := range answers {
+		os.WriteFile(filepath.Join(dir, name), []byte("Here it is:\n"+fence+"go\n"+code+"\n"+fence+"\n"), 0o644)
+	}
+	return "sh " + filepath.Join(dir, "llm.sh")
+}
+
+func fillRun(t *testing.T, p *rcProject, llm string, args ...string) (string, error) {
+	t.Helper()
+	var log strings.Builder
+	err := fillCmd(append([]string{"-out", p.out, "-llm", llm, filepath.Join(p.dir, "spec.sexp")}, args...), &log)
+	return log.String(), err
+}
+
+func TestFillSucceedsRetriesAndRestores(t *testing.T) {
+	p := newRC(t)
+	p.gen("get list save", "yes", "memory")
+	llmDir := t.TempDir()
+	llm := fakeLLM(t, llmDir, map[string]string{
+		"notes.MemoryNoteStore.Get.txt":    "func (s *MemoryNoteStore) Get(ctx context.Context, id int64) (*Note, error) {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\treturn s.m[id], nil\n}",
+		"notes.MemoryNoteStore.Save.1.txt": "func (s *MemoryNoteStore) Save(ctx context.Context, note *Note) error {\n\ts.m[note.ID] = nte\n\treturn nil\n}",
+		"notes.MemoryNoteStore.Save.2.txt": "func (s *MemoryNoteStore) Save(ctx context.Context, note *Note) error {\n\ts.m[note.ID] = note\n\treturn nil\n}",
+		"notes.MemoryNoteStore.List.txt":   "func (s *MemoryNoteStore) List(ctx context.Context, limit int) ([]*Note, error) {\n\treturn nil, nil\n}",
+	})
+	log, err := fillRun(t, p, llm)
+	if err == nil || !strings.Contains(err.Error(), "notes.MemoryNoteStore.List") {
+		t.Fatalf("List should fail: %v\n%s", err, log)
+	}
+	for _, want := range []string{"filled notes.MemoryNoteStore.Get (attempt 1)", "filled notes.MemoryNoteStore.Save (attempt 2)",
+		"open   notes.MemoryNoteStore.List", "filled 2 of 3 (1 on the first try); 1 open task(s) remain"} {
+		if !strings.Contains(log, want) {
+			t.Errorf("log missing %q:\n%s", want, log)
+		}
+	}
+	src := read(t, p.out, "notes/memory_note_store.go")
+	if !strings.Contains(src, "return s.m[id], nil") || !strings.Contains(src, "s.m[note.ID] = note\n") ||
+		!strings.Contains(src, `panic("tilegen:hole notes.MemoryNoteStore.List")`) {
+		t.Errorf("want Get and Save filled and List's hole restored:\n%s", src)
+	}
+	retry, _ := os.ReadFile(filepath.Join(llmDir, "notes.MemoryNoteStore.Save.prompt.2"))
+	if !strings.Contains(string(retry), "undefined: nte") || !strings.Contains(string(retry), "Your previous answer") {
+		t.Errorf("the retry prompt should carry the compiler error and the previous answer:\n%s", retry)
+	}
+	if tasks := read(t, p.out, "tilegen.tasks.json"); strings.Contains(tasks, "MemoryNoteStore.Get") || !strings.Contains(tasks, "MemoryNoteStore.List") {
+		t.Errorf("tasks.json should list only what is left:\n%s", tasks)
+	}
+	cmd := exec.Command("go", "build", "./...")
+	cmd.Dir = p.out
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("the project must build after fill: %v\n%s", err, out)
+	}
+}
+
+func TestFillPatternsAndDryRun(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	llmDir := t.TempDir()
+	llm := fakeLLM(t, llmDir, map[string]string{
+		"notes.MemoryNoteStore.Get.txt": "func (s *MemoryNoteStore) Get(ctx context.Context, id int64) (*Note, error) {\n\treturn s.m[id], nil\n}",
+	})
+	if log, err := fillRun(t, p, llm, "-dry-run", "*.Get"); err != nil || !strings.Contains(log, "would fill 1 task(s)") {
+		t.Fatalf("dry run: %v\n%s", err, log)
+	}
+	if _, err := os.Stat(filepath.Join(llmDir, "notes.MemoryNoteStore.Get.count")); err == nil {
+		t.Fatal("dry run must not call the LLM")
+	}
+	if log, err := fillRun(t, p, llm, "*.Get"); err != nil || !strings.Contains(log, "filled 1 of 1") {
+		t.Fatalf("pattern fill: %v\n%s", err, log)
+	}
+	if _, err := os.Stat(filepath.Join(llmDir, "notes.MemoryNoteStore.Save.count")); err == nil {
+		t.Fatal("Save did not match the pattern and must not be asked")
+	}
+}
+
+func TestFillNeedsACommandAndABuildingBaseline(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	if _, err := fillRun(t, p, ""); err == nil || !strings.Contains(err.Error(), "no LLM command") {
+		t.Fatalf("want a missing-command error, got %v", err)
+	}
+	os.WriteFile(filepath.Join(p.out, "notes", "broken.go"), []byte("package notes\n\nvar x = undefinedThing\n"), 0o644)
+	if _, err := fillRun(t, p, "cat"); err == nil || !strings.Contains(err.Error(), "does not build before filling") {
+		t.Fatalf("want a baseline build error, got %v", err)
+	}
+}
+
+func TestFillFixesDrift(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "_ = ctx\n\treturn s.m[id], nil")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get", "no", "memory"), "") // Get drifts
+	llm := fakeLLM(t, t.TempDir(), map[string]string{
+		"notes.MemoryNoteStore.Get.txt": "func (s *MemoryNoteStore) Get(id int64) (*Note, error) {\n\treturn s.m[id], nil\n}",
+	})
+	if log, err := fillRun(t, p, llm); err != nil || !strings.Contains(log, "filled notes.MemoryNoteStore.Get") {
+		t.Fatalf("drift fill: %v\n%s", err, log)
+	}
+	if src := read(t, p.out, "notes/memory_note_store.go"); !strings.Contains(src, "func (s *MemoryNoteStore) Get(id int64) (*Note, error)") {
+		t.Fatalf("drifted method should now have the new signature:\n%s", src)
+	}
+}
+
+func TestFillWorkspaceConfig(t *testing.T) {
+	for src, want := range map[string]string{
+		`(workspace (fill (retries 9)))`:          "retries must be 0 to 5",
+		`(workspace (fill (timeout "soon")))`:     "timeout must be a duration",
+		`(workspace (fill (comand "claude -p")))`: "(did you mean command?)",
+	} {
+		if _, err := parseWS(t, src); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+	ws, err := parseWS(t, `(workspace (fill (command "claude -p") (retries 2) (timeout "90s")))`)
+	if err != nil || ws.Fill.Command != "claude -p" || ws.Fill.Retries != 2 || ws.Fill.Timeout != 90*time.Second || ws.Fill.Build != "go build ./..." {
+		t.Fatalf("fill config: %+v, %v", ws.Fill, err)
+	}
+}
+
+func TestOnlyDrift(t *testing.T) {
+	drift := "# example.com/p/notes\nnotes/notes_gen.go:20:19: cannot use (*MemoryNoteStore)(nil) (value of type *MemoryNoteStore) as NoteStore value in variable declaration: *MemoryNoteStore does not implement NoteStore (wrong type for method Get)\n\t\thave Get(context.Context, int64) (*Note, error)\n\t\twant Get(int64) (*Note, error)"
+	pending := map[string]bool{"MemoryNoteStore.Get": true}
+	if !onlyDrift(drift, pending) {
+		t.Error("a pending drift error should be tolerated")
+	}
+	if onlyDrift(drift, map[string]bool{"MemoryNoteStore.Save": true}) {
+		t.Error("drift in a method with no pending task is a real error")
+	}
+	if onlyDrift(drift+"\nnotes/x.go:3:9: undefined: y", pending) {
+		t.Error("any other error must stop fill")
 	}
 }

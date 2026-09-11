@@ -266,6 +266,36 @@ tilegen prompt spec/ sharing.EmailSharer.ShareNote     # one self-contained prom
 tilegen prompt spec/ -all                              # every prompt, separated by ---
 ```
 
+To let an LLM fill the holes itself, tell tilegen which command to run, in
+`workspace.sexp` (it is specific to your machine):
+
+```lisp
+(workspace
+  (fill
+    (command "claude -p")     ; any CLI that reads the prompt on stdin and prints the answer
+    (retries 1)               ; re-ask once, with the compiler's errors
+    (timeout "5m")))
+```
+
+```sh
+tilegen fill spec/                  # every open hole
+tilegen fill spec/ 'billing.*'      # one package; patterns use path.Match
+tilegen fill -dry-run spec/         # what would be filled; calls nothing
+```
+
+For each hole, fill sends the prompt, takes the method from the reply,
+checks it is exactly the method asked for with the same signature, splices
+it in with go/ast, fixes imports, and builds. If the build fails, it puts
+the hole back and asks again with the compiler's errors and the previous
+answer. A hole it cannot fill stays a hole, so the project never ends up
+broken. Drifted methods are fixed first; fill refuses to start if the
+project has any other build error. Pair it with worktrees to fill packages
+in parallel:
+
+```lisp
+(window billing (worktree billing) (run "tilegen fill spec/ 'billing.*'"))
+```
+
 A prompt holds everything an LLM needs and nothing it has to go looking for:
 what to write (the exact signature, the hole's file and line), the intent and
 constraints, the rules for the reply, and the full text of every file
