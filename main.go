@@ -16,7 +16,7 @@ import (
 	"strings"
 )
 
-const version = "v0.1.0"
+const version = "v0.2.0"
 
 // Pipeline is the ordered list of local tiling passes. Each maps
 // S-expressions to S-expressions; run with -dump to see every stage.
