@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `tilegen check [SPEC]` fails (exit 1) if generating would change any
+  file, if a method you wrote has drifted from the spec, or, without
+  `-allow-holes`, if holes remain. It writes nothing. Generation is now
+  plan-then-apply, so check and generation share one plan; "wrote" lists
+  only files that actually changed. Every demo target ends with a check,
+  so CI verifies generation is idempotent.
 - `(enum Status pending paid shipped)` generates a string type, typed
   constants, `StatusValues`, `Valid()` and `ParseStatus()`; values like
   `in-transit` become `StatusInTransit`. With postgres, enum fields are

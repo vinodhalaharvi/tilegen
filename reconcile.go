@@ -53,7 +53,7 @@ type Note struct {
 // reconcileKeep brings an existing scaffolded file in line with the
 // (go/file ...) that would have created it.
 func reconcileKeep(n *Node, full, rel string, r *Report) error {
-	src, err := os.ReadFile(full)
+	src, err := r.read(rel)
 	if err != nil {
 		return err
 	}
@@ -155,9 +155,9 @@ func reconcileKeep(n *Node, full, rel string, r *Report) error {
 	if err != nil {
 		return fmt.Errorf("reconciling %s: %w", rel, err)
 	}
-	r.Produced[rel] = true
 	r.Updated = append(r.Updated, rel)
-	return os.WriteFile(full, final, 0o644)
+	r.stage(rel, final)
+	return nil
 }
 
 // untouchedStub reports whether a method's body is still exactly the
@@ -282,11 +282,7 @@ func sweep(out string, r *Report) {
 		return nil
 	})
 	remove := func(rel string) bool {
-		p := filepath.Join(out, filepath.FromSlash(rel))
-		if os.Remove(p) != nil {
-			return false
-		}
-		removeEmptyDirs(filepath.Dir(p), out)
+		r.unlink(rel)
 		return true
 	}
 	for _, rel := range generated {

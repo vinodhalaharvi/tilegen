@@ -40,15 +40,18 @@ check: fmt-check vet test ## Everything CI runs
 demo: build ## Generate the example (memory storage) and prove it compiles
 	$(BIN) -config $(CONFIG) -out $(OUT) -dump $(SPEC)
 	cd $(OUT) && go mod tidy && go build ./... && go vet ./...
+	$(BIN) check -config $(CONFIG) -out $(OUT) -allow-holes $(SPEC) # generation is idempotent
 
 demo-dir: build ## Generate the split-file spec in examples/shopdir and prove it compiles
 	$(BIN) -out out/shopdir -dump examples/shopdir
 	cd out/shopdir && go mod tidy && go build ./... && go vet ./...
+	$(BIN) check -out out/shopdir -allow-holes examples/shopdir
 
 demo-postgres: build ## Postgres variant: sqlc generate, then build and vet (needs sqlc)
 	@command -v $(SQLC) >/dev/null || { echo "sqlc not found: brew install sqlc, or see https://docs.sqlc.dev/en/latest/overview/install.html"; exit 1; }
 	$(BIN) -config examples/shop/config.postgres.sexp -out out/shop-pg -dump $(SPEC)
 	cd out/shop-pg && $(SQLC) generate && go mod tidy && go build ./... && go vet ./...
+	$(BIN) check -config examples/shop/config.postgres.sexp -out out/shop-pg -allow-holes $(SPEC)
 
 dump: build ## Print the S-expression after every pass
 	@$(BIN) -config $(CONFIG) -out $(OUT) -dump $(SPEC) 2>/dev/null

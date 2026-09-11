@@ -26,7 +26,7 @@ Make what exists trustworthy before adding anything clever.
 - [x] **Run demo-postgres with real sqlc in CI**: Done when CI runs `sqlc generate` on the postgres example and the result builds and vets. (v0.1 generated sqlc inputs without executing sqlc.)
 - [x] **Multi-package example**: Done when an `examples/` spec has `billing` using `orders.Order`, the cross-package import resolves, and `make demo` builds it.
 - [x] **Enum tile**: Done when `(enum Status pending paid shipped)` emits a string type, constants, and a `Valid()` method, covered by a golden test.
-- [ ] **`tilegen check` command**: Done when it exits non-zero if holes remain or generated files are stale, so CI can gate on it.
+- [x] **`tilegen check` command**: Done when it exits non-zero if holes remain or generated files are stale, so CI can gate on it.
 - [x] **Did-you-mean for uncovered forms**: Done when `(entiy ...)` warns `did you mean entity?` instead of silently becoming an LLM task.
 - [x] **Module path without the network**: Done when a spec with `(github name)` and no `(module ...)` takes its module path from the project's go.mod, so plain generation never calls `gh` and every machine gets the same module; `gh` is only asked on the first `-git` run.
 
