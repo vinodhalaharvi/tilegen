@@ -47,15 +47,18 @@ func (c Cost) String() string {
 // Backend is a registered storage tile: it implements an entity's store
 // interface for one kind of storage, chosen by (config (storage NAME)).
 type Backend struct {
-	Name        string   // the config value: (storage NAME)
-	Tile        string   // its name in the registry, e.g. postgres-sqlc
-	Doc         string   // one line for `tilegen tiles`
-	Requires    []string // external tools
-	Cost        Cost
-	Topics      []string          // GitHub topics a project using it gets
-	Packages    map[string]string // project folders its code lives in, by package name (reserved)
-	Generate    string            // command to run after tilegen and before building, if any
-	GenerateDoc string            // what it does, for the starter README
+	Name         string   // the config value: (storage NAME)
+	Tile         string   // its name in the registry, e.g. postgres-sqlc
+	Doc          string   // one line for `tilegen tiles`
+	Requires     []string // external tools
+	Cost         Cost
+	Topics       []string             // GitHub topics a project using it gets
+	Packages     map[string]string    // project folders its code lives in, by package name (reserved)
+	Generate     string               // command to run after tilegen and before building, if any
+	GenerateDoc  string               // what it does, for the starter README
+	IllegalWhen  map[string]string    // need -> why this backend cannot serve it, e.g. durable
+	Imports      map[string]string    // package qualifiers its code uses -> import paths
+	ProjectForms func(c *Ctx) []*Node // project-level target forms, once per project using it
 
 	// Implement scaffolds one store implementation.
 	Implement func(StoreInput) (StoreParts, error)
@@ -107,6 +110,7 @@ func backendNames() []string {
 
 // TileInfo is one row of the registry, whatever kind of tile it is.
 type TileInfo struct {
+	IllegalWhen               map[string]string
 	Name, Pass, Produces, Doc string
 	Covers                    []*Node // the pattern(s) it matches
 	Requires                  []string
@@ -125,7 +129,7 @@ func Registry() []TileInfo {
 	for _, name := range backendNames() {
 		b := backends[name]
 		out = append(out, TileInfo{Name: b.Tile, Pass: "select", Covers: []*Node{Pat("(impl ?iface ?parts...)"), L(Sym("backend"), Sym(b.Name))},
-			Produces: "store", Doc: b.Doc, Requires: b.Requires, Cost: b.Cost})
+			Produces: "store", Doc: b.Doc, Requires: b.Requires, Cost: b.Cost, IllegalWhen: b.IllegalWhen})
 	}
 	return out
 }
@@ -144,6 +148,9 @@ func tileSexp(t TileInfo) *Node {
 			prod.List = append(prod.List, Sym(p))
 		}
 		n.List = append(n.List, prod)
+	}
+	for _, need := range sortedKeys(t.IllegalWhen) {
+		n.List = append(n.List, L(Sym("illegal-when"), L(Sym("store"), Sym(need)), Str(t.IllegalWhen[need])))
 	}
 	if len(t.Requires) > 0 {
 		req := L(Sym("requires"))

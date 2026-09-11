@@ -30,6 +30,7 @@ var Concretize = &Pass{
 
 func concretizePackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	name := b.Atom("name")
+	m.C.curPkg = name
 	dir := name
 	if m.C.Cfg.Layout == "internal" {
 		dir = "internal/" + name
@@ -89,7 +90,12 @@ func concretizeImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if n.Find("backend") != nil {
 		return nil, fmt.Errorf("impl already has a backend")
 	}
+	ch := m.C.Choices[m.C.curPkg+"."+b.Atom("iface")]
+	if ch == nil {
+		return nil, fmt.Errorf("no backend was chosen for %s.%s", m.C.curPkg, b.Atom("iface"))
+	}
 	out := L(append([]*Node{Sym("impl"), b.One("iface")}, b.Rest("parts")...)...)
-	out.List = append(out.List, L(Sym("backend"), Sym(m.C.Cfg.Storage)))
+	out.List = append(out.List, L(Sym("backend"), Sym(ch.Chosen.Name)))
+	out.List = append(out.List, choiceNodes(ch)...) // visible in -dump
 	return []*Node{out}, nil
 }
