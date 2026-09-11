@@ -35,17 +35,31 @@ type Options struct {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "up", "status", "down":
+			if err := workspaceCmd(os.Args[1], os.Args[2:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
 	var o Options
 	flag.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec, else built-in defaults)")
-	flag.StringVar(&o.Out, "out", "out", "output directory for the generated project")
-	flag.StringVar(&o.Name, "name", "", "project name; also the repository name, and the module path when (module ...) is omitted")
+	flag.StringVar(&o.Out, "out", "", "output directory (default: the workspace's (out ...), else ./out)")
+	flag.StringVar(&o.Name, "name", "", "project name (default: the workspace's (name ...)); also the repository name, and the module path when (module ...) is omitted")
 	flag.BoolVar(&o.Dump, "dump", false, "write the S-expression after every pass to <out>/.tilegen/")
 	flag.BoolVar(&o.Strict, "strict", false, "fail on spec forms no tile covers instead of creating LLM tasks")
 	flag.BoolVar(&o.Git, "git", false, "make <out> a git repository: clone the (repo (github ...)) if it exists, else git init, commit, and create it with gh")
 	flag.BoolVar(&o.DryRun, "dry-run", false, "run every pass and print the git/gh commands -git would run, but write nothing")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: tilegen [flags] SPEC\n\nSPEC is a .sexp file or a directory of .sexp files.\n\n")
+		fmt.Fprintf(os.Stderr, "usage: tilegen [flags] SPEC        generate\n"+
+			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
+			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
+			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
+			"SPEC is a .sexp file or a directory of them (default for up/status/down: ./spec).\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -73,9 +87,25 @@ func run(o Options, log io.Writer) error {
 		return err
 	}
 	stages := []string{Dump(forms)}
-	project, inlineCfg, err := Merge(forms)
+	linked, err := Merge(forms)
 	if err != nil {
 		return err
+	}
+	project, inlineCfg := linked.Project, linked.Config
+	if linked.Workspace != nil {
+		ws, err := ParseWorkspace(linked.Workspace, specBase(o.Spec))
+		if err != nil {
+			return err
+		}
+		if o.Name == "" {
+			o.Name = ws.Name
+		}
+		if o.Out == "" {
+			o.Out = ws.Out
+		}
+	}
+	if o.Out == "" {
+		o.Out = "out"
 	}
 	cfg := DefaultConfig()
 	switch {
@@ -172,4 +202,36 @@ func run(o Options, log io.Writer) error {
 		fmt.Fprintf(log, "run with -git to clone or create github.com/%s\n", gitRepo.Text("github"))
 	}
 	return nil
+}
+
+// workspaceCmd runs up, status or down.
+func workspaceCmd(cmd string, args []string, stdout, log io.Writer) error {
+	fs := flag.NewFlagSet("tilegen "+cmd, flag.ExitOnError)
+	var dry, detach, prune bool
+	if cmd != "status" {
+		fs.BoolVar(&dry, "dry-run", false, "print the git and tmux commands that change things instead of running them")
+	}
+	switch cmd {
+	case "up":
+		fs.BoolVar(&detach, "detach", false, "create everything but do not attach to the tmux session")
+	case "down":
+		fs.BoolVar(&prune, "prune", false, "also remove worktrees (git refuses if they have uncommitted changes)")
+	}
+	fs.Parse(args)
+	spec := "spec"
+	if fs.NArg() > 0 {
+		spec = fs.Arg(0)
+	}
+	ws, err := loadWorkspace(spec)
+	if err != nil {
+		return err
+	}
+	r := execRunner{log: log, dry: dry}
+	switch cmd {
+	case "up":
+		return Up(ws, r, log, detach || dry)
+	case "down":
+		return Down(ws, r, log, prune)
+	}
+	return Status(ws, r, stdout)
 }
