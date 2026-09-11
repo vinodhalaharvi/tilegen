@@ -192,6 +192,28 @@ func run(o Options, log io.Writer) error {
 	for _, f := range rep.Kept {
 		fmt.Fprintln(log, "  kept  ", f, "(yours, not overwritten)")
 	}
+	for _, a := range rep.Added {
+		fmt.Fprintln(log, "  added ", a, "(new in the spec; your code untouched)")
+	}
+	for _, a := range rep.Restubbed {
+		fmt.Fprintln(log, "  updated", a, "(untouched stub follows the new signature)")
+	}
+	for _, a := range rep.Dropped {
+		fmt.Fprintln(log, "  dropped", a, "(untouched stub, no longer in the spec)")
+	}
+	for _, f := range rep.Removed {
+		fmt.Fprintln(log, "  removed", f, "(no longer in the spec)")
+	}
+	for _, f := range rep.RemovedScaffold {
+		fmt.Fprintln(log, "  removed", f, "(untouched scaffolding, no longer in the spec)")
+	}
+	for _, nt := range rep.Notes {
+		what := nt.File
+		if nt.Symbol != "" {
+			what = nt.Symbol + " in " + nt.File
+		}
+		fmt.Fprintf(log, "  %-7s %s: %s\n", nt.Kind, what, nt.Detail)
+	}
 	fmt.Fprintf(log, "%d open LLM task(s), %d hole(s) already filled -> %s\n",
 		rep.Tasks, rep.Done, filepath.Join(o.Out, "tilegen.tasks.json"))
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Reconciliation: the code follows the spec as forms come and go. Missing
+  methods are appended to your files as stubs; untouched stubs take new
+  signatures or are removed; methods you implemented are reported as drift
+  (an LLM task) or orphans, never changed. Stale generated files, and
+  scaffolded files that are still pure scaffolding, are deleted. No state
+  file: the headers in the files on disk are the state. This fixes methods
+  added to a store after scaffolding being silently counted as done.
 - go.mod versions are only ever raised: regenerating keeps a `go` line or
   a require that `go mod tidy` raised, instead of lowering it back to the
   spec's version and breaking the build until the next tidy.
