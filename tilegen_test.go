@@ -730,3 +730,163 @@ func TestGoModNeverLowersVersions(t *testing.T) {
 		t.Fatalf("tilegen should raise versions below the spec:\n%s", mod)
 	}
 }
+
+// ---- reconciliation: spec forms come and go, code follows ----
+
+const rcSpec = `(project p (module example.com/p) (go 1.22)
+  (package notes
+    (entity Note (field ID int64) (field Title string) (store %s))))
+(config (context-first %s) (storage %s))`
+
+type rcProject struct {
+	t        *testing.T
+	dir, out string
+}
+
+func newRC(t *testing.T) *rcProject {
+	dir := t.TempDir()
+	return &rcProject{t: t, dir: dir, out: filepath.Join(dir, "out")}
+}
+
+// gen regenerates from a spec with the given store ops, context-first
+// setting and storage, and returns the console report.
+func (p *rcProject) gen(ops, ctx, storage string) string {
+	p.t.Helper()
+	writeSpec(p.t, p.dir, fmt.Sprintf(rcSpec, ops, ctx, storage), "")
+	var log strings.Builder
+	if err := run(Options{Spec: filepath.Join(p.dir, "spec.sexp"), Out: p.out}, &log); err != nil {
+		p.t.Fatal(err)
+	}
+	return log.String()
+}
+
+func (p *rcProject) fill(file, hole, body string) {
+	p.t.Helper()
+	full := filepath.Join(p.out, file)
+	src := read(p.t, p.out, file)
+	marker := fmt.Sprintf("panic(%q)", holePrefix+hole)
+	if !strings.Contains(src, marker) {
+		p.t.Fatalf("no hole %s in %s", hole, file)
+	}
+	os.WriteFile(full, []byte(strings.Replace(src, marker, body, 1)), 0o644)
+}
+
+func TestReconcileAppendsMissingMethods(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "return s.m[id], nil")
+	log := p.gen("get list save", "yes", "memory")
+	if !strings.Contains(log, "added  List to notes/memory_note_store.go") {
+		t.Fatalf("want List appended, got:\n%s", log)
+	}
+	src := read(t, p.out, "notes/memory_note_store.go")
+	if !strings.Contains(src, "return s.m[id], nil") || !strings.Contains(src, `"tilegen:hole notes.MemoryNoteStore.List"`) {
+		t.Fatalf("want your Get kept and a List stub:\n%s", src)
+	}
+	if tasks := read(t, p.out, "tilegen.tasks.json"); !strings.Contains(tasks, `"notes.MemoryNoteStore.List"`) {
+		t.Fatal("the appended stub should be an open task")
+	}
+}
+
+func TestReconcileUntouchedStubsFollowSpecYourCodeDrifts(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "_ = ctx\n\treturn s.m[id], nil")
+	log := p.gen("get save", "no", "memory")
+	if !strings.Contains(log, "updated Save in notes/memory_note_store.go") {
+		t.Errorf("untouched Save stub should take the new signature:\n%s", log)
+	}
+	if !strings.Contains(log, "drift   (*MemoryNoteStore).Get") || strings.Contains(log, "drift   (*MemoryNoteStore).Save") {
+		t.Errorf("only your implemented Get should drift:\n%s", log)
+	}
+	src := read(t, p.out, "notes/memory_note_store.go")
+	if !strings.Contains(src, "Save(note *Note) error") || !strings.Contains(src, "Get(ctx context.Context, id int64)") {
+		t.Errorf("stub should be updated and your method left alone:\n%s", src)
+	}
+	if tasks := read(t, p.out, "tilegen.tasks.json"); !strings.Contains(tasks, `"status": "drift"`) {
+		t.Error("drift should be an LLM task")
+	}
+}
+
+func TestReconcileRemovedMethods(t *testing.T) {
+	p := newRC(t)
+	p.gen("get list save delete", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Delete", "delete(s.m, id)\n\treturn nil")
+	log := p.gen("get save", "yes", "memory")
+	if !strings.Contains(log, "dropped List from notes/memory_note_store.go") {
+		t.Errorf("untouched List stub should be dropped:\n%s", log)
+	}
+	if !strings.Contains(log, "orphan  (*MemoryNoteStore).Delete") {
+		t.Errorf("your Delete should be reported, not deleted:\n%s", log)
+	}
+	src := read(t, p.out, "notes/memory_note_store.go")
+	if strings.Contains(src, "List(") || !strings.Contains(src, "delete(s.m, id)") {
+		t.Errorf("want List gone and your Delete kept:\n%s", src)
+	}
+}
+
+func TestReconcileStorageSwitchAndBack(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	p.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "return s.m[id], nil")
+	log := p.gen("get save", "yes", "postgres")
+	if !strings.Contains(log, "orphan  notes/memory_note_store.go: you implemented code here") {
+		t.Errorf("memory store with your code should be an orphan:\n%s", log)
+	}
+	log = p.gen("get save", "yes", "memory")
+	for _, want := range []string{
+		"removed db/schema.sql", "removed db/query.sql", "removed sqlc.yaml",
+		"removed notes/postgres_note_store.go (untouched scaffolding",
+	} {
+		if !strings.Contains(log, want) {
+			t.Errorf("missing %q in:\n%s", want, log)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(p.out, "db")); !os.IsNotExist(err) {
+		t.Error("empty db/ folder should be removed")
+	}
+	if !strings.Contains(read(t, p.out, "notes/memory_note_store.go"), "return s.m[id], nil") {
+		t.Error("your memory store must survive the round trip")
+	}
+}
+
+func TestReconcileRemovedPackage(t *testing.T) {
+	dir := t.TempDir()
+	two := `(project p (module example.com/p) (go 1.22)
+  (package a (entity A (field ID int64) (store get)))
+  (package b (entity B (field ID int64) (store get))))`
+	one := `(project p (module example.com/p) (go 1.22)
+  (package a (entity A (field ID int64) (store get))))`
+	sp, _ := writeSpec(t, dir, two, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	writeSpec(t, dir, one, "")
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: out}, &log); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "removed b/b_gen.go") || !strings.Contains(log.String(), "removed b/memory_b_store.go (untouched scaffolding") {
+		t.Fatalf("package b should be swept completely:\n%s", log.String())
+	}
+	if _, err := os.Stat(filepath.Join(out, "b")); !os.IsNotExist(err) {
+		t.Fatal("empty package folder should be removed")
+	}
+}
+
+// TestSweepSkipsNestedModules: a tilegen project nested inside another
+// project's output must never be swept by the outer project.
+func TestSweepSkipsNestedModules(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	nested := filepath.Join(p.out, "tools", "other")
+	os.MkdirAll(nested, 0o755)
+	os.WriteFile(filepath.Join(nested, "go.mod"), []byte("module example.com/other\n"), 0o644)
+	gen := filepath.Join(nested, "x_gen.go")
+	os.WriteFile(gen, []byte("// "+generatedMarker+"\n\npackage x\n"), 0o644)
+	p.gen("get", "yes", "memory")
+	if _, err := os.Stat(gen); err != nil {
+		t.Fatal("sweep deleted a generated file inside a nested module")
+	}
+}
