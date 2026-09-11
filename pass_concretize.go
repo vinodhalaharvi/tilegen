@@ -20,6 +20,11 @@ var Concretize = &Pass{
 		{Name: "json-tag", Pattern: Pat("(field ?name ?type ?opts...)"), Then: concretizeField},
 		{Name: "context-first", Pattern: Pat("(method ?name ?parts...)"), Then: concretizeMethod},
 		{Name: "backend", Pattern: Pat("(impl ?iface ?parts...)"), Then: concretizeImpl},
+		// implement's (field ...) forms are dependencies, not data: no json
+		// tags, so this tile covers the whole form and stops.
+		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+			return []*Node{n}, nil
+		}},
 	},
 }
 
