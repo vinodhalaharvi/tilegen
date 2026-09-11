@@ -1595,3 +1595,78 @@ func TestOnlyDrift(t *testing.T) {
 		t.Error("any other error must stop fill")
 	}
 }
+
+// ---- tile registry ----
+
+func TestRegistryListsEveryTileAndBackend(t *testing.T) {
+	var out strings.Builder
+	if err := tilesCmd(nil, &out); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
+		"memory", "postgres-sqlc", "Storage backends: memory, postgres."} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("tiles missing %q:\n%s", want, out.String())
+		}
+	}
+}
+
+func TestRegistrySexpIsData(t *testing.T) {
+	var out strings.Builder
+	if err := tilesCmd([]string{"-sexp"}, &out); err != nil {
+		t.Fatal(err)
+	}
+	forms, err := Parse("tiles.sexp", out.String())
+	if err != nil {
+		t.Fatalf("tilegen tiles -sexp must parse back as S-expressions: %v", err)
+	}
+	if len(forms) != len(Registry()) {
+		t.Fatalf("got %d forms for %d tiles", len(forms), len(Registry()))
+	}
+	for _, f := range forms {
+		if f.Head() != "tile" || f.Find("pass") == nil || f.Find("covers") == nil {
+			t.Errorf("malformed tile: %s", short(f))
+		}
+	}
+	pg := forms[len(forms)-1]
+	if pg.List[1].Atom != "postgres-sqlc" || pg.Find("covers").Flat() != "(covers (impl ?iface ?parts...) (backend postgres))" ||
+		pg.Find("requires").Flat() != "(requires (tool sqlc))" {
+		t.Errorf("postgres tile: %s", pg.Flat())
+	}
+}
+
+// TestBackendsComeFromTheRegistry: config, validation and the store tile all
+// ask the registry, so a new backend needs no change in the core.
+func TestBackendsComeFromTheRegistry(t *testing.T) {
+	RegisterBackend(&Backend{Name: "fake", Tile: "fake-store", Packages: map[string]string{"fakedb": "internal/fakedb"},
+		Implement: func(in StoreInput) (StoreParts, error) {
+			return StoreParts{Params: L(Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*Node) string { return "fake" }}, nil
+		}})
+	defer delete(backends, "fake")
+
+	cfg, _ := Parse("c.sexp", "(config (storage fake))")
+	if c, err := ParseConfig(cfg[0]); err != nil || c.Storage != "fake" {
+		t.Fatalf("config should accept a registered backend: %v", err)
+	}
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a (entity E (field ID int64) (store get))))
+(config (storage fake))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if src := read(t, out, "a/fake_e_store.go"); !strings.Contains(src, "type FakeEStore struct") {
+		t.Errorf("the fake backend should implement the store:\n%s", src)
+	}
+	sp2, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22) (package fakedb (struct S (field X int))))
+(config (storage fake))`, "")
+	if err := run(Options{Spec: sp2, Out: filepath.Join(dir, "out2")}, io.Discard); err == nil ||
+		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store backend puts its code in internal/fakedb`) {
+		t.Errorf("a backend's packages should be reserved: %v", err)
+	}
+	bad, _ := Parse("c.sexp", "(config (storage fak))")
+	if _, err := ParseConfig(bad[0]); err == nil || !strings.Contains(err.Error(), "(did you mean fake?)") {
+		t.Errorf("unknown backends should suggest registered ones: %v", err)
+	}
+}
