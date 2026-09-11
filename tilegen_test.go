@@ -646,7 +646,14 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 			t.Skip(tool + " not installed")
 		}
 	}
-	t.Setenv("TMUX_TMPDIR", t.TempDir())
+	// tmux's socket path must fit in ~104 bytes on macOS, and t.TempDir()
+	// there is long (/private/var/folders/...), so use a short folder in /tmp.
+	sock, err := os.MkdirTemp("/tmp", "tg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sock) })
+	t.Setenv("TMUX_TMPDIR", sock)
 	t.Setenv("TMUX", "")
 	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
 		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"} {
