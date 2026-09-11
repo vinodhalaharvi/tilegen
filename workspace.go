@@ -31,6 +31,7 @@ import (
 
 // Workspace is a parsed (workspace ...) form with absolute paths.
 type Workspace struct {
+	Fill      FillConfig
 	Name      string
 	Out       string // the main checkout; "" when not declared
 	Worktrees []Worktree
@@ -71,7 +72,7 @@ func expandPath(base, p string) (string, error) {
 // ParseWorkspace validates a (workspace ...) form, reporting every problem
 // with its spec position, and resolves paths against base.
 func ParseWorkspace(n *Node, base string) (*Workspace, error) {
-	ws := &Workspace{}
+	ws := &Workspace{Fill: defaultFill()}
 	if n == nil {
 		return ws, nil
 	}
@@ -138,8 +139,10 @@ func ParseWorkspace(n *Node, base string) (*Workspace, error) {
 			}
 		case "tmux":
 			tmux = it
+		case "fill":
+			parseFill(it, &ws.Fill, bad)
 		default:
-			bad(it, "unknown workspace item %s (want name, out, worktrees, tmux)%s", short(it), didYouMean(it.Head(), []string{"name", "out", "worktrees", "tmux"}))
+			bad(it, "unknown workspace item %s (want name, out, worktrees, tmux, fill)%s", short(it), didYouMean(it.Head(), []string{"name", "out", "worktrees", "tmux", "fill"}))
 		}
 	}
 	if len(ws.Worktrees) > 0 && ws.Out == "" {
