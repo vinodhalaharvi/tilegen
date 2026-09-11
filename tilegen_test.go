@@ -120,7 +120,7 @@ func TestValidateErrors(t *testing.T) {
 }
 
 func TestStrictMode(t *testing.T) {
-	src := okPrefix + `(enum Color red green)))`
+	src := okPrefix + `(workflow Checkout (step pay))))`
 	if err := validateSrc(t, src, false); err != nil {
 		t.Fatalf("non-strict should allow uncovered forms: %v", err)
 	}
@@ -146,13 +146,13 @@ func writeSpec(t *testing.T, dir, spec, cfg string) (string, string) {
 
 func TestUncoveredBecomesTask(t *testing.T) {
 	dir := t.TempDir()
-	sp, _ := writeSpec(t, dir, okPrefix+`(enum Color red green)))`, "")
+	sp, _ := writeSpec(t, dir, okPrefix+`(workflow Checkout (step pay))))`, "")
 	out := filepath.Join(dir, "out")
 	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	tasks, _ := os.ReadFile(filepath.Join(out, "tilegen.tasks.json"))
-	if !strings.Contains(string(tasks), "(enum Color red green)") {
+	if !strings.Contains(string(tasks), "(workflow Checkout (step pay))") {
 		t.Fatalf("uncovered form should become an LLM task:\n%s", tasks)
 	}
 }
@@ -1133,7 +1133,7 @@ func TestTypoIsAnErrorUnknownFormIsATask(t *testing.T) {
 		!strings.Contains(err.Error(), "unknown form (entiy E (field ID int64)) (did you mean entity?)") {
 		t.Errorf("a typo of a known form must be an error with a suggestion, got %v", err)
 	}
-	if err := validateSrc(t, okPrefix+`(enum Color red green)))`, false); err != nil {
+	if err := validateSrc(t, okPrefix+`(workflow Checkout (step pay))))`, false); err != nil {
 		t.Errorf("a genuinely unknown form should still go to the LLM, got %v", err)
 	}
 }
@@ -1168,5 +1168,72 @@ func TestDidYouMeanEverywhere(t *testing.T) {
 	}
 	if _, err := parseWS(t, `(workspace (out ..) (worktress))`); err == nil || !strings.Contains(err.Error(), "(did you mean worktrees?)") {
 		t.Errorf("workspace typo, got %v", err)
+	}
+}
+
+// ---- enum ----
+
+func TestEnumValidation(t *testing.T) {
+	for form, want := range map[string]string{
+		`(enum Status)`:                          "enum needs at least one value",
+		`(enum Status paid paid)`:                `duplicate enum value "paid"`,
+		`(enum Status "it's")`:                   "free of quotes",
+		`(enum status paid)`:                     `type name "status" must be exported`,
+		`(enum Status paid) (struct StatusPaid)`: "", // checked below: collision
+		`(enum Status (docs "x") paid)`:          "(did you mean doc?)",
+	} {
+		err := validateSrc(t, okPrefix+form+`))`, false)
+		if want == "" {
+			if err == nil || !strings.Contains(err.Error(), "StatusPaid") {
+				t.Errorf("%s: want a name collision error, got %v", form, err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
+	}
+}
+
+func TestEnumTile(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package orders
+    (enum Status pending in-transit on_hold)
+    (entity Order (field ID int64) (field Status Status) (field Prev *Status) (store get)))
+  (package billing
+    (entity Invoice (field ID int64) (field OrderStatus orders.Status) (store get))))
+(config (storage postgres))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "orders/orders_gen.go")
+	for _, want := range []string{
+		"type Status string",
+		`StatusInTransit Status = "in-transit"`,
+		`StatusOnHold    Status = "on_hold"`,
+		"var StatusValues = []Status{StatusPending, StatusInTransit, StatusOnHold}",
+		"func (s Status) Valid() bool",
+		"func ParseStatus(s string) (Status, error)",
+	} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("orders_gen.go missing %q", want)
+		}
+	}
+	schema := read(t, out, "db/schema.sql")
+	for _, want := range []string{
+		"status TEXT CHECK (status IN ('pending', 'in-transit', 'on_hold')) NOT NULL,",
+		"prev TEXT CHECK (prev IN ('pending', 'in-transit', 'on_hold'))\n",                        // nullable: no NOT NULL
+		"order_status TEXT CHECK (order_status IN ('pending', 'in-transit', 'on_hold')) NOT NULL", // other package
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("schema.sql missing %q:\n%s", want, schema)
+		}
+	}
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "Convert Status with ParseStatus, Prev with ParseStatus") ||
+		!strings.Contains(tasks, "Convert OrderStatus with orders.ParseStatus") {
+		t.Errorf("postgres tasks should say how to convert enum columns:\n%s", tasks)
 	}
 }
