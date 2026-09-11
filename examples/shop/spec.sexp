@@ -37,6 +37,11 @@
         (returns int64 error)))
 
     ; An explicit hole: pure intent, no structure yet.
+    ; Events: typed structs, a Bus interface and an in-process LocalBus, no holes.
+    (events
+      (event OrderPlaced (field OrderID uuid.UUID) (field TotalCents int64))
+      (event OrderShipped (field OrderID uuid.UUID)))
+
     (llm "Write a Pricer that applies a 10% discount to orders over 100.00."))
 
   ; A second package. Types from other project packages are written

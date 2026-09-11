@@ -22,6 +22,20 @@ type CostTerm struct {
 	Value int
 }
 
+// Short is the compact form for tables: llm 3, maint 2, dep 3.
+func (c Cost) Short() string {
+	abbr := map[string]string{"llm-work": "llm", "maintenance": "maint", "dependency": "dep", "runtime": "run", "uncertainty": "unc"}
+	parts := make([]string, len(c))
+	for i, t := range c {
+		d := abbr[t.Dim]
+		if d == "" {
+			d = t.Dim
+		}
+		parts[i] = fmt.Sprintf("%s %d", d, t.Value)
+	}
+	return strings.Join(parts, ", ")
+}
+
 func (c Cost) String() string {
 	parts := make([]string, len(c))
 	for i, t := range c {
@@ -146,4 +160,41 @@ func tileSexp(t TileInfo) *Node {
 		n.List = append(n.List, cost)
 	}
 	return n
+}
+
+// PackageTile is a tile for a new package-level spec form, registered from
+// its own file: its rule joins a pass (just before the catch-all), and it
+// validates its own form. New forms need no change to the core.
+type PackageTile struct {
+	Form     string // the head it covers, e.g. events
+	Pass     *Pass
+	Rule     Rule
+	Validate func(v *validator, n *Node, types map[string]bool)
+}
+
+var packageTiles = map[string]*PackageTile{}
+
+// RegisterPackageTile adds a tile for a package-level form.
+func RegisterPackageTile(t *PackageTile) {
+	if _, dup := packageTiles[t.Form]; dup {
+		panic("tilegen: package form registered twice: " + t.Form)
+	}
+	packageTiles[t.Form] = t
+	rules := t.Pass.Rules
+	if n := len(rules); n > 0 && rules[n-1].Pattern.Atom == "_" { // keep the catch-all last
+		t.Pass.Rules = append(append(rules[:n-1:n-1], t.Rule), rules[n-1])
+	} else {
+		t.Pass.Rules = append(rules, t.Rule)
+	}
+}
+
+// knownPackageForms is every package-level form a tile covers, for
+// did-you-mean suggestions.
+func knownPackageForms() []string {
+	out := append([]string{}, packageForms...)
+	for f := range packageTiles {
+		out = append(out, f)
+	}
+	sort.Strings(out)
+	return out
 }

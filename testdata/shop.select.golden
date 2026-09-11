@@ -177,6 +177,67 @@
   (constraint "Save must be idempotent for the same ID.")
   (constraint "Never log CustomerEmail."))
 
+(go/file "orders/events_gen.go"
+  (mode generated)
+  (package orders)
+  (import uuid "github.com/google/uuid")
+  (go/struct OrderPlaced
+    (doc "OrderPlaced is an event of package orders.")
+    (field OrderID uuid.UUID (tag "json:\"order_id\""))
+    (field TotalCents int64 (tag "json:\"total_cents\"")))
+  (go/struct OrderShipped
+    (doc "OrderShipped is an event of package orders.")
+    (field OrderID uuid.UUID (tag "json:\"order_id\"")))
+  (go/interface Bus
+    (doc "Bus publishes the events of package orders and delivers them to handlers.")
+    (method PublishOrderPlaced
+      (doc "PublishOrderPlaced delivers e to every OrderPlaced handler.")
+      (params (ctx context.Context) (e OrderPlaced))
+      (returns error))
+    (method OnOrderPlaced
+      (doc "OnOrderPlaced subscribes h to OrderPlaced and returns a func that unsubscribes it.")
+      (params (h "func(context.Context, OrderPlaced) error"))
+      (returns "func()"))
+    (method PublishOrderShipped
+      (doc "PublishOrderShipped delivers e to every OrderShipped handler.")
+      (params (ctx context.Context) (e OrderShipped))
+      (returns error))
+    (method OnOrderShipped
+      (doc "OnOrderShipped subscribes h to OrderShipped and returns a func that unsubscribes it.")
+      (params (h "func(context.Context, OrderShipped) error"))
+      (returns "func()")))
+  (go/struct LocalBus
+    (doc "LocalBus is an in-process Bus. Publish calls every handler in subscription\norder, in the publisher's goroutine, and returns their errors joined.\nHandlers may subscribe and unsubscribe at any time, even from a handler.")
+    (field orderPlacedHandlers "subscribers[OrderPlaced]")
+    (field orderShippedHandlers "subscribers[OrderShipped]"))
+  (go/func NewLocalBus
+    (doc "NewLocalBus returns an empty LocalBus.")
+    (params)
+    (returns *LocalBus)
+    (body "return &LocalBus{}"))
+  (go/func PublishOrderPlaced
+    (recv b *LocalBus)
+    (params (ctx context.Context) (e OrderPlaced))
+    (returns error)
+    (body "return b.orderPlacedHandlers.publish(ctx, e)"))
+  (go/func OnOrderPlaced
+    (recv b *LocalBus)
+    (params (h "func(context.Context, OrderPlaced) error"))
+    (returns "func()")
+    (body "return b.orderPlacedHandlers.add(h)"))
+  (go/func PublishOrderShipped
+    (recv b *LocalBus)
+    (params (ctx context.Context) (e OrderShipped))
+    (returns error)
+    (body "return b.orderShippedHandlers.publish(ctx, e)"))
+  (go/func OnOrderShipped
+    (recv b *LocalBus)
+    (params (h "func(context.Context, OrderShipped) error"))
+    (returns "func()")
+    (body "return b.orderShippedHandlers.add(h)"))
+  (go/raw "// subscribers holds the handlers of one event type, in subscription order.\ntype subscribers[E any] struct {\n\tmu   sync.RWMutex\n\tnext int\n\tlist []subscriber[E]\n}\n\ntype subscriber[E any] struct {\n\tid int\n\tfn func(context.Context, E) error\n}\n\n// add subscribes fn and returns a func that unsubscribes it.\nfunc (s *subscribers[E]) add(fn func(context.Context, E) error) func() {\n\ts.mu.Lock()\n\tdefer s.mu.Unlock()\n\ts.next++\n\tid := s.next\n\ts.list = append(s.list, subscriber[E]{id: id, fn: fn})\n\treturn func() {\n\t\ts.mu.Lock()\n\t\tdefer s.mu.Unlock()\n\t\tfor i, x := range s.list {\n\t\t\tif x.id == id {\n\t\t\t\ts.list = append(s.list[:i:i], s.list[i+1:]...)\n\t\t\t\treturn\n\t\t\t}\n\t\t}\n\t}\n}\n\n// publish calls every handler subscribed when it starts, in order, and\n// returns their errors joined.\nfunc (s *subscribers[E]) publish(ctx context.Context, e E) error {\n\ts.mu.RLock()\n\tlist := append([]subscriber[E](nil), s.list...)\n\ts.mu.RUnlock()\n\tvar errs []error\n\tfor _, x := range list {\n\t\tif err := x.fn(ctx, e); err != nil {\n\t\t\terrs = append(errs, err)\n\t\t}\n\t}\n\treturn errors.Join(errs...)\n}")
+  (go/assert Bus LocalBus))
+
 (llm/task
   (id "orders.llm-1")
   (intent "Write a Pricer that applies a 10% discount to orders over 100.00.")

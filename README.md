@@ -64,6 +64,7 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 | `(interface Name (method N (params (n T)...) (returns T...)) (embed T))` | an interface |
 | `(implement Iface (as Name) (field n T)...)` | an implementation of any interface in the package |
 | `(enum Status pending paid shipped)` | a string type with constants, `StatusValues`, `Valid()`, `ParseStatus()` |
+| `(events (event Name (field ...))...)` | event structs, a typed `Bus` interface, and an in-process `LocalBus` |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -97,6 +98,25 @@ sqlc query, and the LLM only maps rows to domain types.
 
 Add or remove ops at any time: reconciliation appends new stubs to your
 implementation and never touches the methods you wrote.
+
+### Events
+
+```lisp
+(events
+  (doc "Bus carries sharing events between the parts of the app.")
+  (event NoteShared (field NoteID int64) (field Email string))
+  (event NoteUnshared (field NoteID int64)))
+```
+
+generates, in `<package>/events_gen.go` and with no holes, one struct per
+event, a typed `Bus` interface (`PublishNoteShared(ctx, e) error`,
+`OnNoteShared(h) func()` returning an unsubscribe func), and `LocalBus`, an
+in-process implementation. `LocalBus` delivers synchronously: `Publish`
+calls every handler in subscription order, in the publisher's goroutine, and
+returns their errors joined, so there are no goroutines to leak and errors
+reach the publisher. It is tested for ordering, unsubscribing, error
+joining, subscribing from a handler, and concurrency (under `-race`).
+Asynchronous or networked buses are future event-bus tiles.
 
 ### Implementing any interface
 
@@ -411,6 +431,21 @@ func init() {
 		Name: "memory", Tile: "memory", Doc: "in-memory store: a map guarded by a mutex",
 		Cost: Cost{{"llm-work", 2}, {"maintenance", 1}, {"dependency", 0}, {"runtime", 1}},
 		Implement: func(in StoreInput) (StoreParts, error) { ... },
+	})
+}
+```
+
+A new package-level form is a registered tile in its own file too: its rule
+joins a pass just before the catch-all, and it validates its own form. The
+event bus (`events.go`) is built this way; nothing in the core names it:
+
+```go
+func init() {
+	RegisterPackageTile(&PackageTile{
+		Form: "events", Pass: Select,
+		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEvents,
+			Produces: "event-bus", Doc: "event structs, a typed Bus interface, and an in-process LocalBus"},
+		Validate: validateEvents,
 	})
 }
 ```
