@@ -41,6 +41,12 @@ type Options struct {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "fill":
+			if err := fillCmd(os.Args[2:], os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "prompt":
 			if err := promptCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -74,6 +80,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen [flags] SPEC        generate\n"+
 			"       tilegen check [SPEC]         fail if generated code is out of date or holes remain\n"+
 			"       tilegen prompt [SPEC] [ID]   print a self-contained LLM prompt for a task (no ID: list)\n"+
+			"       tilegen fill [SPEC] [ID]     fill holes with an LLM CLI; build; retry with the errors\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -103,6 +110,7 @@ type compiled struct {
 	stages []string
 	c      *Ctx
 	o      Options
+	ws     *Workspace // nil when the spec has no (workspace ...)
 }
 
 // compile runs parse, merge, validation and every pass. It writes nothing.
@@ -120,9 +128,9 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 		return nil, err
 	}
 	project, inlineCfg := linked.Project, linked.Config
+	var ws *Workspace
 	if linked.Workspace != nil {
-		ws, err := ParseWorkspace(linked.Workspace, specBase(o.Spec))
-		if err != nil {
+		if ws, err = ParseWorkspace(linked.Workspace, specBase(o.Spec)); err != nil {
 			return nil, err
 		}
 		if o.Name == "" {
@@ -161,7 +169,7 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 		}
 		stages = append(stages, Dump(nodes))
 	}
-	return &compiled{nodes: nodes, stages: stages, c: c, o: o}, nil
+	return &compiled{nodes: nodes, stages: stages, c: c, o: o, ws: ws}, nil
 }
 
 func run(o Options, log io.Writer) error {

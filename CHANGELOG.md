@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `tilegen fill [SPEC] [ID or pattern...]` fills holes with any LLM CLI
+  set in `(workspace (fill (command "claude -p") (retries 1) (timeout
+  "5m")))` or `-llm`. Per hole: prompt, take the method from the reply,
+  check its receiver, name and signature, splice it in with go/ast, run
+  goimports, build; on failure restore the hole and re-ask with the
+  compiler's errors and the previous answer. Unfillable holes stay holes.
+  Drifted methods are filled first, and their expected compile errors are
+  tolerated; any other baseline build error stops fill. `-dry-run` lists
+  what would be filled.
 - `tilegen prompt [SPEC] [ID...]` prints a self-contained Markdown prompt
   per task: what to write, contract, intent, constraints, reply rules, and
   the full text of every file involved (for postgres stores, sqlc's
