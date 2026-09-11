@@ -72,6 +72,43 @@ or parentheses: `(field F "func(int) error")`. Standard-library qualifiers
 another project package are written qualified (`orders.Order`); tilegen adds
 the import and rejects import cycles between packages.
 
+## Specs across files
+
+`SPEC` can be a directory. tilegen reads every `.sexp` file in it in name
+order, and the **merge** pass links them into one project, like a linker:
+one `(project ...)` header, plus any number of top-level `(package ...)`,
+`(require ...)`, `(repo ...)` and `(config ...)` forms. Packages with the
+same name merge, identical requires dedupe, and conflicts are reported with
+both file positions. See `examples/shopdir`, which compiles to exactly the
+same Go as `examples/shop/spec.sexp`.
+
+## Git and GitHub
+
+```lisp
+(repo
+  (github acme/shop)       ; or just shop: the owner is your `gh` login
+  (visibility private)     ; private (default) | public | internal
+  (description "...")
+  (topics orders billing)  ; added to derived ones: go, golang, tilegen, ...
+  (license mit))           ; mit (default) | none
+```
+
+The `(repo ...)` tile writes starter files, once and then yours:
+`README.md`, `LICENSE`, `Makefile` and `.gitignore`. Without
+`(module ...)`, the module path is derived from the repository.
+
+```sh
+tilegen -git -name myshop examples/shopdir          # repo and module follow -name
+tilegen -git -dry-run -name myshop examples/shopdir # print the plan, write nothing
+```
+
+With `-git`, tilegen uses `<out>` as is if it is already a git repository.
+If the GitHub repository exists, it clones it and generates into it, leaving
+the changes for you to review and commit. If it does not, it runs
+`git init`, generates, runs `go mod tidy` (and `sqlc generate` for postgres),
+makes the first commit, creates the repository with `gh repo create`, and
+adds topics. Without `(github ...)`, `-git` makes a local repository only.
+
 ## The config
 
 Same spec, different config, different (equally valid) Go:

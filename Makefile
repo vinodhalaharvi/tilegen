@@ -6,7 +6,7 @@ OUT    ?= out/shop
 SQLC   ?= sqlc
 
 .DEFAULT_GOAL := help
-.PHONY: help build install test cover golden vet fmt fmt-check check demo demo-postgres dump tidy clean
+.PHONY: help build install test cover golden vet fmt fmt-check check demo demo-dir demo-postgres dump tidy clean
 
 help: ## List targets
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-14s %s\n", $$1, $$2}'
@@ -40,6 +40,10 @@ check: fmt-check vet test ## Everything CI runs
 demo: build ## Generate the example (memory storage) and prove it compiles
 	$(BIN) -config $(CONFIG) -out $(OUT) -dump $(SPEC)
 	cd $(OUT) && go mod tidy && go build ./... && go vet ./...
+
+demo-dir: build ## Generate the split-file spec in examples/shopdir and prove it compiles
+	$(BIN) -out out/shopdir -dump examples/shopdir
+	cd out/shopdir && go mod tidy && go build ./... && go vet ./...
 
 demo-postgres: build ## Postgres variant: sqlc generate, then build and vet (needs sqlc)
 	@command -v $(SQLC) >/dev/null || { echo "sqlc not found: brew install sqlc, or see https://docs.sqlc.dev/en/latest/overview/install.html"; exit 1; }

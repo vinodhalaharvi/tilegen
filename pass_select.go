@@ -19,6 +19,8 @@ import (
 //	(sql/query ...)    -> db/query.sql  (sqlc input)
 //	(sqlc/config ...)  -> sqlc.yaml
 //	(llm/task ...)     -> tilegen.tasks.json
+//	(text/file ...)    -> starter files such as README.md, kept once written
+//	(git/repo ...)     -> git init or clone, commit, gh repo create, topics (-git)
 //
 // The last rule is the catch-all tile. Just as a compiler guarantees
 // coverage with a one-node tile for every operator, anything no other tile
@@ -78,6 +80,9 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			out = append(out, sqlcConfig(c))
 			break
 		}
+	}
+	if repo := n.Find("repo"); repo != nil {
+		out = append(out, selectRepo(c, n, repo)...)
 	}
 	return out, nil
 }

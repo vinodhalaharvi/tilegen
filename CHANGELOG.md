@@ -13,6 +13,17 @@
   suggests the unqualified type.
 - LLM tasks list the generated files of other project packages whose types
   the store uses, as extra context.
+- Specs can be split across a directory of `.sexp` files. A new merge pass
+  links them into one project: same-named packages merge, identical requires
+  dedupe, conflicts report both positions. `examples/shopdir` compiles to
+  the same Go as `examples/shop/spec.sexp`, checked by a test.
+- A `(config ...)` form can live in the spec; `-config` still wins.
+- New `(repo ...)` form: GitHub coordinates, visibility, description, topics
+  and license. Its tile writes starter files (README.md, LICENSE, Makefile,
+  .gitignore), and `(module ...)` becomes optional when it can be derived.
+- `-git` clones the GitHub repository if it exists, or runs git init,
+  commits, creates it with `gh`, and adds topics. `-name` picks the project,
+  repository and module name. `-dry-run` prints the plan and writes nothing.
 
 ## v0.1.0
 

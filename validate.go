@@ -101,7 +101,9 @@ func (v *validator) project(p *Node) {
 	if b == nil {
 		return
 	}
-	v.ident(b.One("name"), "project name", false)
+	if n := b.One("name"); n.IsList || !repoNameRE.MatchString(n.Atom) {
+		v.bad(n, "project name must be letters, digits, '.', '_' or '-', got %s", n.Flat())
+	}
 	counts := map[string]int{}
 	pkgs := map[string]bool{}
 	v.pkgNames, v.deps = map[string]bool{}, map[string]map[string]*Node{}
@@ -129,14 +131,25 @@ func (v *validator) project(p *Node) {
 			}
 		case "package":
 			v.pkg(it, pkgs)
+		case "repo":
+			v.repo(it)
+		case "doc":
+			v.shape(it, "(doc ?text)")
 		default:
-			v.bad(it, "unknown project item %s (want module, go, require, package)", short(it))
+			v.bad(it, "unknown project item %s (want module, go, require, package, repo, doc)", short(it))
 		}
 	}
-	for _, k := range []string{"module", "go"} {
-		if counts[k] != 1 {
-			v.bad(p, "project needs exactly one (%s ...), found %d", k, counts[k])
-		}
+	switch {
+	case counts["module"] == 0:
+		v.bad(p, "project needs (module ...), or (repo (github owner/name)) to derive it")
+	case counts["module"] > 1:
+		v.bad(p, "project needs exactly one (module ...), found %d", counts["module"])
+	}
+	if counts["go"] != 1 {
+		v.bad(p, "project needs exactly one (go ...), found %d", counts["go"])
+	}
+	if counts["repo"] > 1 {
+		v.bad(p, "project has %d (repo ...) forms; want at most one", counts["repo"])
 	}
 	if counts["package"] == 0 {
 		v.bad(p, "project needs at least one (package ...)")
