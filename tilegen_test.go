@@ -695,3 +695,38 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 		t.Fatal("session should be closed")
 	}
 }
+
+// TestGoModNeverLowersVersions: `go mod tidy` may raise the go line or a
+// require (a dependency needs newer Go); regenerating must keep them.
+func TestGoModNeverLowersVersions(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.5.0))
+  (package a (struct S (field ID uuid.UUID))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := os.MkdirAll(out, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tidied := "module example.com/p\n\ngo 1.25.0\n\nrequire github.com/google/uuid v1.6.0\n"
+	if err := os.WriteFile(filepath.Join(out, "go.mod"), []byte(tidied), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	mod := read(t, out, "go.mod")
+	if !strings.Contains(mod, "go 1.25.0") || !strings.Contains(mod, "github.com/google/uuid v1.6.0") {
+		t.Fatalf("tilegen lowered versions tidy had raised:\n%s", mod)
+	}
+
+	// And it still raises: a spec asking for more than go.mod has wins.
+	raised := "module example.com/p\n\ngo 1.21\n\nrequire github.com/google/uuid v1.4.0\n"
+	os.WriteFile(filepath.Join(out, "go.mod"), []byte(raised), 0o644)
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	mod = read(t, out, "go.mod")
+	if !strings.Contains(mod, "go 1.22") || !strings.Contains(mod, "github.com/google/uuid v1.5.0") {
+		t.Fatalf("tilegen should raise versions below the spec:\n%s", mod)
+	}
+}
