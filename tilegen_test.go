@@ -1344,3 +1344,105 @@ func TestSweepMarkerOnlyOnFirstLine(t *testing.T) {
 		t.Errorf("query.sql header should end with an empty statement:\n%s", q)
 	}
 }
+
+// ---- tilegen prompt ----
+
+func promptOut(t *testing.T, spec, out string, args ...string) (string, error) {
+	t.Helper()
+	var stdout strings.Builder
+	err := promptCmd(append([]string{"-out", out, spec}, args...), &stdout, io.Discard)
+	return stdout.String(), err
+}
+
+func TestPromptListsAndRenders(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	sp := filepath.Join(p.dir, "spec.sexp")
+
+	list, err := promptOut(t, sp, p.out)
+	if err != nil || !strings.Contains(list, "2 open task(s)") || !strings.Contains(list, "notes.MemoryNoteStore.Get ") || !strings.Contains(list, "notes/memory_note_store.go:") {
+		t.Fatalf("listing: %v\n%s", err, list)
+	}
+	pr, err := promptOut(t, sp, p.out, "notes.MemoryNoteStore.Get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"# Task notes.MemoryNoteStore.Get",
+		"func (s *MemoryNoteStore) Get(ctx context.Context, id int64) (*Note, error)",
+		"Intent: Look up id in s.m while holding s.mu.",
+		"Reply with the complete method, signature and body, in a single ```go code block",
+		"### notes/memory_note_store.go",
+		`panic("tilegen:hole notes.MemoryNoteStore.Get")`, // the file itself, with the hole
+		"### notes/notes_gen.go",
+		"type NoteStore interface",
+		"### go.mod",
+	} {
+		if !strings.Contains(pr, want) {
+			t.Errorf("prompt missing %q", want)
+		}
+	}
+}
+
+func TestPromptSeesThePlanAndWritesNothing(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get count", "yes", "memory"), "") // not regenerated
+	before := snapshot(t, p.out)
+	pr, err := promptOut(t, filepath.Join(p.dir, "spec.sexp"), p.out, "notes.MemoryNoteStore.Count")
+	if err != nil || !strings.Contains(pr, "func (s *MemoryNoteStore) Count(ctx context.Context) (int64, error)") {
+		t.Fatalf("prompt should use the current spec even before regenerating: %v\n%s", err, pr)
+	}
+	if after := snapshot(t, p.out); len(after) != len(before) {
+		t.Fatal("prompt must not write anything")
+	}
+}
+
+func TestPromptUnknownIDSuggests(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	_, err := promptOut(t, filepath.Join(p.dir, "spec.sexp"), p.out, "notes.MemoryNoteStore.Gt")
+	if err == nil || !strings.Contains(err.Error(), "(did you mean notes.MemoryNoteStore.Get?)") {
+		t.Fatalf("want a suggestion, got %v", err)
+	}
+}
+
+func TestPromptFilelessAndDrift(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a (llm "Add a Search function.") (workflow Checkout (step pay))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	pr, err := promptOut(t, sp, out, "-all")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Write new Go code in package `a`", "Intent: Add a Search function.",
+		"(workflow Checkout (step pay))", "Reply with complete Go files", "\n---\n"} {
+		if !strings.Contains(pr, want) {
+			t.Errorf("-all prompt missing %q", want)
+		}
+	}
+
+	d := newRC(t)
+	d.gen("get", "yes", "memory")
+	d.fill("notes/memory_note_store.go", "notes.MemoryNoteStore.Get", "_ = ctx\n\treturn s.m[id], nil")
+	d.gen("get", "no", "memory")
+	pr, err = promptOut(t, filepath.Join(d.dir, "spec.sexp"), d.out, "notes.MemoryNoteStore.Get")
+	if err != nil || !strings.Contains(pr, "no longer matches the spec. Change its signature to exactly this") ||
+		!strings.Contains(pr, "func (s *MemoryNoteStore) Get(id int64) (*Note, error)") {
+		t.Fatalf("drift prompt: %v\n%s", err, pr)
+	}
+}
+
+func TestFlagsAfterPositionalArgs(t *testing.T) {
+	p := newRC(t)
+	p.gen("get", "yes", "memory")
+	var log strings.Builder
+	// flags after SPEC must still count
+	if err := checkCmd([]string{"-out", p.out, filepath.Join(p.dir, "spec.sexp"), "-allow-holes"}, &log); err != nil {
+		t.Fatalf("check SPEC -allow-holes: %v\n%s", err, log.String())
+	}
+}

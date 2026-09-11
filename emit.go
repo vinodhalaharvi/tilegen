@@ -27,6 +27,7 @@ type Report struct {
 	New, Changed  []string
 	Unchanged     int
 	Tasks, Done   int
+	TaskList      []Task
 
 	// The plan (see plan.go).
 	out      string
@@ -429,6 +430,7 @@ func emitTasks(tasks []*Node, out string, c *Ctx, r *Report) error {
 		list = append(list, t)
 	}
 	r.Tasks = len(list)
+	r.TaskList = list
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false) // keep <id> and && readable for the LLM

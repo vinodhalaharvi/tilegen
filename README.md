@@ -260,6 +260,19 @@ and a thin text renderer: about 1,750 lines of code, not counting comments.
 
 ## Handing off to an LLM
 
+```sh
+tilegen prompt spec/                                   # list the open tasks
+tilegen prompt spec/ sharing.EmailSharer.ShareNote     # one self-contained prompt
+tilegen prompt spec/ -all                              # every prompt, separated by ---
+```
+
+A prompt holds everything an LLM needs and nothing it has to go looking for:
+what to write (the exact signature, the hole's file and line), the intent and
+constraints, the rules for the reply, and the full text of every file
+involved, including sqlc's generated code for postgres stores. It is built
+from the same plan as generation, so it reflects the current spec even
+before you regenerate, and it writes nothing. Pipe it into any LLM CLI.
+
 `tilegen.tasks.json` lists every open hole with `file`, `line`, `symbol`,
 `contract`, `intent`, `constraints`, and `context_files`, plus instructions.
 Give it to your LLM together with the listed files. Then:

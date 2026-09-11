@@ -44,7 +44,7 @@ Shipped in this cycle beyond the plan, found by using tilegen on a real test pro
 
 Make the LLM step one command, and measure everything it does.
 
-- [ ] **`tilegen prompt <id>`**: Done when it prints one self-contained prompt per hole: instructions, contract, intent, constraints, and context files inlined.
+- [x] **`tilegen prompt <id>`**: Done when it prints one self-contained prompt per hole: instructions, contract, intent, constraints, and context files inlined.
 - [ ] **`tilegen fill`**: Done when `tilegen fill -llm "claude -p"` (any CLI that reads a prompt on stdin) fills each hole, splices the body in with go/ast, runs `go build`, retries once with the compiler error, and leaves failures as open holes.
 - [ ] **Metrics log**: Done when every fill attempt appends to `.tilegen/metrics.jsonl`: hole id, prompt and response size, token counts when the CLI reports them, attempts, and first-try build success.
 - [ ] **Experiment 1: agent-only vs tilegen**: Done when `docs/experiment-1.md` compares building the same feature both ways on tokens, cost, time, and first-try build success.
