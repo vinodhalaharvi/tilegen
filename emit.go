@@ -47,6 +47,10 @@ func Emit(nodes []*Node, out string, c *Ctx) (*Report, error) {
 			sqlc = n
 		case "llm/task":
 			tasks = append(tasks, n)
+		case "text/file":
+			err = emitTextFile(n, out, r)
+		case "git/repo":
+			// acted on by run() around Emit when -git is set
 		default:
 			err = fmt.Errorf("%s: no emitter for %s (tilegen bug: a pass left a non-target form)", n.Pos, short(n))
 		}
@@ -77,6 +81,18 @@ func writeFile(out, rel string, data []byte, r *Report) error {
 	}
 	r.Written = append(r.Written, rel)
 	return os.WriteFile(p, data, 0o644)
+}
+
+// emitTextFile writes (text/file path (mode keep|generated) content).
+func emitTextFile(n *Node, out string, r *Report) error {
+	rel := n.List[1].Atom
+	if n.Text("mode") == "keep" {
+		if _, err := os.Stat(filepath.Join(out, filepath.FromSlash(rel))); err == nil {
+			r.Kept = append(r.Kept, rel)
+			return nil
+		}
+	}
+	return writeFile(out, rel, []byte(n.List[len(n.List)-1].Atom), r)
 }
 
 // emitGoMod edits go.mod with x/mod/modfile. If go.mod exists (say after
