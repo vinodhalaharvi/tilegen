@@ -29,23 +29,33 @@ var configChoices = map[string][]string{
 	"layout":        {"flat", "internal"},
 }
 
-// LoadConfig reads (config (key value)...). A missing path means defaults.
+// LoadConfig reads a file holding a single (config ...) form.
+// An empty path means defaults.
 func LoadConfig(path string) (Config, error) {
-	cfg := DefaultConfig()
 	if path == "" {
-		return cfg, nil
+		return DefaultConfig(), nil
 	}
 	src, err := os.ReadFile(path)
 	if err != nil {
-		return cfg, err
+		return DefaultConfig(), err
 	}
 	forms, err := Parse(path, string(src))
 	if err != nil {
-		return cfg, err
+		return DefaultConfig(), err
 	}
+	if len(forms) != 1 {
+		return DefaultConfig(), fmt.Errorf("%s: expected a single (config ...) form", path)
+	}
+	return ParseConfig(forms[0])
+}
+
+// ParseConfig reads (config (key value)...), from a config file or from a
+// (config ...) form inside a spec directory.
+func ParseConfig(form *Node) (Config, error) {
+	cfg := DefaultConfig()
 	b := Bindings{}
-	if len(forms) != 1 || !Match(Pat("(config ?opts...)"), forms[0], b) {
-		return cfg, fmt.Errorf("%s: expected a single (config ...) form", path)
+	if !Match(Pat("(config ?opts...)"), form, b) {
+		return cfg, fmt.Errorf("%s: expected (config ...), got %s", form.Pos, short(form))
 	}
 	for _, o := range b.Rest("opts") {
 		ob := Bindings{}

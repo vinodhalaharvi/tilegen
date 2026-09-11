@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"sort"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -23,6 +24,7 @@ type Ctx struct {
 	Module   string
 	Requires map[string]string // qualifier -> import path
 	Local    map[string]string // project package name -> import path
+	PkgDirs  map[string]string // project package name -> directory
 	Pkg      *PkgScope
 	seq      int
 }
@@ -64,6 +66,11 @@ func Validate(forms []*Node, c *Ctx) error {
 type validator struct {
 	c    *Ctx
 	errs []error
+
+	pkgNames map[string]bool             // every project package, known up front
+	cur      string                      // package being validated
+	deps     map[string]map[string]*Node // pkg -> referenced pkg -> first type mentioning it
+	order    []string                    // package declaration order, for stable reports
 }
 
 func (v *validator) bad(n *Node, format string, a ...any) {
@@ -94,9 +101,17 @@ func (v *validator) project(p *Node) {
 	if b == nil {
 		return
 	}
-	v.ident(b.One("name"), "project name", false)
+	if n := b.One("name"); n.IsList || !repoNameRE.MatchString(n.Atom) {
+		v.bad(n, "project name must be letters, digits, '.', '_' or '-', got %s", n.Flat())
+	}
 	counts := map[string]int{}
 	pkgs := map[string]bool{}
+	v.pkgNames, v.deps = map[string]bool{}, map[string]map[string]*Node{}
+	for _, it := range b.Rest("items") {
+		if it.Head() == "package" && len(it.Args()) > 0 && !it.Args()[0].IsList {
+			v.pkgNames[it.Args()[0].Atom] = true
+		}
+	}
 	for _, it := range b.Rest("items") {
 		counts[it.Head()]++
 		switch it.Head() {
@@ -116,18 +131,82 @@ func (v *validator) project(p *Node) {
 			}
 		case "package":
 			v.pkg(it, pkgs)
+		case "repo":
+			v.repo(it)
+		case "doc":
+			v.shape(it, "(doc ?text)")
 		default:
-			v.bad(it, "unknown project item %s (want module, go, require, package)", short(it))
+			v.bad(it, "unknown project item %s (want module, go, require, package, repo, doc)", short(it))
 		}
 	}
-	for _, k := range []string{"module", "go"} {
-		if counts[k] != 1 {
-			v.bad(p, "project needs exactly one (%s ...), found %d", k, counts[k])
-		}
+	switch {
+	case counts["module"] == 0:
+		v.bad(p, "project needs (module ...), or (repo (github owner/name)) to derive it")
+	case counts["module"] > 1:
+		v.bad(p, "project needs exactly one (module ...), found %d", counts["module"])
+	}
+	if counts["go"] != 1 {
+		v.bad(p, "project needs exactly one (go ...), found %d", counts["go"])
+	}
+	if counts["repo"] > 1 {
+		v.bad(p, "project has %d (repo ...) forms; want at most one", counts["repo"])
 	}
 	if counts["package"] == 0 {
 		v.bad(p, "project needs at least one (package ...)")
 	}
+	v.cycles()
+}
+
+// cycles reports import cycles between project packages at spec level, so
+// the error points at the type that closes the loop instead of at
+// generated files during go build.
+func (v *validator) cycles() {
+	const (
+		unvisited = iota
+		active
+		done
+	)
+	state := map[string]int{}
+	var stack []string
+	var visit func(pkg string) bool
+	visit = func(pkg string) bool {
+		state[pkg] = active
+		stack = append(stack, pkg)
+		for _, dep := range sortedKeys(v.deps[pkg]) {
+			switch state[dep] {
+			case active:
+				i := len(stack) - 1
+				for stack[i] != dep {
+					i--
+				}
+				loop := append(append([]string{}, stack[i:]...), dep)
+				v.bad(v.deps[pkg][dep], "import cycle between project packages: %s (Go forbids import cycles; move the shared type into one package)",
+					strings.Join(loop, " -> "))
+				return true
+			case unvisited:
+				if visit(dep) {
+					return true
+				}
+			}
+		}
+		stack = stack[:len(stack)-1]
+		state[pkg] = done
+		return false
+	}
+	for _, pkg := range v.order {
+		if state[pkg] == unvisited && visit(pkg) {
+			return // one cycle at a time keeps the message readable
+		}
+	}
+}
+
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 func (v *validator) require(r *Node) {
@@ -165,6 +244,8 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 		v.bad(name, "duplicate package %q", name.Atom)
 	}
 	seen[name.Atom] = true
+	v.cur = name.Atom
+	v.order = append(v.order, name.Atom)
 	types := map[string]bool{}
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
@@ -294,8 +375,24 @@ func (v *validator) typ(n *Node) {
 		v.bad(n, "type must be an atom or string, got %s (quote types that contain spaces or parens)", n.Flat())
 		return
 	}
-	if _, err := typeQualifiers(n.Atom); err != nil {
+	qs, err := typeQualifiers(n.Atom)
+	if err != nil {
 		v.bad(n, "%v", err)
+		return
+	}
+	for _, q := range qs {
+		switch {
+		case q == v.cur:
+			v.bad(n, "inside package %s, write the type without its package qualifier (%s)",
+				q, strings.ReplaceAll(n.Atom, q+".", ""))
+		case v.pkgNames[q]:
+			if v.deps[v.cur] == nil {
+				v.deps[v.cur] = map[string]*Node{}
+			}
+			if v.deps[v.cur][q] == nil {
+				v.deps[v.cur][q] = n
+			}
+		}
 	}
 }
 
