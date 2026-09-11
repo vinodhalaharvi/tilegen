@@ -34,6 +34,7 @@ type Options struct {
 	Git    bool // clone the GitHub repo if it exists, else create it
 	DryRun bool // run every pass, print the -git plan, write nothing
 
+	Reselect   bool // ignore tilegen.lock and choose every backend again
 	Check      bool // plan only, and fail if the output differs or holes remain
 	AllowHoles bool // with Check: open holes are not a failure
 	Runner     Runner
@@ -86,6 +87,7 @@ func main() {
 	flag.StringVar(&o.Name, "name", "", "project name (default: the workspace's (name ...)); also the repository name, and the module path when (module ...) is omitted")
 	flag.BoolVar(&o.Dump, "dump", false, "write the S-expression after every pass to <out>/.tilegen/")
 	flag.BoolVar(&o.Strict, "strict", false, "fail on spec forms no tile covers instead of creating LLM tasks")
+	flag.BoolVar(&o.Reselect, "reselect", false, "ignore tilegen.lock and choose every store's backend again")
 	flag.BoolVar(&o.Git, "git", false, "make <out> a git repository: clone the (repo (github ...)) if it exists, else git init, commit, and create it with gh")
 	flag.BoolVar(&o.DryRun, "dry-run", false, "run every pass and print the git/gh commands -git would run, but write nothing")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -178,6 +180,10 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 	if err := Validate(nodes, c); err != nil {
 		return nil, err
 	}
+	if c.Lock, err = loadLock(o.Out); err != nil {
+		return nil, err
+	}
+	c.Reselect = o.Reselect
 	if err := errors.Join(chooseAll(project, c), checkReserved(project, c)); err != nil {
 		return nil, err
 	}
