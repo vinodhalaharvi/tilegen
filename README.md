@@ -68,7 +68,83 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 Types are Go syntax, parsed by `go/parser`. Quote them if they contain spaces
 or parentheses: `(field F "func(int) error")`. Standard-library qualifiers
 (`time`, `context`) need no declaration; anything else must come from a
-`require` or a project package, or tilegen reports the exact line.
+`require` or a project package, or tilegen reports the exact line. Types from
+another project package are written qualified (`orders.Order`); tilegen adds
+the import and rejects import cycles between packages.
+
+## Specs across files
+
+`SPEC` can be a directory. tilegen reads every `.sexp` file in it in name
+order, and the **merge** pass links them into one project, like a linker:
+one `(project ...)` header, plus any number of top-level `(package ...)`,
+`(require ...)`, `(repo ...)` and `(config ...)` forms. Packages with the
+same name merge, identical requires dedupe, and conflicts are reported with
+both file positions. See `examples/shopdir`, which compiles to exactly the
+same Go as `examples/shop/spec.sexp`.
+
+## Git and GitHub
+
+```lisp
+(repo
+  (github acme/shop)       ; or just shop: the owner is your `gh` login
+  (visibility private)     ; private (default) | public | internal
+  (description "...")
+  (topics orders billing)  ; added to derived ones: go, golang, tilegen, ...
+  (license mit))           ; mit (default) | none
+```
+
+The `(repo ...)` tile writes starter files, once and then yours:
+`README.md`, `LICENSE`, `Makefile` and `.gitignore`. Without
+`(module ...)`, the module path is derived from the repository.
+
+```sh
+tilegen -git -name myshop examples/shopdir          # repo and module follow -name
+tilegen -git -dry-run -name myshop examples/shopdir # print the plan, write nothing
+```
+
+With `-git`, tilegen uses `<out>` as is if it is already a git repository.
+If the GitHub repository exists, it clones it and generates into it, leaving
+the changes for you to review and commit. If it does not, it runs
+`git init`, generates, runs `go mod tidy` (and `sqlc generate` for postgres),
+makes the first commit, creates the repository with `gh repo create`, and
+adds topics. Without `(github ...)`, `-git` makes a local repository only.
+
+## Workstation: worktrees and tmux
+
+A `(workspace ...)` form says how tilegen runs on your machine. It never
+changes generated code. Put the spec inside the repository it generates, and
+one folder holds everything:
+
+```lisp
+(workspace
+  (name myshop)                   ; default for -name
+  (out ..)                        ; default for -out: this spec lives at spec/
+  (worktrees                      ; checkouts at ../myshop.wt/<name>
+    (worktree billing (branch feat/billing))
+    (worktree pricing (branch feat/pricer)))
+  (tmux
+    (session myshop
+      (window code    (dir .)            (run "$EDITOR ."))
+      (window check   (dir .)            (run "make tidy check"))
+      (window billing (worktree billing) (run "claude"))
+      (window pricing (worktree pricing) (run "claude")))))
+```
+
+```sh
+tilegen -git spec/        # generate into ..; create or clone the GitHub repo
+tilegen up spec/          # create missing worktrees, open or attach the session
+tilegen status spec/      # per checkout: changes, open holes, branch
+tilegen down spec/        # close the session; -prune also removes clean worktrees
+```
+
+Each worktree is a full checkout on its own branch, so separate agents can
+fill different packages' holes in parallel without touching each other's
+files. `up` is safe to re-run: it reuses existing worktrees, recreates
+missing ones from their branches, and adds windows you added to the spec.
+Inside tmux it switches your client; outside, it attaches. `down -prune`
+uses `git worktree remove`, which refuses to delete uncommitted work, and
+branches are always kept. Plain generation never runs commands: worktrees,
+tmux and `run` only happen when you type `up`.
 
 ## The config
 

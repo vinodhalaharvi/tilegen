@@ -5,6 +5,32 @@
 - CI runs the postgres example through real sqlc (v1.31.1) and requires the
   result to build and vet. `make demo-postgres` explains how to install sqlc
   when it is missing, and honors `SQLC=/path/to/sqlc`.
+- The shop example has a second package, `billing`, whose types use
+  `orders.Order`, so both demos and CI exercise cross-package imports.
+- Import cycles between project packages are rejected at the spec, pointing
+  at the type that closes the loop, instead of failing later in `go build`.
+- Writing `orders.Order` inside package `orders` gets a clear error that
+  suggests the unqualified type.
+- LLM tasks list the generated files of other project packages whose types
+  the store uses, as extra context.
+- Specs can be split across a directory of `.sexp` files. A new merge pass
+  links them into one project: same-named packages merge, identical requires
+  dedupe, conflicts report both positions. `examples/shopdir` compiles to
+  the same Go as `examples/shop/spec.sexp`, checked by a test.
+- A `(config ...)` form can live in the spec; `-config` still wins.
+- New `(repo ...)` form: GitHub coordinates, visibility, description, topics
+  and license. Its tile writes starter files (README.md, LICENSE, Makefile,
+  .gitignore), and `(module ...)` becomes optional when it can be derived.
+- `-git` clones the GitHub repository if it exists, or runs git init,
+  commits, creates it with `gh`, and adds topics. `-name` picks the project,
+  repository and module name. `-dry-run` prints the plan and writes nothing.
+- New `(workspace ...)` form for the local workstation: `(name ...)` and
+  `(out ...)` default -name and -out, git worktrees live at `<out>.wt/`,
+  and a tmux session has one window per checkout with an optional command.
+- `tilegen up` creates missing worktrees and opens or attaches the session;
+  re-running reuses everything and adds new windows. `tilegen status` shows
+  each checkout's changes, open holes and branch. `tilegen down` closes the
+  session; `-prune` removes clean worktrees and keeps branches.
 
 ## v0.1.0
 
