@@ -24,6 +24,7 @@ var weightOrder = []string{"llm-work", "maintenance", "dependency", "runtime", "
 
 // Choice is the backend chosen for one store, and why.
 type Choice struct {
+	Why     string // why the policy picked it, when not simply cheapest
 	Store   string // orders.OrderStore
 	Needs   []string
 	By      string // "auto" or "config"
@@ -89,7 +90,7 @@ func chooseAll(project *Node, c *Ctx) error {
 					ch.Illegal = append(ch.Illegal, Rejected{b, reason})
 					continue
 				}
-				via, extra, ok := convert(b.form(), domainForm, shape)
+				via, extra, ok := convert(b.form(), domainForm, shape, c.Policy)
 				if !ok {
 					ch.Illegal = append(ch.Illegal, Rejected{b, fmt.Sprintf("it produces %s, and no chain converts that to %s", b.form(), domainForm)})
 					continue
@@ -97,7 +98,15 @@ func chooseAll(project *Node, c *Ctx) error {
 				if len(b.Cost) == 0 {
 					continue // no declared cost: explicit use only
 				}
-				base, terms := score(b.Cost)
+				if why, avoided := c.Policy.Avoid[b.Tile]; avoided {
+					reason := "avoided by the policy"
+					if why != "" {
+						reason += ": " + why
+					}
+					ch.Illegal = append(ch.Illegal, Rejected{b, reason})
+					continue
+				}
+				base, terms := c.Policy.score(b.Cost)
 				ch.Ranked = append(ch.Ranked, Scored{B: b, Score: base + extra, Base: base, Terms: terms, Via: via})
 			}
 			sort.SliceStable(ch.Ranked, func(i, j int) bool { return ch.Ranked[i].Score < ch.Ranked[j].Score })
@@ -120,7 +129,8 @@ func chooseAll(project *Node, c *Ctx) error {
 			} else if e, ok := c.Lock[ch.Store]; ok && !c.Reselect && pinned(ch, e, c) {
 				// the pinned choice stands, even if auto would now pick another
 			} else if len(ch.Ranked) > 0 {
-				ch.Chosen, ch.By = ch.Ranked[0].B, "auto"
+				ch.Chosen, ch.Why = c.Policy.pick(ch.Ranked)
+				ch.By = "auto"
 			} else {
 				errs = append(errs, fmt.Errorf("%s: no storage backend is legal for %s (needs: %s)", store.Pos, ch.Store, strings.Join(ch.Needs, ", ")))
 				continue
@@ -233,6 +243,9 @@ func explain(ch *Choice) string {
 	}
 	for _, r := range ch.Illegal {
 		fmt.Fprintf(&b, "  illegal %-15s %s\n", r.B.Tile, r.Reason)
+	}
+	if ch.Why != "" {
+		fmt.Fprintf(&b, "  policy: %s\n", ch.Why)
 	}
 	if ch.By == "lock" && len(ch.Ranked) > 0 && ch.Ranked[0].B != ch.Chosen {
 		fmt.Fprintf(&b, "  note: pinned by %s; auto would now pick %s (score %d). Run with -reselect to switch.\n",
