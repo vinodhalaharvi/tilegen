@@ -22,9 +22,10 @@ type Ctx struct {
 
 	// Filled in by the select pass while it walks the project.
 	Module   string
-	Requires map[string]string // qualifier -> import path
-	Local    map[string]string // project package name -> import path
-	PkgDirs  map[string]string // project package name -> directory
+	Requires map[string]string   // qualifier -> import path
+	Local    map[string]string   // project package name -> import path
+	PkgDirs  map[string]string   // project package name -> directory
+	Enums    map[string][]string // "pkg.Type" -> values, for SQL CHECK constraints
 	Pkg      *PkgScope
 	seq      int
 }
@@ -44,7 +45,7 @@ func (c *Ctx) warn(p Pos, format string, a ...any) {
 // The names each context knows, for did-you-mean suggestions.
 var (
 	projectItems = []string{"module", "go", "require", "package", "repo", "doc"}
-	packageForms = []string{"entity", "struct", "interface", "implement", "doc", "llm"}
+	packageForms = []string{"entity", "struct", "interface", "implement", "enum", "doc", "llm"}
 )
 
 func allStoreOps() []string {
@@ -264,6 +265,8 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 			v.iface(it, types)
 		case "implement":
 			v.implement(it, ifaces, types)
+		case "enum":
+			v.enum(it, types)
 		case "doc", "llm":
 			v.shape(it, "(_ ?text ?more...)")
 		default:

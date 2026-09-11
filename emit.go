@@ -245,6 +245,15 @@ func renderGo(f *Node) string {
 		case "go/assert":
 			fmt.Fprintf(&b, "// Compile-time check that %s satisfies %s.\nvar _ %s = (*%s)(nil)\n\n",
 				d.List[2].Atom, d.List[1].Atom, d.List[1].Atom, d.List[2].Atom)
+		case "go/type":
+			b.WriteString(docLines(d, ""))
+			fmt.Fprintf(&b, "type %s %s\n\n", d.List[1].Atom, d.List[2].Atom)
+		case "go/consts":
+			b.WriteString("const (\n")
+			for _, c := range d.FindAll("const") {
+				fmt.Fprintf(&b, "\t%s %s = %s\n", c.List[1].Atom, c.List[2].Atom, strconv.Quote(c.List[3].Atom))
+			}
+			b.WriteString(")\n\n")
 		case "go/var":
 			b.WriteString(docLines(d, ""))
 			fmt.Fprintf(&b, "var %s = %s\n\n", d.List[1].Atom, d.List[2].Atom)

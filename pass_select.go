@@ -34,6 +34,7 @@ var Select = &Pass{
 		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct")},
 		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface},
 		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement},
+		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum},
 		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM},
 		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered},
 	},
@@ -157,6 +158,12 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 	}
 	pkgs := n.FindAll("package")
+	c.Enums = map[string][]string{}
+	for _, p := range pkgs {
+		for _, e := range p.FindAll("enum") {
+			c.Enums[p.List[1].Atom+"."+e.List[1].Atom] = enumValues(e)
+		}
+	}
 	for _, p := range pkgs {
 		c.Local[p.List[1].Atom] = c.Module + "/" + p.Text("dir")
 		c.PkgDirs[p.List[1].Atom] = p.Text("dir")
@@ -212,7 +219,7 @@ func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	seen := map[string]bool{}
 	for _, r := range res {
 		switch r.Head() {
-		case "go/struct", "go/interface", "go/func", "go/assert", "go/var":
+		case "go/struct", "go/interface", "go/func", "go/assert", "go/var", "go/type", "go/consts":
 			if key := r.Flat(); !seen[key] { // two stores may both want ErrNotFound
 				seen[key] = true
 				decls = append(decls, r)
@@ -279,7 +286,26 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			return nil, err
 		}
 		out = append(out, sql...)
-		hint = func(meth *Node) string { return postgresHint(meth, entity) }
+		var parse []string // enum fields arrive from sqlc as strings
+		for _, f := range st.FindAll("field") {
+			if c.enumFor(f.List[2].Atom, pkg.Name) != nil {
+				typ := strings.TrimPrefix(f.List[2].Atom, "*")
+				q, name, ok := strings.Cut(typ, ".")
+				if ok {
+					typ = q + ".Parse" + name
+				} else {
+					typ = "Parse" + typ
+				}
+				parse = append(parse, fmt.Sprintf("%s with %s", f.List[1].Atom, typ))
+			}
+		}
+		hint = func(meth *Node) string {
+			h := postgresHint(meth, entity)
+			if kind, _ := methodOp(meth); len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {
+				h += " Convert " + strings.Join(parse, ", ") + ", never with a bare cast."
+			}
+			return h
+		}
 	default:
 		return nil, fmt.Errorf("unknown backend %q", backend)
 	}

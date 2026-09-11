@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `(enum Status pending paid shipped)` generates a string type, typed
+  constants, `StatusValues`, `Valid()` and `ParseStatus()`; values like
+  `in-transit` become `StatusInTransit`. With postgres, enum fields are
+  `TEXT` columns with a `CHECK` constraint, and store tasks say to convert
+  them with `ParseStatus`, never a bare cast.
 - Did you mean: every unknown name gets a suggestion when it is a likely
   typo, across the spec, config, repo and workspace forms, store ops and
   field references. A typo of a known package form, like `(entiy ...)`, is

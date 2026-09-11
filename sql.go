@@ -26,6 +26,13 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 		col := snake(name)
 		nullable := strings.HasPrefix(typ, "*")
 		sqlt, ok := sqlTypes[strings.TrimPrefix(typ, "*")]
+		if vals := c.enumFor(typ, c.Pkg.Name); vals != nil {
+			quoted := make([]string, len(vals))
+			for i, v := range vals {
+				quoted[i] = "'" + v + "'"
+			}
+			sqlt, ok = fmt.Sprintf("TEXT CHECK (%s IN (%s))", col, strings.Join(quoted, ", ")), true
+		}
 		if !ok {
 			c.warn(f.Pos, "no SQL type for %s; using JSONB for column %s", typ, col)
 			sqlt = "JSONB"
