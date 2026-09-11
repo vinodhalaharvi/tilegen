@@ -553,8 +553,9 @@ waiting to be written.
 
 ## Status
 
-v0.2.0. Next up is v0.3, the LLM handoff: `tilegen prompt` and `tilegen fill`,
-with metrics on every fill. See [ROADMAP.md](ROADMAP.md).
+v0.3.0. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
+every attempt, and replacing declared LLM costs with measured ones. See
+[ROADMAP.md](ROADMAP.md).
 
 ## License
 
