@@ -35,8 +35,10 @@ type Choice struct {
 
 type Scored struct {
 	B     *Backend
-	Score int
+	Score int    // Base plus every step of Via
+	Base  int    // the backend's own cost
 	Terms string // llm 3·4 + maint 2·3 + ...
+	Via   []Step // converters from the backend's form to domain
 }
 
 type Rejected struct {
@@ -62,6 +64,12 @@ func chooseAll(project *Node, c *Ctx) error {
 	c.Choices = map[string]*Choice{}
 	used := map[string]*Backend{}
 	var errs []error
+	enums := map[string]bool{} // "pkg.Type", for chain costs
+	for _, pkg := range project.FindAll("package") {
+		for _, e := range pkg.FindAll("enum") {
+			enums[pkg.List[1].Atom+"."+e.List[1].Atom] = true
+		}
+	}
 	for _, pkg := range project.FindAll("package") {
 		for _, e := range pkg.FindAll("entity") {
 			store := e.Find("store")
@@ -74,24 +82,36 @@ func chooseAll(project *Node, c *Ctx) error {
 					ch.Needs = append(ch.Needs, op.Head())
 				}
 			}
+			shape := entityShape(e, pkg.List[1].Atom, enums)
 			for _, name := range backendNames() {
 				b := backends[name]
 				if reason := illegalFor(b, ch.Needs); reason != "" {
 					ch.Illegal = append(ch.Illegal, Rejected{b, reason})
 					continue
 				}
+				via, extra, ok := convert(b.form(), domainForm, shape)
+				if !ok {
+					ch.Illegal = append(ch.Illegal, Rejected{b, fmt.Sprintf("it produces %s, and no chain converts that to %s", b.form(), domainForm)})
+					continue
+				}
 				if len(b.Cost) == 0 {
 					continue // no declared cost: explicit use only
 				}
-				s, terms := score(b.Cost)
-				ch.Ranked = append(ch.Ranked, Scored{b, s, terms})
+				base, terms := score(b.Cost)
+				ch.Ranked = append(ch.Ranked, Scored{B: b, Score: base + extra, Base: base, Terms: terms, Via: via})
 			}
 			sort.SliceStable(ch.Ranked, func(i, j int) bool { return ch.Ranked[i].Score < ch.Ranked[j].Score })
 
 			if want := c.Cfg.Storage; want != "auto" {
 				ch.By = "config"
 				b := lookupBackend(want)
-				if reason := illegalFor(b, ch.Needs); reason != "" {
+				reason := ""
+				for _, r := range ch.Illegal { // a need it cannot serve, or no chain to domain
+					if r.B == b {
+						reason = r.Reason
+					}
+				}
+				if reason != "" {
 					errs = append(errs, fmt.Errorf("%s: (storage %s) is illegal for %s: %s; legal: %s, or use (storage auto)",
 						store.Pos, want, ch.Store, reason, legalList(ch)))
 					continue
@@ -157,7 +177,15 @@ func choiceNodes(ch *Choice) []*Node {
 		if s.B == ch.Chosen {
 			head = "chosen"
 		}
-		out = append(out, L(Sym(head), Sym(s.B.Tile), L(Sym("score"), Sym(fmt.Sprint(s.Score))), L(Sym("by"), Sym(ch.By))))
+		n := L(Sym(head), Sym(s.B.Tile), L(Sym("score"), Sym(fmt.Sprint(s.Score))))
+		if len(s.Via) > 0 {
+			n.List = append(n.List, L(Sym("base"), Sym(fmt.Sprint(s.Base))))
+			for _, st := range s.Via {
+				n.List = append(n.List, L(Sym("via"), Sym(st.Chain.Name), Sym(fmt.Sprint(st.Score)), Str(st.Detail)))
+			}
+		}
+		n.List = append(n.List, L(Sym("by"), Sym(ch.By)))
+		out = append(out, n)
 	}
 	if ch.By == "config" && !contains(tileNames(ch.Ranked), ch.Chosen.Tile) {
 		out = append(out, L(Sym("chosen"), Sym(ch.Chosen.Tile), L(Sym("by"), Sym("config"))))
@@ -189,7 +217,14 @@ func explain(ch *Choice) string {
 		if s.B == ch.Chosen {
 			mark = "chosen  "
 		}
-		fmt.Fprintf(&b, "  %s%-15s score %-4d %s\n", mark, s.B.Tile, s.Score, s.Terms)
+		fmt.Fprintf(&b, "  %s%-15s score %-4d %s", mark, s.B.Tile, s.Score, s.Terms)
+		if len(s.Via) > 0 {
+			fmt.Fprintf(&b, " = %d", s.Base)
+			for _, st := range s.Via {
+				fmt.Fprintf(&b, "\n  %-24s          + %s %d (%s)", "", st.Chain.Name, st.Score, st.Detail)
+			}
+		}
+		b.WriteString("\n")
 	}
 	if ch.By == "config" && !contains(tileNames(ch.Ranked), ch.Chosen.Tile) {
 		fmt.Fprintf(&b, "  chosen  %-15s (named by the config; no declared cost)\n", ch.Chosen.Tile)

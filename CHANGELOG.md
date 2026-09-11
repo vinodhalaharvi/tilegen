@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Chain rules. Backends declare the form their code yields (sqlc: db-rows;
+  memory and pgx: domain), and registered converters (`RegisterChain`)
+  turn one form into another at a cost computed from the entity. The
+  row-mapper costs 1 per entity, +1 per enum or nullable field, +2 per
+  JSONB field. Selection adds the cheapest conversion path (Dijkstra over
+  forms) to each backend's cost, so an entity heavy in enums and nullable
+  fields picks pgx over sqlc. `explain`, `-dump` and `tilegen tiles` show
+  the chain; a backend with no path to domain is illegal. `examples/auto`
+  now uses memory, postgres-sqlc and postgres-pgx in one project.
 - Selection: stores declare needs (`(durable)`), backends declare when
   they are illegal (`IllegalWhen`), and `(storage auto)`, now the default,
   gives every store the cheapest legal backend by declared cost times

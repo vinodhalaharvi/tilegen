@@ -59,6 +59,7 @@ type Backend struct {
 	IllegalWhen  map[string]string    // need -> why this backend cannot serve it, e.g. durable
 	Imports      map[string]string    // package qualifiers its code uses -> import paths
 	ProjectForms func(c *Ctx) []*Node // project-level target forms, once per project using it
+	Form         string               // what its store code yields: "" (domain values) or e.g. db-rows
 
 	// Implement scaffolds one store implementation.
 	Implement func(StoreInput) (StoreParts, error)
@@ -99,6 +100,14 @@ func RegisterBackend(b *Backend) {
 
 func lookupBackend(name string) *Backend { return backends[name] }
 
+// form is the form a backend's store code yields; domain unless declared.
+func (b *Backend) form() string {
+	if b.Form == "" {
+		return domainForm
+	}
+	return b.Form
+}
+
 func backendNames() []string {
 	names := make([]string, 0, len(backends))
 	for n := range backends {
@@ -111,6 +120,9 @@ func backendNames() []string {
 // TileInfo is one row of the registry, whatever kind of tile it is.
 type TileInfo struct {
 	IllegalWhen               map[string]string
+	Form                      string    // for backends: the form their code yields
+	Converts                  [2]string // for chains: from, to
+	CostRule                  string    // for chains: how the cost is computed
 	Name, Pass, Produces, Doc string
 	Covers                    []*Node // the pattern(s) it matches
 	Requires                  []string
@@ -129,7 +141,11 @@ func Registry() []TileInfo {
 	for _, name := range backendNames() {
 		b := backends[name]
 		out = append(out, TileInfo{Name: b.Tile, Pass: "select", Covers: []*Node{Pat("(impl ?iface ?parts...)"), L(Sym("backend"), Sym(b.Name))},
-			Produces: "store", Doc: b.Doc, Requires: b.Requires, Cost: b.Cost, IllegalWhen: b.IllegalWhen})
+			Produces: "store", Doc: b.Doc, Requires: b.Requires, Cost: b.Cost, IllegalWhen: b.IllegalWhen, Form: b.form()})
+	}
+	for _, ch := range chains {
+		out = append(out, TileInfo{Name: ch.Name, Pass: "select", Covers: []*Node{L(Sym("convert"), Sym(ch.From), Sym(ch.To))},
+			Produces: ch.To, Doc: ch.Doc, Converts: [2]string{ch.From, ch.To}, CostRule: ch.CostRule})
 	}
 	return out
 }
@@ -148,6 +164,15 @@ func tileSexp(t TileInfo) *Node {
 			prod.List = append(prod.List, Sym(p))
 		}
 		n.List = append(n.List, prod)
+	}
+	if t.Form != "" && t.Form != domainForm {
+		n.List = append(n.List, L(Sym("form"), Sym(t.Form)))
+	}
+	if t.Converts[0] != "" {
+		n.List = append(n.List, L(Sym("converts"), Sym(t.Converts[0]), Sym(t.Converts[1])))
+	}
+	if t.CostRule != "" {
+		n.List = append(n.List, L(Sym("cost-rule"), Str(t.CostRule)))
 	}
 	for _, need := range sortedKeys(t.IllegalWhen) {
 		n.List = append(n.List, L(Sym("illegal-when"), L(Sym("store"), Sym(need)), Str(t.IllegalWhen[need])))
