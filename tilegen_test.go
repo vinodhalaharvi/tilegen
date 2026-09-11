@@ -1628,8 +1628,13 @@ func TestRegistrySexpIsData(t *testing.T) {
 			t.Errorf("malformed tile: %s", short(f))
 		}
 	}
-	pg := forms[len(forms)-1]
-	if pg.List[1].Atom != "postgres-sqlc" || pg.Find("covers").Flat() != "(covers (impl ?iface ?parts...) (backend postgres))" ||
+	var pg *Node
+	for _, f := range forms {
+		if f.List[1].Atom == "postgres-sqlc" {
+			pg = f
+		}
+	}
+	if pg == nil || pg.Find("form").Flat() != "(form db-rows)" || pg.Find("covers").Flat() != "(covers (impl ?iface ?parts...) (backend postgres))" ||
 		pg.Find("requires").Flat() != "(requires (tool sqlc))" {
 		t.Errorf("postgres tile: %s", pg.Flat())
 	}
@@ -1804,11 +1809,11 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 	if schema := read(t, out, "db/schema.sql"); strings.Contains(schema, "sessions") {
 		t.Error("memory stores must not get tables")
 	}
-	dump := read(t, out, ".tilegen/03-concretize.sexp")
-	for _, want := range []string{"(chosen postgres-sqlc (score 22) (by auto))", "(considered postgres-pgx (score 45) (by auto))",
+	dump := dumpForms(t, read(t, out, ".tilegen/03-concretize.sexp"))
+	for _, want := range []string{`(chosen postgres-sqlc (score 29) (base 22) (via row-mapper 7 "1 entity") (by auto))`, "(considered postgres-pgx (score 45) (by auto))",
 		`(illegal memory "an in-memory map loses its data on restart")`, "(chosen memory (score 12) (by auto))"} {
-		if !strings.Contains(dump, want) {
-			t.Errorf("the dump should record %q", want)
+		if !dump[want] {
+			t.Errorf("the dump should record %s", want)
 		}
 	}
 }
@@ -1817,7 +1822,7 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "(storage memory) is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres (score 22), pgx (score 45), or use (storage auto)") {
+	if err == nil || !strings.Contains(err.Error(), "(storage memory) is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres (score 29), pgx (score 45), or use (storage auto)") {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
@@ -1855,7 +1860,7 @@ func TestExplainCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"weights: llm-work 4, maintenance 3", "orders.OrderStore   needs: durable   chosen by: auto",
-		"chosen  postgres-sqlc   score 22   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1",
+		"chosen  postgres-sqlc   score 29   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 = 22", "+ row-mapper 7 (1 entity)",
 		"illegal memory          an in-memory map loses its data on restart", "sessions.SessionStore   needs: none"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("explain missing %q:\n%s", want, out.String())
@@ -1881,4 +1886,93 @@ func TestNeedsValidation(t *testing.T) {
 	if !strings.Contains(out.String(), `(illegal-when (store durable) "an in-memory map loses its data on restart")`) {
 		t.Errorf("the registry should show legality:\n%s", out.String())
 	}
+}
+
+// ---- chain rules ----
+
+// TestChainTipsTheChoice: sqlc is cheaper on its own, but its rows must be
+// mapped to domain types; with enums and nullable fields the mapper costs
+// enough that pgx, which scans straight into domain types, wins.
+func TestChainTipsTheChoice(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package orders (entity Order (field ID int64) (field Total int64) (store get (durable))))
+  (package profiles
+    (enum Plan free pro)
+    (entity Profile (field ID int64) (field Plan Plan) (field Nick *string) (field Bio *string) (field Gone *time.Time)
+      (store get (durable)))))`, "")
+	var out strings.Builder
+	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	got := out.String()
+	for _, want := range []string{
+		"orders.OrderStore   needs: durable   chosen by: auto\n  chosen  postgres-sqlc   score 29",
+		"profiles.ProfileStore   needs: durable   chosen by: auto\n  chosen  postgres-pgx    score 45",
+		"postgres-sqlc   score 51", "+ row-mapper 29 (1 entity, 1 enum field, 3 nullable fields)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("explain missing %q:\n%s", want, got)
+		}
+	}
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	read(t, filepath.Join(dir, "out"), "orders/postgres_order_store.go")
+	read(t, filepath.Join(dir, "out"), "profiles/pgx_profile_store.go")
+}
+
+func TestChainCostsAndPaths(t *testing.T) {
+	e := EntityShape{Fields: []FieldShape{{Name: "A", Enum: true}, {Name: "B", Nullable: true}, {Name: "C", JSONB: true}, {Name: "D"}}}
+	steps, s, ok := convert("db-rows", domainForm, e)
+	if !ok || len(steps) != 1 || steps[0].Chain.Name != "row-mapper" {
+		t.Fatalf("path: %v %v", steps, ok)
+	}
+	// units = 1 entity + 1 enum + 1 nullable + 2 JSONB = 5: llm 5*4 + maint 3*3 = 29
+	if s != 29 || steps[0].Detail != "1 entity, 1 enum field, 1 nullable field, 1 JSONB field" {
+		t.Errorf("cost %d, detail %q", s, steps[0].Detail)
+	}
+	if _, s, ok := convert(domainForm, domainForm, e); !ok || s != 0 {
+		t.Error("no conversion needed for domain")
+	}
+	if _, _, ok := convert("xml", domainForm, e); ok {
+		t.Error("no chain converts xml")
+	}
+}
+
+func TestBackendWithoutAChainIsIllegal(t *testing.T) {
+	RegisterBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{"llm-work", 0}},
+		Implement: func(StoreInput) (StoreParts, error) { return StoreParts{}, nil }})
+	defer delete(backends, "xmlstore")
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (entity E (field ID int64) (store get))))`, "")
+	var out strings.Builder
+	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "illegal xml-store       it produces xml, and no chain converts that to domain") {
+		t.Errorf("a backend with no path to domain must be illegal, even at cost 0:\n%s", out.String())
+	}
+}
+
+// dumpForms parses a -dump file and returns the flat text of every node in
+// it, so tests can look for a form however the pretty-printer wrapped it.
+func dumpForms(t *testing.T, text string) map[string]bool {
+	t.Helper()
+	forms, err := Parse("dump.sexp", text)
+	if err != nil {
+		t.Fatal(err)
+	}
+	all := map[string]bool{}
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		all[n.Flat()] = true
+		for _, c := range n.List {
+			walk(c)
+		}
+	}
+	for _, f := range forms {
+		walk(f)
+	}
+	return all
 }

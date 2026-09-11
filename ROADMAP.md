@@ -56,8 +56,8 @@ The compiler chooses between tiles, explains why, and stays stable.
 - [x] **Tile registry**: Done when the storage backends are registered tiles that declare what they cover, produce and cost, and `tilegen tiles` lists the registry.
 - [x] **Event bus tile**: Done when `(events (event Name (field ...))...)` generates event structs, a typed bus interface and an in-process implementation, added through the registry without changing the core.
 - [x] **Legality guards on tiles**: Done when a tile can declare conditions (for example "no dynamic queries") and illegal tiles are skipped before costing.
-- [ ] **Forms and chain rules**: Done when tiles declare the form they produce (`db-rows`, `domain`) and converters between forms are costed tiles, so a mapper's cost counts.
-- [ ] **Bottom-up cost selection** (per-store cheapest-legal selection shipped; choosing across chains needs the forms and chain rules above): Done when select finds the cheapest covering by dynamic programming (iburg-style), with maximal munch kept as a fallback, and the sqlc-vs-pgx example picks pgx when the mapper is expensive.
+- [x] **Forms and chain rules**: Done when tiles declare the form they produce (`db-rows`, `domain`) and converters between forms are costed tiles, so a mapper's cost counts.
+- [x] **Bottom-up cost selection** (today only store nodes have competing tiles, so the cheapest covering is the cheapest legal backend per store plus the cheapest chain, found with Dijkstra over forms; a general tree-wide pass comes when more kinds of node have alternatives): Done when select finds the cheapest covering by dynamic programming (iburg-style), with maximal munch kept as a fallback, and the sqlc-vs-pgx example picks pgx when the mapper is expensive.
 - [x] **Explain choices in the dump**: Done when the select dump shows, per node, the winning tile, its cost, and the runners-up.
 - [ ] **`tilegen.lock`**: Done when choices are pinned across runs and only re-selected when a pinned tile becomes illegal or `-reselect` is passed.
 - [ ] **Measured costs for LLM tiles**: Done when LLM tile costs come from v0.3 metrics instead of guesses.

@@ -421,6 +421,33 @@ backends are registered: `memory`, `postgres-sqlc` (tilegen writes SQL,
 sqlc writes Go) and `postgres-pgx` (tilegen writes the schema, the LLM
 writes the SQL, with the query sqlc would have used as a hint).
 
+### Chain rules
+
+A backend's output has a *form*. memory and pgx hand back your domain types
+directly; sqlc hands back its own row types (`db.Order`), so something must
+convert them. Converters are chain rules: tiles that turn one form into
+another, at a cost computed from the entity:
+
+```lisp
+(tile row-mapper
+  (converts db-rows domain)
+  (cost-rule "1 per entity, +1 per enum field (ParseX), +1 per nullable field (pgtype), +2 per JSONB field"))
+```
+
+Selection adds the cheapest chain to each backend's own cost. A plain entity
+still picks sqlc; one heavy in enums and nullable fields tips to pgx:
+
+```
+profiles.ProfileStore   needs: durable   chosen by: auto
+  chosen  postgres-pgx    score 45   llm 7·4 + maint 5·3 + dep 1·1 + run 1·1
+          postgres-sqlc   score 51   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 = 22
+                                    + row-mapper 29 (1 entity, 1 enum field, 3 nullable fields)
+  illegal memory          an in-memory map loses its data on restart
+```
+
+`examples/auto` uses all three backends in one project. A backend whose form
+no chain converts to domain is illegal.
+
 ## The tile registry
 
 Every tile declares what it covers, what capability it produces, what it
