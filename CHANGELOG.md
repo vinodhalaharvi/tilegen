@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- `(implement Iface (as Name) (field n T)...)` implements any interface in
+  the package, generated store interfaces included: struct, constructor
+  with injected dependencies, stubs, compile-time check, tasks, and
+  reconciliation.
+- Interfaces can embed others with `(embed T)`. Implementations include
+  embedded methods: project interfaces directly, standard-library ones
+  (like `io.Writer`) via Go's type checker. Unresolvable embeds warn.
+- Variadic last parameters: `(args "...any")`.
 - Store query ops derived from fields: `count`, `(list-by F)`, `(get-by F)`,
   `(count-by F)`, `(exists-by F)`, `(delete-by F)`, plus custom
   `(method ...)`. With postgres each derived op gets a sqlc query; custom

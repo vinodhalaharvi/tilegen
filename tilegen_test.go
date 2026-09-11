@@ -962,3 +962,99 @@ func TestLowerFirstWord(t *testing.T) {
 		}
 	}
 }
+
+// ---- implement, variadic parameters, embedded interfaces ----
+
+const implSpec = `(project p (module example.com/p) (go 1.22)
+  (package a
+    (entity Note (field ID int64) (store get))
+    (interface Mailer (method Send (params (to string) (args "...any")) (returns error)))
+    (interface Base (method Ping (returns error)))
+    (interface Service (embed Base) (embed io.Writer) (method Run (params (n *Note)) (returns error)))
+    (implement Service (as Worker) (field mailer Mailer) (field store NoteStore) (constraint "be idempotent"))
+    (implement NoteStore (as CachedNoteStore) (field next NoteStore))))`
+
+func TestImplementAnyInterface(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, implSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	w := read(t, out, "a/worker.go")
+	for _, want := range []string{
+		"type Worker struct {\n\tmailer Mailer\n\tstore  NoteStore\n}",
+		"func NewWorker(mailer Mailer, store NoteStore) *Worker",
+		"func (s *Worker) Run(ctx context.Context, n *Note) error",
+		"func (s *Worker) Ping(ctx context.Context) error", // from the embedded project interface
+		"func (s *Worker) Write(p []byte) (int, error)",    // from io.Writer, via the type checker
+	} {
+		if !strings.Contains(w, want) {
+			t.Errorf("worker.go missing %q:\n%s", want, w)
+		}
+	}
+	if gen := read(t, out, "a/a_gen.go"); !strings.Contains(gen, "var _ Service = (*Worker)(nil)") ||
+		!strings.Contains(gen, "Send(ctx context.Context, to string, args ...any) error") ||
+		!strings.Contains(gen, "\tBase\n\tio.Writer\n") {
+		t.Errorf("a_gen.go missing assertion, variadic method or embeds:\n%s", gen)
+	}
+	if c := read(t, out, "a/cached_note_store.go"); !strings.Contains(c, "func (s *CachedNoteStore) Get(ctx context.Context, id int64) (*Note, error)") {
+		t.Errorf("implementing a generated store interface should work:\n%s", c)
+	}
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "Dependencies: s.mailer (Mailer), s.store (NoteStore).") || !strings.Contains(tasks, `"be idempotent"`) {
+		t.Errorf("implement tasks should carry dependencies and constraints:\n%s", tasks)
+	}
+}
+
+func TestImplementValidation(t *testing.T) {
+	base := okPrefix + `(interface I (method M (returns error))) %s))`
+	for form, want := range map[string]string{
+		`(implement J (as X))`: "J is not an interface declared in this package (have: I)",
+		`(implement I)`:        "implement needs exactly one (as TypeName)",
+		`(implement I (as X) (field a int) (field a int))`:       `duplicate field "a"`,
+		`(implement I (as I))`:                                   `duplicate type "I"`,
+		`(implement I (as X) (wire y))`:                          "implement takes (as Name)",
+		`(interface V (method M (params (a "...int") (b int))))`: "only the last parameter can be variadic",
+		`(struct S (field X "...int"))`:                          "only a method's last parameter can be variadic",
+	} {
+		if err := validateSrc(t, fmt.Sprintf(base, form), false); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
+	}
+}
+
+func TestImplementUnresolvedEmbedWarns(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (require (x github.com/example/x v1.0.0))
+  (package a (interface I (embed x.Thing) (method M (returns error))) (implement I (as Impl))))`, "")
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, &log); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(log.String(), "cannot list the methods of x.Thing") {
+		t.Fatalf("want a warning for an embed tilegen cannot resolve:\n%s", log.String())
+	}
+}
+
+func TestImplementReconcilesAndSweeps(t *testing.T) {
+	dir := t.TempDir()
+	spec := `(project p (module example.com/p) (go 1.22)
+  (package a (interface I (method M (returns error)) %s) %s))`
+	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, "", "(implement I (as Impl))"), "")
+	out := filepath.Join(dir, "out")
+	run(Options{Spec: sp, Out: out}, io.Discard)
+	writeSpec(t, dir, fmt.Sprintf(spec, "(method N (returns error))", "(implement I (as Impl))"), "")
+	var log strings.Builder
+	run(Options{Spec: sp, Out: out}, &log)
+	if !strings.Contains(log.String(), "added  N to a/impl.go") {
+		t.Errorf("new interface method should be appended:\n%s", log.String())
+	}
+	writeSpec(t, dir, fmt.Sprintf(spec, "", ""), "")
+	log.Reset()
+	run(Options{Spec: sp, Out: out}, &log)
+	if !strings.Contains(log.String(), "removed a/impl.go (untouched scaffolding") {
+		t.Errorf("dropping the implement should remove its untouched file:\n%s", log.String())
+	}
+}
