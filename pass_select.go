@@ -168,9 +168,12 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		c.Local[p.List[1].Atom] = c.Module + "/" + p.Text("dir")
 		c.PkgDirs[p.List[1].Atom] = p.Text("dir")
 	}
-	if be := lookupBackend(c.Cfg.Storage); be != nil {
+	for _, be := range c.Used {
 		for name, dir := range be.Packages {
 			c.Local[name] = c.Module + "/" + dir
+		}
+		for q, imp := range be.Imports {
+			c.Requires[q] = imp
 		}
 	}
 
@@ -180,10 +183,9 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return nil, err
 	}
 	out = append(out, res...)
-	for _, r := range res {
-		if r.Head() == "sql/table" {
-			out = append(out, sqlcConfig(c))
-			break
+	for _, be := range c.Used {
+		if be.ProjectForms != nil {
+			out = append(out, be.ProjectForms(c)...)
 		}
 	}
 	if repo := n.Find("repo"); repo != nil {
