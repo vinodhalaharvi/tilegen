@@ -73,8 +73,9 @@ func Validate(forms []*Node, c *Ctx) error {
 }
 
 type validator struct {
-	c    *Ctx
-	errs []error
+	c         *Ctx
+	errs      []error
+	goVersion string // the project's (go ...), for tiles that need a newer Go
 
 	pkgNames map[string]bool             // every project package, known up front
 	cur      string                      // package being validated
@@ -133,6 +134,8 @@ func (v *validator) project(p *Node) {
 		case "go":
 			if gb := v.shape(it, "(go ?version)"); gb != nil && !modfile.GoVersionRE.MatchString(gb.Atom("version")) {
 				v.bad(it, "invalid go version %q", gb.Atom("version"))
+			} else if gb != nil {
+				v.goVersion = gb.Atom("version")
 			}
 		case "require":
 			for _, r := range it.Args() {
@@ -260,6 +263,10 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 	types := map[string]bool{}
 	ifaces := packageInterfaces(b.Rest("items"))
 	for _, it := range b.Rest("items") {
+		if pt, ok := packageTiles[it.Head()]; ok {
+			pt.Validate(v, it, types)
+			continue
+		}
 		switch it.Head() {
 		case "entity", "struct":
 			v.structLike(it, types)
@@ -272,7 +279,7 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 		case "doc", "llm":
 			v.shape(it, "(_ ?text ?more...)")
 		default:
-			if s := closest(it.Head(), packageForms); s != "" {
+			if s := closest(it.Head(), knownPackageForms()); s != "" {
 				// A likely typo is an error: it must not quietly become an LLM task.
 				v.bad(it, "unknown form %s (did you mean %s?)", short(it), s)
 			} else if v.c.Strict {

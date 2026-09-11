@@ -250,6 +250,8 @@ func renderGo(f *Node) string {
 			b.WriteString("}\n\n")
 		case "go/func":
 			b.WriteString(renderFunc(d))
+		case "go/raw": // fixed helper code a tile ships verbatim
+			b.WriteString(d.List[1].Atom + "\n\n")
 		case "go/assert":
 			fmt.Fprintf(&b, "// Compile-time check that %s satisfies %s.\nvar _ %s = (*%s)(nil)\n\n",
 				d.List[2].Atom, d.List[1].Atom, d.List[1].Atom, d.List[2].Atom)
