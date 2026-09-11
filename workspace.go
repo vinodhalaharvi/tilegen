@@ -139,7 +139,7 @@ func ParseWorkspace(n *Node, base string) (*Workspace, error) {
 		case "tmux":
 			tmux = it
 		default:
-			bad(it, "unknown workspace item %s (want name, out, worktrees, tmux)", short(it))
+			bad(it, "unknown workspace item %s (want name, out, worktrees, tmux)%s", short(it), didYouMean(it.Head(), []string{"name", "out", "worktrees", "tmux"}))
 		}
 	}
 	if len(ws.Worktrees) > 0 && ws.Out == "" {
@@ -212,7 +212,7 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 			case "run":
 				win.Run = val
 			default:
-				bad(o, "window options are (dir ...), (worktree ...) and (run ...), got %s", short(o))
+				bad(o, "window options are (dir ...), (worktree ...) and (run ...), got %s%s", short(o), didYouMean(o.Head(), []string{"dir", "worktree", "run"}))
 			}
 		}
 		if hasDir && hasWT {
