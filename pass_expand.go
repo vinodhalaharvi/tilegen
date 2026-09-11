@@ -20,7 +20,7 @@ import (
 var Expand = &Pass{
 	Name: "expand",
 	Rules: []Rule{
-		{Name: "entity", Pattern: Pat("(entity ?name ?items...)"), Then: expandEntity},
+		{Name: "entity", Pattern: Pat("(entity ?name ?items...)"), Then: expandEntity, Produces: "struct, store", Doc: "splits an entity into a struct, a store interface and an impl"},
 	},
 }
 

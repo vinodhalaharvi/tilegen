@@ -81,6 +81,11 @@ type Rule struct {
 	Name    string
 	Pattern *Node
 	Then    func(m *Munch, b Bindings, n *Node) ([]*Node, error)
+
+	// Registry metadata (see registry.go), shown by `tilegen tiles`.
+	Produces string // the capability it yields: struct, store, go/file, llm/task, ...
+	Doc      string
+	Cost     Cost
 }
 
 // A Pass is an ordered list of tiles. Order matters: put the biggest,

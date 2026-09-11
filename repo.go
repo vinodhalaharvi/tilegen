@@ -206,8 +206,8 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 	name := project.List[1].Atom
 	info := parseRepo(repo, name)
 	topics := []string{"go", "golang", "tilegen"}
-	if c.Cfg.Storage == "postgres" {
-		topics = append(topics, "postgres", "sqlc")
+	if be := lookupBackend(c.Cfg.Storage); be != nil {
+		topics = append(topics, be.Topics...)
 	}
 	seen := map[string]bool{}
 	gr := L(Sym("git/repo"), L(Sym("name"), Str(info.Name)), L(Sym("visibility"), Sym(info.Visibility)))
@@ -255,8 +255,8 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 	fmt.Fprintf(&b, "Module: `%s`\n\n", c.Module)
 	b.WriteString("Scaffolded by tilegen. Files marked `DO NOT EDIT` are regenerated from the spec;\n")
 	b.WriteString("everything else, including this README, is yours.\n\n## Develop\n\n```sh\n")
-	if c.Cfg.Storage == "postgres" {
-		b.WriteString("make sqlc     # generate internal/db from db/*.sql\n")
+	if be := lookupBackend(c.Cfg.Storage); be != nil && be.Generate != "" {
+		fmt.Fprintf(&b, "make %-8s # %s\n", generateTarget(be), be.GenerateDoc)
 	}
 	b.WriteString("make tidy check\n```\n\nOpen implementation tasks for an LLM are listed in `tilegen.tasks.json`.\n")
 	return b.String()
@@ -265,12 +265,13 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 func makefile(c *Ctx) string {
 	var b strings.Builder
 	b.WriteString(".PHONY: tidy build vet test check")
-	if c.Cfg.Storage == "postgres" {
-		b.WriteString(" sqlc")
+	be := lookupBackend(c.Cfg.Storage)
+	if be != nil && be.Generate != "" {
+		b.WriteString(" " + generateTarget(be))
 	}
 	b.WriteString("\n\ntidy:\n\tgo mod tidy\n\nbuild:\n\tgo build ./...\n\nvet:\n\tgo vet ./...\n\ntest:\n\tgo test ./...\n\ncheck: vet test\n")
-	if c.Cfg.Storage == "postgres" {
-		b.WriteString("\nsqlc:\n\tsqlc generate\n")
+	if be != nil && be.Generate != "" {
+		fmt.Fprintf(&b, "\n%s:\n\t%s\n", generateTarget(be), be.Generate)
 	}
 	return b.String()
 }
@@ -388,13 +389,14 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 		topics = append(topics, t.List[1].Atom)
 	}
 	if mode == "new" {
-		if c.Cfg.Storage == "postgres" {
-			if _, err := exec.LookPath("sqlc"); err == nil {
-				if err := r.Do(out, "sqlc", "generate"); err != nil {
+		if be := lookupBackend(c.Cfg.Storage); be != nil && be.Generate != "" {
+			cmd := strings.Fields(be.Generate)
+			if _, err := exec.LookPath(cmd[0]); err == nil {
+				if err := r.Do(out, cmd[0], cmd[1:]...); err != nil {
 					fmt.Fprintln(log, "warning:", err)
 				}
 			} else {
-				fmt.Fprintln(log, "warning: sqlc not found; the first commit will not build until you run `make sqlc tidy`")
+				fmt.Fprintf(log, "warning: %s not found; the first commit will not build until you run `make %s tidy`\n", cmd[0], generateTarget(be))
 			}
 		}
 		if err := r.Do(out, "go", "mod", "tidy"); err != nil {
@@ -433,3 +435,7 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 	}
 	return nil
 }
+
+// generateTarget names the starter Makefile target for a backend's
+// generate step after its tool: sqlc generate -> sqlc.
+func generateTarget(be *Backend) string { return strings.Fields(be.Generate)[0] }

@@ -361,21 +361,62 @@ compares them with the spec. Nested modules (folders with their own
 `go.mod` is merged, never rewritten: versions are only raised, so
 `go mod tidy` results survive regeneration.
 
-## Writing a tile
+## The tile registry
 
-A tile is a pattern plus a function. For example, an enum tile for the
-select pass:
+Every tile declares what it covers, what capability it produces, what it
+needs and what it costs. `tilegen tiles` lists them all; `-sexp` prints the
+registry as S-expressions, the shape tiles will have once they can be
+written as data:
 
-```go
-{Name: "enum", Pattern: Pat("(enum ?name ?values...)"),
-	Then: func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
-		// return (go/...) target forms; call m.Sub(...) on any leaves
-		// you want other tiles to cover
-	}},
+```lisp
+(tile postgres-sqlc
+  (pass select)
+  (doc "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows")
+  (covers (impl ?iface ?parts...) (backend postgres))
+  (produces store)
+  (requires (tool sqlc))
+  (cost (llm-work 3) (maintenance 2) (dependency 3) (runtime 1)))
+
+(tile catch-all
+  (pass select)
+  (doc "covers anything no other tile covers: the LLM as the tile of last resort")
+  (covers _)
+  (produces llm/task)
+  (cost (llm-work 10) (uncertainty 10)))
 ```
 
-Put more specific patterns before general ones. If you keep giving an LLM
-the same instructions, that convention is a tile waiting to be written.
+Costs are declared but not yet used: selection is still maximal munch plus
+the config. Choosing the cheapest legal tile is next on the roadmap.
+
+## Writing a tile
+
+A pass tile is a pattern plus a function, with registry metadata:
+
+```go
+{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum,
+	Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()",
+	Cost: Cost{{"llm-work", 0}, {"maintenance", 0}}},
+```
+
+`Then` returns target forms and calls `m.Sub(...)` on any leaves it wants
+other tiles to cover. Put more specific patterns before general ones.
+
+A storage backend is a registered tile in its own file, like a database/sql
+driver. Config, validation, the store tile, GitHub topics, starter files and
+`-git` all ask the registry, so a new backend changes nothing else:
+
+```go
+func init() {
+	RegisterBackend(&Backend{
+		Name: "memory", Tile: "memory", Doc: "in-memory store: a map guarded by a mutex",
+		Cost: Cost{{"llm-work", 2}, {"maintenance", 1}, {"dependency", 0}, {"runtime", 1}},
+		Implement: func(in StoreInput) (StoreParts, error) { ... },
+	})
+}
+```
+
+If you keep giving an LLM the same instructions, that convention is a tile
+waiting to be written.
 
 ## Background
 

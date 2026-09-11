@@ -28,15 +28,15 @@ import (
 var Select = &Pass{
 	Name: "select",
 	Rules: []Rule{
-		{Name: "project", Pattern: Pat("(project ?name ?items...)"), Then: selectProject},
-		{Name: "package", Pattern: Pat("(package ?name ?items...)"), Then: selectPackage},
-		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl},
-		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct")},
-		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface},
-		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement},
-		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum},
-		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM},
-		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered},
+		{Name: "project", Pattern: Pat("(project ?name ?items...)"), Then: selectProject, Produces: "gomod", Doc: "writes go.mod and resolves imports"},
+		{Name: "package", Pattern: Pat("(package ?name ?items...)"), Then: selectPackage, Produces: "go/file", Doc: "collects a package into its generated file"},
+		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl, Produces: "store", Doc: "implements a store through the registered backend"},
+		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct"), Produces: "go/struct", Doc: "a struct, as written", Cost: Cost{{"llm-work", 0}}},
+		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface, Produces: "go/interface", Doc: "an interface, as written", Cost: Cost{{"llm-work", 0}}},
+		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement, Produces: "go/file", Doc: "implements any interface: struct, constructor, stubs, check", Cost: Cost{{"llm-work", 5}, {"maintenance", 2}}},
+		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum, Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()", Cost: Cost{{"llm-work", 0}, {"maintenance", 0}}},
+		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM, Produces: "llm/task", Doc: "an explicit hole: pure intent for the LLM", Cost: Cost{{"llm-work", 8}, {"uncertainty", 6}}},
+		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered, Produces: "llm/task", Doc: "covers anything no other tile covers: the LLM as the tile of last resort", Cost: Cost{{"llm-work", 10}, {"uncertainty", 10}}},
 	},
 }
 
@@ -168,8 +168,10 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		c.Local[p.List[1].Atom] = c.Module + "/" + p.Text("dir")
 		c.PkgDirs[p.List[1].Atom] = p.Text("dir")
 	}
-	if c.Cfg.Storage == "postgres" {
-		c.Local["db"] = c.Module + "/internal/db"
+	if be := lookupBackend(c.Cfg.Storage); be != nil {
+		for name, dir := range be.Packages {
+			c.Local[name] = c.Module + "/" + dir
+		}
 	}
 
 	out := []*Node{mod}
@@ -267,57 +269,24 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 
 	decl := L(Sym("go/struct"), Sym(impl), L(Sym("doc"), Str(fmt.Sprintf("%s implements %s using %s storage.", impl, ifaceName, backend))))
 	ctor := L(Sym("go/func"), Sym("New"+impl), L(Sym("doc"), Str(fmt.Sprintf("New%s returns a ready-to-use %s.", impl, impl))))
-	var hint func(meth *Node) string
-	var out []*Node
-	switch backend {
-	case "memory":
-		decl.List = append(decl.List,
-			L(Sym("field"), Sym("mu"), Sym("sync.Mutex")),
-			L(Sym("field"), Sym("m"), Str(fmt.Sprintf("map[%s]*%s", idType, entity))))
-		ctor.List = append(ctor.List, L(Sym("params")), L(Sym("returns"), Sym(ptr)),
-			L(Sym("body"), Str(fmt.Sprintf("return &%s{m: make(map[%s]*%s)}", impl, idType, entity))))
-		hint = func(meth *Node) string { return memoryHint(meth) }
-	case "postgres":
-		decl.List = append(decl.List, L(Sym("field"), Sym("q"), Sym("*db.Queries")))
-		ctor.List = append(ctor.List, L(Sym("params"), L(Sym("q"), Sym("*db.Queries"))),
-			L(Sym("returns"), Sym(ptr)), L(Sym("body"), Str(fmt.Sprintf("return &%s{q: q}", impl))))
-		sql, err := sqlFor(c, entity, st, n.Find("ops"))
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, sql...)
-		var parse []string // enum fields arrive from sqlc as strings
-		for _, f := range st.FindAll("field") {
-			if c.enumFor(f.List[2].Atom, pkg.Name) != nil {
-				typ := strings.TrimPrefix(f.List[2].Atom, "*")
-				q, name, ok := strings.Cut(typ, ".")
-				if ok {
-					typ = q + ".Parse" + name
-				} else {
-					typ = "Parse" + typ
-				}
-				parse = append(parse, fmt.Sprintf("%s with %s", f.List[1].Atom, typ))
-			}
-		}
-		hint = func(meth *Node) string {
-			h := postgresHint(meth, entity)
-			if kind, _ := methodOp(meth); len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {
-				h += " Convert " + strings.Join(parse, ", ") + ", never with a bare cast."
-			}
-			return h
-		}
-	default:
-		return nil, fmt.Errorf("unknown backend %q", backend)
+	be := lookupBackend(backend)
+	if be == nil {
+		return nil, fmt.Errorf("unknown storage backend %q%s (registered: %s)", backend, didYouMean(backend, backendNames()), strings.Join(backendNames(), ", "))
 	}
+	parts, err := be.Implement(StoreInput{C: c, Pkg: pkg, Entity: entity, Struct: st, Iface: ifaceName, Impl: impl, IDType: idType, Ops: n.Find("ops")})
+	if err != nil {
+		return nil, err
+	}
+	decl.List = append(decl.List, parts.Fields...)
+	ctor.List = append(ctor.List, parts.Params, L(Sym("returns"), Sym(ptr)), L(Sym("body"), Str(parts.Body)))
+	out := parts.Extra
 
 	contextFiles := []string{genFile}
 	asDecl := func(head string, n *Node) *Node { return L(append([]*Node{Sym(head)}, n.Args()...)...) }
 	contextFiles = append(contextFiles, foreignGenFiles(c, declTypes([]*Node{asDecl("go/interface", iface), asDecl("go/struct", st)}))...)
-	if backend == "postgres" { // the queries, and the Go sqlc generated from them
-		contextFiles = append(contextFiles, "db/query.sql", "internal/db/models.go", "internal/db/query.sql.go")
-	}
+	contextFiles = append(contextFiles, parts.Context...)
 
-	stubs, tasks := stubsAndTasks(pkg, impl, ifaceName, file, iface.FindAll("method"), hint, contextFiles, constraints)
+	stubs, tasks := stubsAndTasks(pkg, impl, ifaceName, file, iface.FindAll("method"), parts.Hint, contextFiles, constraints)
 	decls := append([]*Node{decl, ctor}, stubs...)
 
 	f, err := goFile(c, file, "keep", "", decls)

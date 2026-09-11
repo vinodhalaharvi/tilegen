@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Tile registry. Every pass tile declares the capability it produces, a
+  doc line and a declared cost; storage backends are registered tiles in
+  their own files (`RegisterBackend`, like database/sql drivers) that also
+  declare their tools, GitHub topics, reserved packages and generate step.
+  Config, validation, the store tile, starter files and `-git` all ask the
+  registry, so the core no longer names any backend. `tilegen tiles` lists
+  the registry, and `-sexp` prints it as S-expressions. Output is unchanged.
 - `tilegen fill [SPEC] [ID or pattern...]` fills holes with any LLM CLI
   set in `(workspace (fill (command "claude -p") (retries 1) (timeout
   "5m")))` or `-llm`. Per hole: prompt, take the method from the reply,
