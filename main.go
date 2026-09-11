@@ -25,14 +25,15 @@ var Pipeline = []*Pass{Expand, Concretize, Select}
 
 // Options are the command-line settings.
 type Options struct {
-	Spec   string // a .sexp file or a directory of them
-	Config string // config file; overrides a (config ...) form in the spec
-	Out    string
-	Name   string // overrides the project (and repository) name
-	Dump   bool
-	Strict bool
-	Git    bool // clone the GitHub repo if it exists, else create it
-	DryRun bool // run every pass, print the -git plan, write nothing
+	Spec       string // a .sexp file or a directory of them
+	Config     string // config file; overrides a (config ...) form in the spec
+	PolicyFile string // policy file; overrides a (policy ...) form in the spec
+	Out        string
+	Name       string // overrides the project (and repository) name
+	Dump       bool
+	Strict     bool
+	Git        bool // clone the GitHub repo if it exists, else create it
+	DryRun     bool // run every pass, print the -git plan, write nothing
 
 	Reselect   bool // ignore tilegen.lock and choose every backend again
 	Check      bool // plan only, and fail if the output differs or holes remain
@@ -83,6 +84,7 @@ func main() {
 	}
 	var o Options
 	flag.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec, else built-in defaults)")
+	flag.StringVar(&o.PolicyFile, "policy", "", "policy .sexp file: weights, prefer and avoid (default: a (policy ...) form in the spec)")
 	flag.StringVar(&o.Out, "out", "", "output directory (default: the workspace's (out ...), else ./out)")
 	flag.StringVar(&o.Name, "name", "", "project name (default: the workspace's (name ...)); also the repository name, and the module path when (module ...) is omitted")
 	flag.BoolVar(&o.Dump, "dump", false, "write the S-expression after every pass to <out>/.tilegen/")
@@ -171,7 +173,21 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 			return nil, err
 		}
 	}
-	c := &Ctx{Cfg: cfg, Strict: o.Strict}
+	pol := DefaultPolicy()
+	switch {
+	case o.PolicyFile != "":
+		if pol, err = LoadPolicy(o.PolicyFile); err != nil {
+			return nil, err
+		}
+	case linked.Policy != nil:
+		if pol, err = ParsePolicy(linked.Policy); err != nil {
+			return nil, err
+		}
+	}
+	if err := pol.checkTileNames(); err != nil {
+		return nil, err
+	}
+	c := &Ctx{Cfg: cfg, Strict: o.Strict, Policy: pol}
 	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
 		return nil, err
 	}

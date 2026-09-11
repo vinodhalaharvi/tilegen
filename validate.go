@@ -31,6 +31,7 @@ type Ctx struct {
 	curPkg   string               // package being concretized
 	Lock     map[string]LockEntry // tilegen.lock: pinned backend choices
 	Reselect bool                 // ignore the lock
+	Policy   *Policy              // what this team values (policy.go)
 	Pkg      *PkgScope
 	seq      int
 }

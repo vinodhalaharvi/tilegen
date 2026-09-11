@@ -46,6 +46,7 @@ type Linked struct {
 	Project   *Node
 	Config    *Node // (config ...): house style
 	Workspace *Node // (workspace ...): how tilegen runs on this machine
+	Policy    *Node // (policy ...): what this team values, for selection
 }
 
 // Merge is a whole-program pass, the linker of this compiler. A spec may be
@@ -64,7 +65,7 @@ func Merge(forms []*Node) (*Linked, error) {
 	bad := func(n *Node, f string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", n.Pos, fmt.Sprintf(f, a...)))
 	}
-	var project, config, workspace, repo *Node
+	var project, config, workspace, policy, repo *Node
 	var items []*Node // project items in order, top-level contributions after
 	var other []*Node // unknown top-level forms, left for the validator
 
@@ -89,6 +90,12 @@ func Merge(forms []*Node) (*Linked, error) {
 				continue
 			}
 			workspace = f
+		case "policy":
+			if policy != nil {
+				bad(f, "second (policy ...) form; the first is at %s", policy.Pos)
+				continue
+			}
+			policy = f
 		case "package", "require", "repo":
 			items = append(items, f)
 		default:
@@ -156,14 +163,14 @@ func Merge(forms []*Node) (*Linked, error) {
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)
 	}
-	return &Linked{Project: merged, Config: config, Workspace: workspace}, errorsFor(other)
+	return &Linked{Project: merged, Config: config, Workspace: workspace, Policy: policy}, errorsFor(other)
 }
 
 func errorsFor(other []*Node) error {
 	var errs []error
 	for _, f := range other {
-		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace)%s",
-			f.Pos, short(f), didYouMean(f.Head(), []string{"project", "package", "require", "repo", "config", "workspace"})))
+		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace, policy)%s",
+			f.Pos, short(f), didYouMean(f.Head(), []string{"project", "package", "require", "repo", "config", "workspace", "policy"})))
 	}
 	return errors.Join(errs...)
 }
