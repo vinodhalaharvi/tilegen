@@ -1,5 +1,6 @@
 # Build output
 /bin/
+/tilegen
 /dist/
 *.exe
 *.test

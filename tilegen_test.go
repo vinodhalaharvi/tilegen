@@ -2,8 +2,10 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -146,7 +148,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(enum Color red green)))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(sp, "", out, false, false, io.Discard); err != nil {
+	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	tasks, _ := os.ReadFile(filepath.Join(out, "tilegen.tasks.json"))
@@ -158,7 +160,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 func TestUnknownQualifier(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(struct S (field X decimal.Decimal))))`, "")
-	err := run(sp, "", filepath.Join(dir, "out"), false, false, io.Discard)
+	err := run(Options{Spec: sp, Config: "", Out: filepath.Join(dir, "out"), Dump: false, Strict: false}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "require") || !strings.Contains(err.Error(), "spec.sexp:1:") {
 		t.Fatalf("want positioned 'add (require ...)' error, got %v", err)
 	}
@@ -166,7 +168,7 @@ func TestUnknownQualifier(t *testing.T) {
 
 func TestShopEndToEnd(t *testing.T) {
 	out := t.TempDir()
-	err := run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, true, false, io.Discard)
+	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: true, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +189,7 @@ func TestShopEndToEnd(t *testing.T) {
 	}
 
 	// Golden: the tiling result is the contract of the passes.
-	got := read(t, out, ".tilegen/03-select.sexp")
+	got := read(t, out, ".tilegen/04-select.sexp")
 	golden := "testdata/shop.select.golden"
 	if *update {
 		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
@@ -202,7 +204,7 @@ func TestShopEndToEnd(t *testing.T) {
 func TestRegenerationKeepsYourCode(t *testing.T) {
 	out := t.TempDir()
 	args := func() error {
-		return run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, false, false, io.Discard)
+		return run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	}
 	if err := args(); err != nil {
 		t.Fatal(err)
@@ -226,7 +228,7 @@ func TestRegenerationKeepsYourCode(t *testing.T) {
 
 func TestPostgresConfig(t *testing.T) {
 	out := t.TempDir()
-	err := run("examples/shop/spec.sexp", "examples/shop/config.postgres.sexp", out, false, false, io.Discard)
+	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.postgres.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,4 +253,445 @@ func read(t *testing.T, dir, rel string) string {
 		t.Fatal(err)
 	}
 	return string(b)
+}
+
+const twoPkgs = `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package orders (struct Order (field ID uuid.UUID) %s))
+  (package billing (entity Invoice (field ID uuid.UUID) %s (store get))))`
+
+func TestCrossPackageImport(t *testing.T) {
+	out := t.TempDir()
+	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "billing/billing_gen.go")
+	for _, want := range []string{`"github.com/acme/shop/orders"`, "o *orders.Order, p orders.Pricer"} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("billing_gen.go missing %q", want)
+		}
+	}
+}
+
+func TestImportCycleRejected(t *testing.T) {
+	src := fmt.Sprintf(twoPkgs, "(field Inv *billing.Invoice)", "(field Order *orders.Order)")
+	err := validateSrc(t, src, false)
+	if err == nil || !strings.Contains(err.Error(), "import cycle between project packages: orders -> billing -> orders") {
+		t.Fatalf("want import cycle error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "spec.sexp:4:70:") { // billing's *orders.Order closes the loop
+		t.Fatalf("cycle error should point at the type that closes the loop: %v", err)
+	}
+}
+
+func TestSelfQualifierRejected(t *testing.T) {
+	src := fmt.Sprintf(twoPkgs, "(field Parent *orders.Order)", "")
+	err := validateSrc(t, src, false)
+	if err == nil || !strings.Contains(err.Error(), "without its package qualifier (*Order)") {
+		t.Fatalf("want self-qualifier error, got %v", err)
+	}
+}
+
+func TestTasksIncludeForeignContext(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, fmt.Sprintf(twoPkgs, "", "(field Order *orders.Order)"), "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if tasks := read(t, out, "tilegen.tasks.json"); !strings.Contains(tasks, `"orders/orders_gen.go"`) {
+		t.Fatalf("billing store tasks should list orders' generated file as context:\n%s", tasks)
+	}
+}
+
+// ---- spec directories and the merge pass ----
+
+func TestSpecDirMatchesSingleFile(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: a}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(Options{Spec: "examples/shopdir", Out: b}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"go.mod", "orders/orders_gen.go", "orders/memory_order_store.go",
+		"billing/billing_gen.go", "billing/memory_invoice_store.go", "tilegen.tasks.json"} {
+		if read(t, a, f) != read(t, b, f) {
+			t.Errorf("%s differs between the single-file spec and the spec directory", f)
+		}
+	}
+}
+
+func mergeSrc(t *testing.T, files ...string) error {
+	t.Helper()
+	var forms []*Node
+	for i, src := range files {
+		fs, err := Parse(fmt.Sprintf("f%d.sexp", i), src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forms = append(forms, fs...)
+	}
+	_, err := Merge(forms)
+	return err
+}
+
+func TestMergeErrors(t *testing.T) {
+	proj := `(project p (module example.com/p) (go 1.22) (require (u github.com/google/uuid v1.6.0)))`
+	for name, tc := range map[string]struct {
+		files []string
+		want  string
+	}{
+		"two projects":     {[]string{proj, proj}, "second (project ...) form; the first is at f0.sexp:1:1"},
+		"require conflict": {[]string{proj, `(require (u github.com/google/uuid v1.5.0))`}, "conflicts with (u github.com/google/uuid v1.6.0) at f0.sexp"},
+		"two package docs": {[]string{proj, `(package a (doc "x"))`, `(package a (doc "y"))`}, "package a already has a (doc ...) at f1.sexp"},
+		"unknown form":     {[]string{proj, `(servce x)`}, "f1.sexp:1:1: unknown top-level form (servce x)"},
+		"no project":       {[]string{`(package a)`}, "exactly one (project NAME ...)"},
+	} {
+		err := mergeSrc(t, tc.files...)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: want error containing %q, got %v", name, tc.want, err)
+		}
+	}
+	if err := mergeSrc(t, proj, `(require (u github.com/google/uuid v1.6.0))`); err != nil {
+		t.Errorf("identical requires should dedupe, got %v", err)
+	}
+}
+
+func TestRepoValidation(t *testing.T) {
+	base := `(project p (module example.com/p) (go 1.22) (package a) %s)`
+	for form, want := range map[string]string{
+		`(repo (visibility secret))`:   "visibility must be public, private or internal",
+		`(repo (topics Go))`:           "topic Go must be lowercase",
+		`(repo (license gpl))`:         "license must be mit or none",
+		`(repo (github a/b/c))`:        "github must be owner/name or name",
+		`(repo (colour blue))`:         "unknown repo item",
+		`(repo (github x) (github y))`: "duplicate (github ...)",
+	} {
+		err := validateSrc(t, fmt.Sprintf(base, form), false)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
+	}
+}
+
+// ---- git and GitHub, with an in-process fake ----
+
+type fakeGH struct {
+	exists bool
+	did    []string
+}
+
+func (f *fakeGH) Query(dir, name string, args ...string) (string, error) {
+	switch cmd := name + " " + strings.Join(args, " "); {
+	case strings.HasPrefix(cmd, "gh api user"):
+		return "octocat", nil
+	case strings.HasPrefix(cmd, "gh repo view"):
+		if f.exists {
+			return `{"name":"x"}`, nil
+		}
+		return "GraphQL: Could not resolve to a Repository with the name 'x'.", fmt.Errorf("exit status 1")
+	default:
+		return "", fmt.Errorf("unexpected query %s", cmd)
+	}
+}
+
+func (f *fakeGH) Do(dir, name string, args ...string) error {
+	f.did = append(f.did, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func (f *fakeGH) ran(prefix string) bool {
+	for _, c := range f.did {
+		if strings.HasPrefix(c, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+const ghSpec = `(project shop (go 1.22)
+  (repo (github shop) (visibility public) (description "d") (topics orders))
+  (package orders (struct Order (field ID int64))))`
+
+func TestGitCreatesMissingRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	gh := &fakeGH{}
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Name: "myshop", Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"git init -q -b main", "go mod tidy", "git add -A", "git commit",
+		"gh repo create octocat/myshop --public --source=. --remote=origin --push --description d",
+		"gh repo edit octocat/myshop --add-topic go,golang,tilegen,orders",
+	} {
+		if !gh.ran(want) {
+			t.Errorf("missing command %q in %q", want, gh.did)
+		}
+	}
+	if mod := read(t, out, "go.mod"); !strings.Contains(mod, "module github.com/octocat/myshop") {
+		t.Errorf("module should derive from -name and the gh login:\n%s", mod)
+	}
+	for _, f := range []string{"README.md", "LICENSE", "Makefile", ".gitignore"} {
+		read(t, out, f)
+	}
+}
+
+func TestGitClonesExistingRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	gh := &fakeGH{exists: true}
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !gh.ran("gh repo clone octocat/shop") || gh.ran("gh repo create") || gh.ran("git commit") {
+		t.Fatalf("want clone without create or commit, got %q", gh.did)
+	}
+}
+
+func TestGitUsesExistingLocalRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := os.MkdirAll(filepath.Join(out, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gh := &fakeGH{exists: true}
+	if err := run(Options{Spec: sp, Out: out, Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if gh.ran("gh repo clone") || gh.ran("git init") || gh.ran("git commit") {
+		t.Fatalf("an existing local repository must be used as is, got %q", gh.did)
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Git: true, DryRun: true, Runner: &fakeGH{}}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("dry run created %s", out)
+	}
+}
+
+// TestGitLocalOnlyRealGit runs real git: -git without (repo ...) makes a
+// local repository with one commit and never calls gh.
+func TestGitLocalOnlyRealGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"} {
+		t.Setenv(k, v)
+	}
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Git: true}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	log, err := exec.Command("git", "-C", out, "log", "--oneline").Output()
+	if err != nil || !strings.Contains(string(log), "Initial scaffold from tilegen") {
+		t.Fatalf("want one commit, got %q, %v", log, err)
+	}
+}
+
+// ---- workspace: worktrees and tmux ----
+
+func parseWS(t *testing.T, src string) (*Workspace, error) {
+	t.Helper()
+	n, err := Parse("ws.sexp", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ParseWorkspace(n[0], "/base/spec")
+}
+
+func TestWorkspaceParse(t *testing.T) {
+	ws, err := parseWS(t, `(workspace (name shop) (out ..)
+	  (worktrees (worktree billing (branch feat/billing)) (worktree docs))
+	  (tmux (session shop (window code (dir .)) (window b (worktree billing) (run "claude")))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Out != "/base" || ws.Worktrees[0].Path != "/base.wt/billing" || ws.Worktrees[1].Branch != "docs" {
+		t.Fatalf("paths or default branch wrong: %+v", ws)
+	}
+	if ws.Windows[1].Dir != "/base.wt/billing" || ws.Windows[1].Run != "claude" {
+		t.Fatalf("window not resolved: %+v", ws.Windows[1])
+	}
+}
+
+func TestWorkspaceValidation(t *testing.T) {
+	for src, want := range map[string]string{
+		`(workspace (worktrees (worktree a)))`:                                                             "worktrees need (out ...)",
+		`(workspace (out ..) (worktrees (worktree a (branch ../x))))`:                                      `invalid branch name "../x"`,
+		`(workspace (out ..) (tmux (session my.shop (window a))))`:                                         `session name "my.shop"`,
+		`(workspace (out ..) (tmux (session s (window a) (window a))))`:                                    `duplicate window "a"`,
+		`(workspace (out ..) (tmux (session s (window a (worktree nope)))))`:                               `no worktree named "nope"`,
+		`(workspace (out ..) (worktrees (worktree w)) (tmux (session s (window a (dir .) (worktree w)))))`: "not both",
+		`(workspace (out ..) (tmux (session s)))`:                                                          "at least one (window ...)",
+		`(workspace (colour blue))`:                                                                        "unknown workspace item",
+	} {
+		if _, err := parseWS(t, src); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+}
+
+// scriptRunner answers queries from a table of command prefixes and
+// records every command that would change something.
+type scriptRunner struct {
+	answers map[string]string // prefix -> output; missing prefix -> error
+	did     []string
+}
+
+func (s *scriptRunner) Query(dir, name string, args ...string) (string, error) {
+	cmd := name + " " + strings.Join(args, " ")
+	for prefix, out := range s.answers {
+		if strings.HasPrefix(cmd, prefix) {
+			return out, nil
+		}
+	}
+	return "", fmt.Errorf("exit status 1")
+}
+
+func (s *scriptRunner) Do(dir, name string, args ...string) error {
+	s.did = append(s.did, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func testWorkspace(t *testing.T) *Workspace {
+	ws, err := parseWS(t, `(workspace (out ..)
+	  (worktrees (worktree billing (branch feat/billing)) (worktree pricing (branch feat/pricer)))
+	  (tmux (session shop (window code (dir .) (run "make check")) (window billing (worktree billing)))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+func TestUpCreatesWorktreesAndSession(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"git worktree list": "worktree /base\nHEAD abc\nbranch refs/heads/main",
+		"git rev-parse --verify --quiet refs/heads/feat/pricer": "abc", // exists; feat/billing does not
+	}}
+	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"git worktree add -q -b feat/billing /base.wt/billing",
+		"git worktree add -q /base.wt/pricing feat/pricer",
+		"tmux new-session -d -s shop -n code -c /base",
+		"tmux send-keys -t =shop:code make check Enter",
+		"tmux new-window -d -t =shop: -n billing -c /base.wt/billing",
+	}
+	if strings.Join(r.did, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands:\n%s\nwant:\n%s", strings.Join(r.did, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestUpReusesAndCompletes(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"git worktree list": "worktree /base\n\nworktree /base.wt/billing\n\nworktree /base.wt/pricing",
+		"tmux has-session":  "",
+		"tmux list-windows": "code", // billing window was added to the spec later
+	}}
+	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.did) != 1 || r.did[0] != "tmux new-window -d -t =shop: -n billing -c /base.wt/billing" {
+		t.Fatalf("want only the missing window, got %q", r.did)
+	}
+}
+
+func TestDownPrune(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"tmux has-session":  "",
+		"git worktree list": "worktree /base\n\nworktree /base.wt/billing",
+	}}
+	if err := Down(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	want := "tmux kill-session -t =shop\ngit worktree remove /base.wt/billing" // pricing was never created
+	if strings.Join(r.did, "\n") != want {
+		t.Fatalf("got %q", r.did)
+	}
+}
+
+func TestGenerationUsesWorkspaceDefaults(t *testing.T) {
+	root := t.TempDir()
+	spec := filepath.Join(root, "spec")
+	if err := os.MkdirAll(spec, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(spec, "p.sexp"), []byte(`(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))
+(workspace (name renamed) (out ..))`), 0o644)
+	if err := run(Options{Spec: spec}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	read(t, root, "a/a_gen.go") // generated next to spec/, per (out ..)
+}
+
+// TestWorkspaceRealGitAndTmux runs `up` and `down -prune` with real git and
+// tmux, on a private tmux server so it never touches your sessions.
+func TestWorkspaceRealGitAndTmux(t *testing.T) {
+	for _, tool := range []string{"git", "tmux"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	// tmux's socket path must fit in ~104 bytes on macOS, and t.TempDir()
+	// there is long (/private/var/folders/...), so use a short folder in /tmp.
+	sock, err := os.MkdirTemp("/tmp", "tg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sock) })
+	t.Setenv("TMUX_TMPDIR", sock)
+	t.Setenv("TMUX", "")
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"} {
+		t.Setenv(k, v)
+	}
+	t.Cleanup(func() { exec.Command("tmux", "kill-server").Run() })
+
+	root := canonical(t.TempDir())
+	main := filepath.Join(root, "proj")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "commit", "-q", "--allow-empty", "-m", "init"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	n, _ := Parse("ws.sexp", `(workspace (out proj) (worktrees (worktree feat))
+	  (tmux (session tgtest (window code (dir .)) (window feat (worktree feat)))))`)
+	ws, err := ParseWorkspace(n[0], root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := execRunner{log: io.Discard}
+	if err := Up(ws, r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat", ".git")); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+	out, err := exec.Command("tmux", "list-windows", "-t", "=tgtest", "-F", "#{window_name}:#{pane_current_path}").Output()
+	if err != nil || !strings.Contains(string(out), "feat:"+filepath.Join(root, "proj.wt", "feat")) {
+		t.Fatalf("tmux windows = %q, %v", out, err)
+	}
+	if err := Down(ws, r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat")); !os.IsNotExist(err) {
+		t.Fatal("clean worktree should be removed by down -prune")
+	}
+	if exec.Command("tmux", "has-session", "-t", "=tgtest").Run() == nil {
+		t.Fatal("session should be closed")
+	}
 }

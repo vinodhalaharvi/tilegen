@@ -15,6 +15,7 @@ jobs:
           go-version-file: go.mod
       - run: make check
       - run: make demo # generated project must build and vet
+      - run: make demo-dir # same project from a directory of .sexp files
 
   postgres:
     runs-on: ubuntu-latest
