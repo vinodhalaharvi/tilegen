@@ -63,6 +63,7 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 | `(struct Name (field N T (tag "...") (doc "..."))...)` | plain struct |
 | `(interface Name (method N (params (n T)...) (returns T...)) (embed T))` | an interface |
 | `(implement Iface (as Name) (field n T)...)` | an implementation of any interface in the package |
+| `(enum Status pending paid shipped)` | a string type with constants, `StatusValues`, `Valid()`, `ParseStatus()` |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 

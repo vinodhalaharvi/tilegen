@@ -8,6 +8,25 @@
   (package orders)
   (doc "Package orders tracks customer orders.")
   (import uuid "github.com/google/uuid")
+  (go/type Status string (doc "Status is where an order is in its lifecycle."))
+  (go/consts
+    (const StatusPending Status "pending")
+    (const StatusPaid Status "paid")
+    (const StatusShipped Status "shipped")
+    (const StatusCancelled Status "cancelled"))
+  (go/var StatusValues "[]Status{StatusPending, StatusPaid, StatusShipped, StatusCancelled}"
+    (doc "StatusValues lists every Status, in declaration order."))
+  (go/func Valid
+    (doc "Valid reports whether s is a known Status.")
+    (recv s Status)
+    (params)
+    (returns bool)
+    (body "switch s {\ncase StatusPending, StatusPaid, StatusShipped, StatusCancelled:\nreturn true\n}\nreturn false"))
+  (go/func ParseStatus
+    (doc "ParseStatus returns the Status spelled s, or an error.")
+    (params (s string))
+    (returns Status error)
+    (body "if v := Status(s); v.Valid() {\nreturn v, nil\n}\nreturn \"\", fmt.Errorf(\"unknown Status %q\", s)"))
   (go/struct Order
     (doc "Order is a placed customer order.")
     (field ID uuid.UUID (tag "json:\"id\""))
@@ -16,7 +35,8 @@
       (doc "Total in minor currency units.")
       (tag "json:\"total_cents\""))
     (field PlacedAt time.Time (tag "json:\"placed_at\""))
-    (field ShippedAt *time.Time (tag "json:\"shipped_at\"")))
+    (field ShippedAt *time.Time (tag "json:\"shipped_at\""))
+    (field Status Status (tag "json:\"status\"")))
   (go/interface OrderStore
     (doc "OrderStore persists Order values.")
     (method Get
