@@ -5,10 +5,11 @@ import "fmt"
 // The memory backend: a map guarded by a mutex. Useful for tests and fakes.
 func init() {
 	RegisterBackend(&Backend{
-		Name: "memory",
-		Tile: "memory",
-		Doc:  "in-memory store: a map guarded by a mutex",
-		Cost: Cost{{"llm-work", 2}, {"maintenance", 1}, {"dependency", 0}, {"runtime", 1}},
+		Name:        "memory",
+		Tile:        "memory",
+		Doc:         "in-memory store: a map guarded by a mutex",
+		Cost:        Cost{{"llm-work", 2}, {"maintenance", 1}, {"dependency", 0}, {"runtime", 1}},
+		IllegalWhen: map[string]string{"durable": "an in-memory map loses its data on restart"},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{
 				Fields: []*Node{
