@@ -206,7 +206,7 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 	name := project.List[1].Atom
 	info := parseRepo(repo, name)
 	topics := []string{"go", "golang", "tilegen"}
-	if be := lookupBackend(c.Cfg.Storage); be != nil {
+	for _, be := range c.Used {
 		topics = append(topics, be.Topics...)
 	}
 	seen := map[string]bool{}
@@ -255,8 +255,10 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 	fmt.Fprintf(&b, "Module: `%s`\n\n", c.Module)
 	b.WriteString("Scaffolded by tilegen. Files marked `DO NOT EDIT` are regenerated from the spec;\n")
 	b.WriteString("everything else, including this README, is yours.\n\n## Develop\n\n```sh\n")
-	if be := lookupBackend(c.Cfg.Storage); be != nil && be.Generate != "" {
-		fmt.Fprintf(&b, "make %-8s # %s\n", generateTarget(be), be.GenerateDoc)
+	for _, be := range c.Used {
+		if be.Generate != "" {
+			fmt.Fprintf(&b, "make %-8s # %s\n", generateTarget(be), be.GenerateDoc)
+		}
 	}
 	b.WriteString("make tidy check\n```\n\nOpen implementation tasks for an LLM are listed in `tilegen.tasks.json`.\n")
 	return b.String()
@@ -264,13 +266,18 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 
 func makefile(c *Ctx) string {
 	var b strings.Builder
+	var gen []*Backend
+	for _, be := range c.Used {
+		if be.Generate != "" {
+			gen = append(gen, be)
+		}
+	}
 	b.WriteString(".PHONY: tidy build vet test check")
-	be := lookupBackend(c.Cfg.Storage)
-	if be != nil && be.Generate != "" {
+	for _, be := range gen {
 		b.WriteString(" " + generateTarget(be))
 	}
 	b.WriteString("\n\ntidy:\n\tgo mod tidy\n\nbuild:\n\tgo build ./...\n\nvet:\n\tgo vet ./...\n\ntest:\n\tgo test ./...\n\ncheck: vet test\n")
-	if be != nil && be.Generate != "" {
+	for _, be := range gen {
 		fmt.Fprintf(&b, "\n%s:\n\t%s\n", generateTarget(be), be.Generate)
 	}
 	return b.String()
@@ -389,7 +396,10 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 		topics = append(topics, t.List[1].Atom)
 	}
 	if mode == "new" {
-		if be := lookupBackend(c.Cfg.Storage); be != nil && be.Generate != "" {
+		for _, be := range c.Used {
+			if be.Generate == "" {
+				continue
+			}
 			cmd := strings.Fields(be.Generate)
 			if _, err := exec.LookPath(cmd[0]); err == nil {
 				if err := r.Do(out, cmd[0], cmd[1:]...); err != nil {

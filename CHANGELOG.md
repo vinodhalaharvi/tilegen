@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Selection: stores declare needs (`(durable)`), backends declare when
+  they are illegal (`IllegalWhen`), and `(storage auto)`, now the default,
+  gives every store the cheapest legal backend by declared cost times
+  built-in weights. Stores in one project can use different backends. An
+  explicit backend that is illegal for a store is an error at the spec.
+  Legality depends only on the spec. Existing specs without needs choose
+  exactly as before.
+- `tilegen explain [SPEC] [STORE...]` shows each store's needs, the legal
+  backends with their score arithmetic, and the illegal ones with reasons;
+  the choice is also recorded in `-dump`.
+- A third backend, `postgres-pgx`: tilegen writes the schema, the LLM writes
+  the SQL against a `pgxpool.Pool`, hinted with the query sqlc would have
+  compiled. Backends can now declare imports and project-level forms
+  (sqlc.yaml comes from the sqlc backend).
+- `examples/auto` and `make demo-auto` (in CI): memory and postgres-sqlc in
+  one project.
 - Event bus tile: `(events (event NoteShared (field ...))...)` generates
   event structs, a typed `Bus` interface and `LocalBus`, a synchronous
   in-process implementation (ordered delivery, joined errors, safe

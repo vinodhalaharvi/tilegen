@@ -15,12 +15,12 @@ import (
 type Config struct {
 	JSONTags     string // snake | camel | none
 	ContextFirst bool   // prepend ctx context.Context to interface methods
-	Storage      string // memory | postgres (postgres emits sqlc inputs)
+	Storage      string // auto (cheapest legal backend per store) | a registered backend
 	Layout       string // flat | internal
 }
 
 func DefaultConfig() Config {
-	return Config{JSONTags: "snake", ContextFirst: true, Storage: "memory", Layout: "flat"}
+	return Config{JSONTags: "snake", ContextFirst: true, Storage: "auto", Layout: "flat"}
 }
 
 var configChoices = map[string][]string{
@@ -159,7 +159,7 @@ func exported(s string) bool {
 func choicesFor(key string) ([]string, bool) {
 	choices, ok := configChoices[key]
 	if key == "storage" {
-		choices = backendNames()
+		choices = append([]string{"auto"}, backendNames()...)
 	}
 	return choices, ok
 }
