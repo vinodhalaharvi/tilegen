@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `tilegen prompt [SPEC] [ID...]` prints a self-contained Markdown prompt
+  per task: what to write, contract, intent, constraints, reply rules, and
+  the full text of every file involved (for postgres stores, sqlc's
+  generated Go too). No ID lists the open tasks; `-all` prints them all. It
+  uses the generation plan, so it is never stale, and writes nothing.
+- Subcommands accept flags after the spec: `tilegen check spec/ -allow-holes`.
 ## v0.2.0 - 2026-09-11
 
 v0.2 made tilegen trustworthy on real projects: specs across files, git and

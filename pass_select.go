@@ -313,8 +313,8 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	contextFiles := []string{genFile}
 	asDecl := func(head string, n *Node) *Node { return L(append([]*Node{Sym(head)}, n.Args()...)...) }
 	contextFiles = append(contextFiles, foreignGenFiles(c, declTypes([]*Node{asDecl("go/interface", iface), asDecl("go/struct", st)}))...)
-	if backend == "postgres" {
-		contextFiles = append(contextFiles, "db/query.sql")
+	if backend == "postgres" { // the queries, and the Go sqlc generated from them
+		contextFiles = append(contextFiles, "db/query.sql", "internal/db/models.go", "internal/db/query.sql.go")
 	}
 
 	stubs, tasks := stubsAndTasks(pkg, impl, ifaceName, file, iface.FindAll("method"), hint, contextFiles, constraints)
