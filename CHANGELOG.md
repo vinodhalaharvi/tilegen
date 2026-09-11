@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- A spec with `(github name)` and no `(module ...)` takes its module path
+  and owner from the project's go.mod (or the spec's module), so plain
+  generation never calls `gh`, and every machine gets the same module.
+  `gh` is only asked on the first `-git` run, before go.mod exists.
 - `(implement Iface (as Name) (field n T)...)` implements any interface in
   the package, generated store interfaces included: struct, constructor
   with injected dependencies, stubs, compile-time check, tasks, and

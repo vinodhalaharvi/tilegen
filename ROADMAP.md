@@ -28,7 +28,7 @@ Make what exists trustworthy before adding anything clever.
 - [ ] **Enum tile**: Done when `(enum Status pending paid shipped)` emits a string type, constants, and a `Valid()` method, covered by a golden test.
 - [ ] **`tilegen check` command**: Done when it exits non-zero if holes remain or generated files are stale, so CI can gate on it.
 - [ ] **Did-you-mean for uncovered forms**: Done when `(entiy ...)` warns `did you mean entity?` instead of silently becoming an LLM task.
-- [ ] **Module path without the network**: Done when a spec with `(github name)` and no `(module ...)` takes its module path from the project's go.mod, so plain generation never calls `gh` and every machine gets the same module; `gh` is only asked on the first `-git` run.
+- [x] **Module path without the network**: Done when a spec with `(github name)` and no `(module ...)` takes its module path from the project's go.mod, so plain generation never calls `gh` and every machine gets the same module; `gh` is only asked on the first `-git` run.
 
 Shipped in this cycle beyond the plan, found by using tilegen on a real test project:
 
