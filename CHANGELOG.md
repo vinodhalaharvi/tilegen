@@ -24,6 +24,13 @@
 - `-git` clones the GitHub repository if it exists, or runs git init,
   commits, creates it with `gh`, and adds topics. `-name` picks the project,
   repository and module name. `-dry-run` prints the plan and writes nothing.
+- New `(workspace ...)` form for the local workstation: `(name ...)` and
+  `(out ...)` default -name and -out, git worktrees live at `<out>.wt/`,
+  and a tmux session has one window per checkout with an optional command.
+- `tilegen up` creates missing worktrees and opens or attaches the session;
+  re-running reuses everything and adds new windows. `tilegen status` shows
+  each checkout's changes, open holes and branch. `tilegen down` closes the
+  session; `-prune` removes clean worktrees and keeps branches.
 
 ## v0.1.0
 

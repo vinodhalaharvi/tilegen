@@ -40,6 +40,14 @@ func ReadSpec(path string) ([]*Node, error) {
 	return forms, nil
 }
 
+// Linked is the result of Merge: one project plus the forms that sit
+// beside it and never change generated code.
+type Linked struct {
+	Project   *Node
+	Config    *Node // (config ...): house style
+	Workspace *Node // (workspace ...): how tilegen runs on this machine
+}
+
 // Merge is a whole-program pass, the linker of this compiler. A spec may be
 // split across files: one (project ...) header, plus any number of
 // top-level (package ...), (require ...), (repo ...) and (config ...)
@@ -47,16 +55,16 @@ func ReadSpec(path string) ([]*Node, error) {
 //
 //   - packages with the same name merge, items in file order;
 //   - identical requires dedupe; conflicting ones are errors;
-//   - a (config ...) form is returned separately (the -config flag wins).
+//   - (config ...) and (workspace ...) forms are returned separately.
 //
 // Unlike the other passes it is not a set of local tiles: deciding that
 // two (package orders ...) forms are one package needs the whole program.
-func Merge(forms []*Node) (*Node, *Node, error) {
+func Merge(forms []*Node) (*Linked, error) {
 	var errs []error
 	bad := func(n *Node, f string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", n.Pos, fmt.Sprintf(f, a...)))
 	}
-	var project, config, repo *Node
+	var project, config, workspace, repo *Node
 	var items []*Node // project items in order, top-level contributions after
 	var other []*Node // unknown top-level forms, left for the validator
 
@@ -75,6 +83,12 @@ func Merge(forms []*Node) (*Node, *Node, error) {
 				continue
 			}
 			config = f
+		case "workspace":
+			if workspace != nil {
+				bad(f, "second (workspace ...) form; the first is at %s", workspace.Pos)
+				continue
+			}
+			workspace = f
 		case "package", "require", "repo":
 			items = append(items, f)
 		default:
@@ -83,7 +97,7 @@ func Merge(forms []*Node) (*Node, *Node, error) {
 	}
 	if project == nil || len(project.List) < 2 {
 		errs = append(errs, errors.New("spec needs exactly one (project NAME ...) form"))
-		return nil, nil, errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
 
 	merged := &Node{IsList: true, Pos: project.Pos, List: []*Node{project.List[0], project.List[1]}}
@@ -140,15 +154,15 @@ func Merge(forms []*Node) (*Node, *Node, error) {
 		}
 	}
 	if len(errs) > 0 {
-		return nil, nil, errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
-	return merged, config, errorsFor(other)
+	return &Linked{Project: merged, Config: config, Workspace: workspace}, errorsFor(other)
 }
 
 func errorsFor(other []*Node) error {
 	var errs []error
 	for _, f := range other {
-		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config)", f.Pos, short(f)))
+		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace)", f.Pos, short(f)))
 	}
 	return errors.Join(errs...)
 }

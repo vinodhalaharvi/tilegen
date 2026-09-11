@@ -109,6 +109,43 @@ the changes for you to review and commit. If it does not, it runs
 makes the first commit, creates the repository with `gh repo create`, and
 adds topics. Without `(github ...)`, `-git` makes a local repository only.
 
+## Workstation: worktrees and tmux
+
+A `(workspace ...)` form says how tilegen runs on your machine. It never
+changes generated code. Put the spec inside the repository it generates, and
+one folder holds everything:
+
+```lisp
+(workspace
+  (name myshop)                   ; default for -name
+  (out ..)                        ; default for -out: this spec lives at spec/
+  (worktrees                      ; checkouts at ../myshop.wt/<name>
+    (worktree billing (branch feat/billing))
+    (worktree pricing (branch feat/pricer)))
+  (tmux
+    (session myshop
+      (window code    (dir .)            (run "$EDITOR ."))
+      (window check   (dir .)            (run "make tidy check"))
+      (window billing (worktree billing) (run "claude"))
+      (window pricing (worktree pricing) (run "claude")))))
+```
+
+```sh
+tilegen -git spec/        # generate into ..; create or clone the GitHub repo
+tilegen up spec/          # create missing worktrees, open or attach the session
+tilegen status spec/      # per checkout: changes, open holes, branch
+tilegen down spec/        # close the session; -prune also removes clean worktrees
+```
+
+Each worktree is a full checkout on its own branch, so separate agents can
+fill different packages' holes in parallel without touching each other's
+files. `up` is safe to re-run: it reuses existing worktrees, recreates
+missing ones from their branches, and adds windows you added to the spec.
+Inside tmux it switches your client; outside, it attaches. `down -prune`
+uses `git worktree remove`, which refuses to delete uncommitted work, and
+branches are always kept. Plain generation never runs commands: worktrees,
+tmux and `run` only happen when you type `up`.
+
 ## The config
 
 Same spec, different config, different (equally valid) Go:
