@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## v0.3.0 - 2026-09-11
+
+v0.3 hands the holes to an LLM and makes tilegen choose. `tilegen prompt`
+and `tilegen fill` turn tasks into self-contained prompts and fill them with
+any LLM CLI, building and retrying with the compiler's errors. The tile
+registry makes every tile declare what it covers, produces and costs; new
+tiles register themselves (the event bus is the first). Stores declare
+needs, backends declare legality, and `(storage auto)` picks the cheapest
+legal backend per store, counting chain rules like sqlc's row mapper, with
+`tilegen explain` showing why and `tilegen.lock` keeping choices stable.
+
 - `tilegen.lock` pins each store's backend in the generated project. A
   pinned choice sticks while it stays legal, so cost or spec changes never
   silently move a store; `explain` shows when auto would now choose

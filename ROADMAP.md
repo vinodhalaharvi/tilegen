@@ -40,19 +40,13 @@ Shipped in this cycle beyond the plan, found by using tilegen on a real test pro
 - [x] **Implement any interface**: `(implement ...)`, embedded interfaces (standard library via Go's type checker), variadic parameters.
 - [x] **go.mod never lowers versions** that `go mod tidy` raised.
 
-## v0.3.0 - Handoff
+## v0.3.0 - Released
 
-Make the LLM step one command, and measure everything it does.
+Handoff and costs: prompts and fill for the LLM, and a compiler that chooses
+between tiles, explains why, and stays stable.
 
 - [x] **`tilegen prompt <id>`**: Done when it prints one self-contained prompt per hole: instructions, contract, intent, constraints, and context files inlined.
 - [x] **`tilegen fill`**: Done when `tilegen fill -llm "claude -p"` (any CLI that reads a prompt on stdin) fills each hole, splices the body in with go/ast, runs `go build`, retries once with the compiler error, and leaves failures as open holes.
-- [ ] **Metrics log** (deferred until fill runs for real; build it with Experiment 1): Done when every fill attempt appends to `.tilegen/metrics.jsonl`: hole id, prompt and response size, token counts when the CLI reports them, attempts, and first-try build success.
-- [ ] **Experiment 1: agent-only vs tilegen**: Done when `docs/experiment-1.md` compares building the same feature both ways on tokens, cost, time, and first-try build success.
-
-## v0.4.0 - Costs
-
-The compiler chooses between tiles, explains why, and stays stable.
-
 - [x] **Tile registry**: Done when the storage backends are registered tiles that declare what they cover, produce and cost, and `tilegen tiles` lists the registry.
 - [x] **Event bus tile**: Done when `(events (event Name (field ...))...)` generates event structs, a typed bus interface and an in-process implementation, added through the registry without changing the core.
 - [x] **Legality guards on tiles**: Done when a tile can declare conditions (for example "no dynamic queries") and illegal tiles are skipped before costing.
@@ -60,6 +54,13 @@ The compiler chooses between tiles, explains why, and stays stable.
 - [x] **Bottom-up cost selection** (today only store nodes have competing tiles, so the cheapest covering is the cheapest legal backend per store plus the cheapest chain, found with Dijkstra over forms; a general tree-wide pass comes when more kinds of node have alternatives): Done when select finds the cheapest covering by dynamic programming (iburg-style), with maximal munch kept as a fallback, and the sqlc-vs-pgx example picks pgx when the mapper is expensive.
 - [x] **Explain choices in the dump**: Done when the select dump shows, per node, the winning tile, its cost, and the runners-up.
 - [x] **`tilegen.lock`**: Done when choices are pinned across runs and only re-selected when a pinned tile becomes illegal or `-reselect` is passed.
+
+## v0.4.0 - Measured
+
+Run fill for real, and let measured numbers replace declared costs.
+
+- [ ] **Metrics log**: Done when every fill attempt appends to `.tilegen/metrics.jsonl`: hole id, prompt and response size, token counts when the CLI reports them, attempts, and first-try build success.
+- [ ] **Experiment 1: agent-only vs tilegen**: Done when `docs/experiment-1.md` compares building the same feature both ways on tokens, cost, time, and first-try build success.
 - [ ] **Measured costs for LLM tiles**: Done when LLM tile costs come from v0.3 metrics instead of guesses.
 
 ## v0.5.0 - Intent
