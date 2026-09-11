@@ -332,7 +332,7 @@ func mergeSrc(t *testing.T, files ...string) error {
 		}
 		forms = append(forms, fs...)
 	}
-	_, _, err := Merge(forms)
+	_, err := Merge(forms)
 	return err
 }
 
@@ -498,5 +498,193 @@ func TestGitLocalOnlyRealGit(t *testing.T) {
 	log, err := exec.Command("git", "-C", out, "log", "--oneline").Output()
 	if err != nil || !strings.Contains(string(log), "Initial scaffold from tilegen") {
 		t.Fatalf("want one commit, got %q, %v", log, err)
+	}
+}
+
+// ---- workspace: worktrees and tmux ----
+
+func parseWS(t *testing.T, src string) (*Workspace, error) {
+	t.Helper()
+	n, err := Parse("ws.sexp", src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ParseWorkspace(n[0], "/base/spec")
+}
+
+func TestWorkspaceParse(t *testing.T) {
+	ws, err := parseWS(t, `(workspace (name shop) (out ..)
+	  (worktrees (worktree billing (branch feat/billing)) (worktree docs))
+	  (tmux (session shop (window code (dir .)) (window b (worktree billing) (run "claude")))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ws.Out != "/base" || ws.Worktrees[0].Path != "/base.wt/billing" || ws.Worktrees[1].Branch != "docs" {
+		t.Fatalf("paths or default branch wrong: %+v", ws)
+	}
+	if ws.Windows[1].Dir != "/base.wt/billing" || ws.Windows[1].Run != "claude" {
+		t.Fatalf("window not resolved: %+v", ws.Windows[1])
+	}
+}
+
+func TestWorkspaceValidation(t *testing.T) {
+	for src, want := range map[string]string{
+		`(workspace (worktrees (worktree a)))`:                                                             "worktrees need (out ...)",
+		`(workspace (out ..) (worktrees (worktree a (branch ../x))))`:                                      `invalid branch name "../x"`,
+		`(workspace (out ..) (tmux (session my.shop (window a))))`:                                         `session name "my.shop"`,
+		`(workspace (out ..) (tmux (session s (window a) (window a))))`:                                    `duplicate window "a"`,
+		`(workspace (out ..) (tmux (session s (window a (worktree nope)))))`:                               `no worktree named "nope"`,
+		`(workspace (out ..) (worktrees (worktree w)) (tmux (session s (window a (dir .) (worktree w)))))`: "not both",
+		`(workspace (out ..) (tmux (session s)))`:                                                          "at least one (window ...)",
+		`(workspace (colour blue))`:                                                                        "unknown workspace item",
+	} {
+		if _, err := parseWS(t, src); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+}
+
+// scriptRunner answers queries from a table of command prefixes and
+// records every command that would change something.
+type scriptRunner struct {
+	answers map[string]string // prefix -> output; missing prefix -> error
+	did     []string
+}
+
+func (s *scriptRunner) Query(dir, name string, args ...string) (string, error) {
+	cmd := name + " " + strings.Join(args, " ")
+	for prefix, out := range s.answers {
+		if strings.HasPrefix(cmd, prefix) {
+			return out, nil
+		}
+	}
+	return "", fmt.Errorf("exit status 1")
+}
+
+func (s *scriptRunner) Do(dir, name string, args ...string) error {
+	s.did = append(s.did, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func testWorkspace(t *testing.T) *Workspace {
+	ws, err := parseWS(t, `(workspace (out ..)
+	  (worktrees (worktree billing (branch feat/billing)) (worktree pricing (branch feat/pricer)))
+	  (tmux (session shop (window code (dir .) (run "make check")) (window billing (worktree billing)))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ws
+}
+
+func TestUpCreatesWorktreesAndSession(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"git worktree list": "worktree /base\nHEAD abc\nbranch refs/heads/main",
+		"git rev-parse --verify --quiet refs/heads/feat/pricer": "abc", // exists; feat/billing does not
+	}}
+	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"git worktree add -q -b feat/billing /base.wt/billing",
+		"git worktree add -q /base.wt/pricing feat/pricer",
+		"tmux new-session -d -s shop -n code -c /base",
+		"tmux send-keys -t =shop:code make check Enter",
+		"tmux new-window -d -t =shop: -n billing -c /base.wt/billing",
+	}
+	if strings.Join(r.did, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands:\n%s\nwant:\n%s", strings.Join(r.did, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestUpReusesAndCompletes(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"git worktree list": "worktree /base\n\nworktree /base.wt/billing\n\nworktree /base.wt/pricing",
+		"tmux has-session":  "",
+		"tmux list-windows": "code", // billing window was added to the spec later
+	}}
+	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.did) != 1 || r.did[0] != "tmux new-window -d -t =shop: -n billing -c /base.wt/billing" {
+		t.Fatalf("want only the missing window, got %q", r.did)
+	}
+}
+
+func TestDownPrune(t *testing.T) {
+	r := &scriptRunner{answers: map[string]string{
+		"tmux has-session":  "",
+		"git worktree list": "worktree /base\n\nworktree /base.wt/billing",
+	}}
+	if err := Down(testWorkspace(t), r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	want := "tmux kill-session -t =shop\ngit worktree remove /base.wt/billing" // pricing was never created
+	if strings.Join(r.did, "\n") != want {
+		t.Fatalf("got %q", r.did)
+	}
+}
+
+func TestGenerationUsesWorkspaceDefaults(t *testing.T) {
+	root := t.TempDir()
+	spec := filepath.Join(root, "spec")
+	if err := os.MkdirAll(spec, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(spec, "p.sexp"), []byte(`(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))
+(workspace (name renamed) (out ..))`), 0o644)
+	if err := run(Options{Spec: spec}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	read(t, root, "a/a_gen.go") // generated next to spec/, per (out ..)
+}
+
+// TestWorkspaceRealGitAndTmux runs `up` and `down -prune` with real git and
+// tmux, on a private tmux server so it never touches your sessions.
+func TestWorkspaceRealGitAndTmux(t *testing.T) {
+	for _, tool := range []string{"git", "tmux"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	t.Setenv("TMUX_TMPDIR", t.TempDir())
+	t.Setenv("TMUX", "")
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"} {
+		t.Setenv(k, v)
+	}
+	t.Cleanup(func() { exec.Command("tmux", "kill-server").Run() })
+
+	root := canonical(t.TempDir())
+	main := filepath.Join(root, "proj")
+	for _, args := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "commit", "-q", "--allow-empty", "-m", "init"}} {
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, out)
+		}
+	}
+	n, _ := Parse("ws.sexp", `(workspace (out proj) (worktrees (worktree feat))
+	  (tmux (session tgtest (window code (dir .)) (window feat (worktree feat)))))`)
+	ws, err := ParseWorkspace(n[0], root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := execRunner{log: io.Discard}
+	if err := Up(ws, r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat", ".git")); err != nil {
+		t.Fatalf("worktree not created: %v", err)
+	}
+	out, err := exec.Command("tmux", "list-windows", "-t", "=tgtest", "-F", "#{window_name}:#{pane_current_path}").Output()
+	if err != nil || !strings.Contains(string(out), "feat:"+filepath.Join(root, "proj.wt", "feat")) {
+		t.Fatalf("tmux windows = %q, %v", out, err)
+	}
+	if err := Down(ws, r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat")); !os.IsNotExist(err) {
+		t.Fatal("clean worktree should be removed by down -prune")
+	}
+	if exec.Command("tmux", "has-session", "-t", "=tgtest").Run() == nil {
+		t.Fatal("session should be closed")
 	}
 }
