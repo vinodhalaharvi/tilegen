@@ -229,7 +229,7 @@ Same spec, different config, different (equally valid) Go:
 (config
   (json-tags snake)     ; snake | camel | none
   (context-first yes)   ; prepend ctx context.Context to interface methods
-  (storage memory)      ; memory | postgres (emits sqlc inputs)
+  (storage auto)        ; auto (cheapest legal per store) | memory | postgres | pgx
   (layout flat))        ; flat | internal
 ```
 
@@ -380,6 +380,46 @@ compares them with the spec. Nested modules (folders with their own
 
 `go.mod` is merged, never rewritten: versions are only raised, so
 `go mod tidy` results survive regeneration.
+
+## Choosing a backend
+
+A store says what it needs; tilegen picks how:
+
+```lisp
+(entity Order
+  ...
+  (store get list save
+    (durable)))          ; must survive a restart
+
+(config
+  (storage auto))        ; the default: the cheapest legal backend, per store
+```
+
+Each backend declares when it is illegal (memory: `(illegal-when (store
+durable) ...)`) and what it costs. With `auto`, every store gets the
+cheapest legal backend by cost times weight, so one project can use
+postgres for its durable orders and memory for its scratch sessions.
+An explicit `(storage memory)` still decides, but naming a backend that is
+illegal for some store is an error at the spec. Legality depends only on
+the spec, never on which tools are installed, so every machine chooses
+the same. See why:
+
+```
+$ tilegen explain examples/auto
+orders.OrderStore   needs: durable   chosen by: auto
+  chosen  postgres-sqlc   score 22   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1
+          postgres-pgx    score 45   llm 7·4 + maint 5·3 + dep 1·1 + run 1·1
+  illegal memory          an in-memory map loses its data on restart
+
+sessions.SessionStore   needs: none   chosen by: auto
+  chosen  memory          score 12   llm 2·4 + maint 1·3 + dep 0·1 + run 1·1
+          ...
+```
+
+The choice is also recorded in `-dump` (`03-concretize.sexp`). Three
+backends are registered: `memory`, `postgres-sqlc` (tilegen writes SQL,
+sqlc writes Go) and `postgres-pgx` (tilegen writes the schema, the LLM
+writes the SQL, with the query sqlc would have used as a hint).
 
 ## The tile registry
 

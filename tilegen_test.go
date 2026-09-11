@@ -1604,7 +1604,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "Storage backends: memory, postgres."} {
+		"memory", "postgres-sqlc", "events", "event-bus", "Storage backends: memory, pgx, postgres."} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1659,7 +1659,9 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
 	if src := read(t, out, "a/fake_e_store.go"); !strings.Contains(src, "type FakeEStore struct") {
 		t.Errorf("the fake backend should implement the store:\n%s", src)
 	}
-	sp2, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22) (package fakedb (struct S (field X int))))
+	sp2, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22)
+  (package fakedb (struct S (field X int)))
+  (package a (entity E (field ID int64) (store get))))
 (config (storage fake))`, "")
 	if err := run(Options{Spec: sp2, Out: filepath.Join(dir, "out2")}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store backend puts its code in internal/fakedb`) {
@@ -1777,5 +1779,106 @@ func TestPackageTilesJoinBeforeTheCatchAll(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("the events tile should have registered itself into select")
+	}
+}
+
+// ---- selection: legality, cost, explain ----
+
+func autoSpec(storage string) string {
+	return `(project p (module example.com/p) (go 1.22)
+  (package orders (entity Order (field ID int64) (field Total int64) (store get save (durable))))
+  (package sessions (entity Session (field ID string) (store get))))
+(config (storage ` + storage + `))`
+}
+
+func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, autoSpec("auto"), "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Dump: true}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	read(t, out, "orders/postgres_order_store.go")   // durable: memory is illegal
+	read(t, out, "sessions/memory_session_store.go") // no needs: memory is cheapest
+	read(t, out, "sqlc.yaml")
+	if schema := read(t, out, "db/schema.sql"); strings.Contains(schema, "sessions") {
+		t.Error("memory stores must not get tables")
+	}
+	dump := read(t, out, ".tilegen/03-concretize.sexp")
+	for _, want := range []string{"(chosen postgres-sqlc (score 22) (by auto))", "(considered postgres-pgx (score 45) (by auto))",
+		`(illegal memory "an in-memory map loses its data on restart")`, "(chosen memory (score 12) (by auto))"} {
+		if !strings.Contains(dump, want) {
+			t.Errorf("the dump should record %q", want)
+		}
+	}
+}
+
+func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
+	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "(storage memory) is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres (score 22), pgx (score 45), or use (storage auto)") {
+		t.Fatalf("got %v", err)
+	}
+	if !strings.Contains(err.Error(), "spec.sexp:2:") {
+		t.Errorf("the error should point at the store: %v", err)
+	}
+}
+
+func TestPgxBackend(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, autoSpec("pgx"), "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	src := read(t, out, "orders/pgx_order_store.go")
+	if !strings.Contains(src, "pool *pgxpool.Pool") || !strings.Contains(src, `"github.com/jackc/pgx/v5/pgxpool"`) {
+		t.Errorf("pgx store:\n%s", src)
+	}
+	for _, f := range []string{"db/query.sql", "sqlc.yaml"} {
+		if _, err := os.Stat(filepath.Join(out, f)); err == nil {
+			t.Errorf("pgx must not write %s", f)
+		}
+	}
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "A query that fits: SELECT * FROM orders WHERE id = $1;") || strings.Contains(tasks, "Implement it as documented: Get") {
+		t.Errorf("pgx hints:\n%s", tasks)
+	}
+}
+
+func TestExplainCommand(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, autoSpec("auto"), "")
+	var out strings.Builder
+	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"weights: llm-work 4, maintenance 3", "orders.OrderStore   needs: durable   chosen by: auto",
+		"chosen  postgres-sqlc   score 22   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1",
+		"illegal memory          an in-memory map loses its data on restart", "sessions.SessionStore   needs: none"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("explain missing %q:\n%s", want, out.String())
+		}
+	}
+	if err := explainCmd([]string{sp, "orders.OrderStor"}, &out, io.Discard); err == nil || !strings.Contains(err.Error(), "(did you mean orders.OrderStore?)") {
+		t.Errorf("unknown store: %v", err)
+	}
+}
+
+func TestNeedsValidation(t *testing.T) {
+	base := okPrefix + `(entity E (field ID int64) (store get %s))))`
+	for form, want := range map[string]string{
+		`(durable yes)`: "expected (_)",
+		`(durabel)`:     "(did you mean durable?)",
+	} {
+		if err := validateSrc(t, fmt.Sprintf(base, form), false); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
+	}
+	var out strings.Builder
+	tilesCmd([]string{"-sexp", "memory"}, &out)
+	if !strings.Contains(out.String(), `(illegal-when (store durable) "an in-memory map loses its data on restart")`) {
+		t.Errorf("the registry should show legality:\n%s", out.String())
 	}
 }

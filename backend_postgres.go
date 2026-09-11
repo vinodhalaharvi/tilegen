@@ -10,15 +10,16 @@ import (
 // domain types.
 func init() {
 	RegisterBackend(&Backend{
-		Name:        "postgres",
-		Tile:        "postgres-sqlc",
-		Doc:         "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
-		Requires:    []string{"sqlc"},
-		Cost:        Cost{{"llm-work", 3}, {"maintenance", 2}, {"dependency", 3}, {"runtime", 1}},
-		Topics:      []string{"postgres", "sqlc"},
-		Packages:    map[string]string{"db": "internal/db"},
-		Generate:    "sqlc generate",
-		GenerateDoc: "generate internal/db from db/*.sql",
+		Name:         "postgres",
+		Tile:         "postgres-sqlc",
+		Doc:          "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
+		Requires:     []string{"sqlc"},
+		Cost:         Cost{{"llm-work", 3}, {"maintenance", 2}, {"dependency", 3}, {"runtime", 1}},
+		Topics:       []string{"postgres", "sqlc"},
+		Packages:     map[string]string{"db": "internal/db"},
+		Generate:     "sqlc generate",
+		GenerateDoc:  "generate internal/db from db/*.sql",
+		ProjectForms: func(c *Ctx) []*Node { return []*Node{sqlcConfig(c)} },
 		Implement: func(in StoreInput) (StoreParts, error) {
 			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {

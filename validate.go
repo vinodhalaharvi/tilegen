@@ -26,6 +26,9 @@ type Ctx struct {
 	Local    map[string]string   // project package name -> import path
 	PkgDirs  map[string]string   // project package name -> directory
 	Enums    map[string][]string // "pkg.Type" -> values, for SQL CHECK constraints
+	Choices  map[string]*Choice  // "pkg.XStore" -> the backend chosen for it
+	Used     []*Backend          // every backend some store uses, by name
+	curPkg   string              // package being concretized
 	Pkg      *PkgScope
 	seq      int
 }
@@ -49,7 +52,7 @@ var (
 )
 
 func allStoreOps() []string {
-	return append(append([]string{"method", "constraint"}, storeOps...), fieldOps...)
+	return append(append(append([]string{"method", "constraint"}, storeOps...), fieldOps...), knownNeeds...)
 }
 
 // Validate checks the spec's shape before any lowering. Everything here
@@ -249,11 +252,6 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 	if name.Atom != strings.ToLower(name.Atom) {
 		v.bad(name, "package name %q should be lower case", name.Atom)
 	}
-	if be := lookupBackend(v.c.Cfg.Storage); be != nil {
-		if dir, ok := be.Packages[name.Atom]; ok {
-			v.bad(name, "package name %q is reserved: the %s backend puts its code in %s", name.Atom, be.Tile, dir)
-		}
-	}
 	if seen[name.Atom] {
 		v.bad(name, "duplicate package %q", name.Atom)
 	}
@@ -348,6 +346,9 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 					name = opMethodName(op.Atom, "")
 				case kind == "constraint":
 					v.shape(op, "(constraint ?text)")
+					continue
+				case contains(knownNeeds, kind):
+					v.shape(op, "(_)") // a need, like (durable): no arguments
 					continue
 				case kind == "method":
 					v.method(op)
