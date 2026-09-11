@@ -32,7 +32,7 @@ var Select = &Pass{
 		{Name: "package", Pattern: Pat("(package ?name ?items...)"), Then: selectPackage},
 		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl},
 		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct")},
-		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: rename("go/interface")},
+		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface},
 		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM},
 		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered},
 	},
@@ -42,6 +42,101 @@ func rename(head string) func(*Munch, Bindings, *Node) ([]*Node, error) {
 	return func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return []*Node{L(append([]*Node{Sym(head)}, n.Args()...)...)}, nil
 	}
+}
+
+// selectInterface emits (go/interface ...), dropping the (op ...) tags that
+// store methods carry between passes.
+func selectInterface(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+	out := L(Sym("go/interface"))
+	for _, a := range n.Args() {
+		if a.Head() == "method" {
+			cp := L()
+			for _, part := range a.List {
+				if part.Head() != "op" {
+					cp.List = append(cp.List, part)
+				}
+			}
+			a = cp
+		}
+		out.List = append(out.List, a)
+	}
+	return []*Node{out}, nil
+}
+
+// methodOp returns a store method's op kind and field; custom methods and
+// plain interface methods report "custom".
+func methodOp(meth *Node) (kind, field string) {
+	op := meth.Find("op")
+	if op == nil || len(op.List) < 2 {
+		return "custom", ""
+	}
+	if len(op.List) > 2 {
+		field = op.List[2].Atom
+	}
+	return op.List[1].Atom, field
+}
+
+// firstParam is the first non-context parameter's name.
+func firstParam(meth *Node) string {
+	for _, p := range meth.Find("params").Args() {
+		if p.List[1].Atom != "context.Context" {
+			return p.List[0].Atom
+		}
+	}
+	return ""
+}
+
+func memoryHint(meth *Node) string {
+	kind, f := methodOp(meth)
+	p := firstParam(meth)
+	switch kind {
+	case "get":
+		return "Look up id in s.m while holding s.mu. Return ErrNotFound when absent."
+	case "list":
+		return "Collect every value in s.m while holding s.mu and sort them by ID."
+	case "save":
+		return "Store the value in s.m keyed by its ID while holding s.mu, replacing any existing one."
+	case "delete":
+		return "Remove id from s.m while holding s.mu. Deleting a missing ID is not an error."
+	case "count":
+		return "Return len(s.m) while holding s.mu."
+	case "list-by":
+		return fmt.Sprintf("Collect the values in s.m whose %s equals %s, sorted by ID, while holding s.mu.", f, p)
+	case "get-by":
+		return fmt.Sprintf("Return the value in s.m with the lowest ID whose %s equals %s, while holding s.mu. Return ErrNotFound when there is none.", f, p)
+	case "count-by":
+		return fmt.Sprintf("Count the values in s.m whose %s equals %s, while holding s.mu.", f, p)
+	case "exists-by":
+		return fmt.Sprintf("Report whether any value in s.m has %s equal to %s, while holding s.mu.", f, p)
+	case "delete-by":
+		return fmt.Sprintf("Remove every value in s.m whose %s equals %s, while holding s.mu.", f, p)
+	}
+	return customHint(meth)
+}
+
+func postgresHint(meth *Node, entity string) string {
+	kind, f := methodOp(meth)
+	q := queryName(kind, entity, f)
+	switch kind {
+	case "get", "get-by":
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert the db.%s row to *%s. Map pgx.ErrNoRows to ErrNotFound.", q, entity, entity)
+	case "list", "list-by":
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert each db.%s row to *%s.", q, entity, entity)
+	case "save":
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s with db.%sParams built from the value's fields.", q, q)
+	case "count", "count-by", "exists-by":
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s and return its result.", q)
+	case "delete", "delete-by":
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s.", q)
+	}
+	return customHint(meth) + " tilegen generates no SQL for custom methods: use the existing queries in s.q, or add a store op to the spec if it needs a new one."
+}
+
+func customHint(meth *Node) string {
+	if d := meth.Text("doc"); d != "" {
+		return "Implement it as documented: " + d
+	}
+	return ""
 }
 
 func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
@@ -164,7 +259,7 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 
 	decl := L(Sym("go/struct"), Sym(impl), L(Sym("doc"), Str(fmt.Sprintf("%s implements %s using %s storage.", impl, ifaceName, backend))))
 	ctor := L(Sym("go/func"), Sym("New"+impl), L(Sym("doc"), Str(fmt.Sprintf("New%s returns a ready-to-use %s.", impl, impl))))
-	var hint func(method string) string
+	var hint func(meth *Node) string
 	var out []*Node
 	switch backend {
 	case "memory":
@@ -173,14 +268,7 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			L(Sym("field"), Sym("m"), Str(fmt.Sprintf("map[%s]*%s", idType, entity))))
 		ctor.List = append(ctor.List, L(Sym("params")), L(Sym("returns"), Sym(ptr)),
 			L(Sym("body"), Str(fmt.Sprintf("return &%s{m: make(map[%s]*%s)}", impl, idType, entity))))
-		hint = func(meth string) string {
-			return map[string]string{
-				"Get":    "Look up id in s.m while holding s.mu. Return ErrNotFound when absent.",
-				"List":   "Collect every value in s.m while holding s.mu and sort them by ID.",
-				"Save":   "Store the value in s.m keyed by its ID while holding s.mu, replacing any existing one.",
-				"Delete": "Remove id from s.m while holding s.mu. Deleting a missing ID is not an error.",
-			}[meth]
-		}
+		hint = func(meth *Node) string { return memoryHint(meth) }
 	case "postgres":
 		decl.List = append(decl.List, L(Sym("field"), Sym("q"), Sym("*db.Queries")))
 		ctor.List = append(ctor.List, L(Sym("params"), L(Sym("q"), Sym("*db.Queries"))),
@@ -190,17 +278,7 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			return nil, err
 		}
 		out = append(out, sql...)
-		hint = func(meth string) string {
-			q := meth + entity
-			if meth == "List" {
-				q = "List" + plural(entity)
-			}
-			extra := map[string]string{
-				"Get":  " Map pgx.ErrNoRows to ErrNotFound.",
-				"Save": fmt.Sprintf(" Build db.Save%sParams from the value's fields.", entity),
-			}[meth]
-			return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert between db.%s rows and *%s.%s", q, entity, entity, extra)
-		}
+		hint = func(meth *Node) string { return postgresHint(meth, entity) }
 	default:
 		return nil, fmt.Errorf("unknown backend %q", backend)
 	}
@@ -227,7 +305,7 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		fn.List = append(fn.List, L(Sym("body"), Str(holeBody(id))))
 		decls = append(decls, fn)
 
-		intent := hint(name)
+		intent := hint(meth)
 		if intent == "" {
 			intent = fmt.Sprintf("Implement %s so that %s satisfies %s.", name, impl, ifaceName)
 		}

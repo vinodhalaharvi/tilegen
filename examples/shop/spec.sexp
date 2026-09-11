@@ -18,6 +18,8 @@
       (field PlacedAt time.Time)
       (field ShippedAt *time.Time)
       (store get list save delete
+        (list-by CustomerEmail)
+        count
         (constraint "Save must be idempotent for the same ID.")
         (constraint "Never log CustomerEmail.")))
 

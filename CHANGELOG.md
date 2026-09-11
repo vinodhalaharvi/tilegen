@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Store query ops derived from fields: `count`, `(list-by F)`, `(get-by F)`,
+  `(count-by F)`, `(exists-by F)`, `(delete-by F)`, plus custom
+  `(method ...)`. With postgres each derived op gets a sqlc query; custom
+  methods are holes. Field parameters keep Go initialisms (`noteID`).
 - Reconciliation: the code follows the spec as forms come and go. Missing
   methods are appended to your files as stubs; untouched stubs take new
   signatures or are removed; methods you implemented are reported as drift
