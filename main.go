@@ -41,6 +41,12 @@ type Options struct {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "prompt":
+			if err := promptCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "check":
 			if err := checkCmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -67,6 +73,7 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen [flags] SPEC        generate\n"+
 			"       tilegen check [SPEC]         fail if generated code is out of date or holes remain\n"+
+			"       tilegen prompt [SPEC] [ID]   print a self-contained LLM prompt for a task (no ID: list)\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -89,24 +96,34 @@ func main() {
 	}
 }
 
-func run(o Options, log io.Writer) error {
+// compiled is a spec after every pass: the target forms, the shared
+// context, the -dump stages, and the options with workspace defaults.
+type compiled struct {
+	nodes  []*Node
+	stages []string
+	c      *Ctx
+	o      Options
+}
+
+// compile runs parse, merge, validation and every pass. It writes nothing.
+func compile(o Options, log io.Writer) (*compiled, error) {
 	if o.Runner == nil {
 		o.Runner = execRunner{log: log, dry: o.DryRun}
 	}
 	forms, err := ReadSpec(o.Spec)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stages := []string{Dump(forms)}
 	linked, err := Merge(forms)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	project, inlineCfg := linked.Project, linked.Config
 	if linked.Workspace != nil {
 		ws, err := ParseWorkspace(linked.Workspace, specBase(o.Spec))
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if o.Name == "" {
 			o.Name = ws.Name
@@ -122,28 +139,38 @@ func run(o Options, log io.Writer) error {
 	switch {
 	case o.Config != "":
 		if cfg, err = LoadConfig(o.Config); err != nil {
-			return err
+			return nil, err
 		}
 	case inlineCfg != nil:
 		if cfg, err = ParseConfig(inlineCfg); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	c := &Ctx{Cfg: cfg, Strict: o.Strict}
 	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
-		return err
+		return nil, err
 	}
 	nodes := []*Node{project}
 	stages = append(stages, Dump(nodes))
 	if err := Validate(nodes, c); err != nil {
-		return err
+		return nil, err
 	}
 	for _, p := range Pipeline {
 		if nodes, err = p.Run(c, nodes); err != nil {
-			return err
+			return nil, err
 		}
 		stages = append(stages, Dump(nodes))
 	}
+	return &compiled{nodes: nodes, stages: stages, c: c, o: o}, nil
+}
+
+func run(o Options, log io.Writer) error {
+	cp, err := compile(o, log)
+	if err != nil {
+		return err
+	}
+	nodes, stages, c := cp.nodes, cp.stages, cp.c
+	o = cp.o
 
 	var gitRepo *Node
 	for _, n := range nodes {
@@ -261,10 +288,10 @@ func workspaceCmd(cmd string, args []string, stdout, log io.Writer) error {
 	case "down":
 		fs.BoolVar(&prune, "prune", false, "also remove worktrees (git refuses if they have uncommitted changes)")
 	}
-	fs.Parse(args)
+	pos := parseAnywhere(fs, args)
 	spec := "spec"
-	if fs.NArg() > 0 {
-		spec = fs.Arg(0)
+	if len(pos) > 0 {
+		spec = pos[0]
 	}
 	ws, err := loadWorkspace(spec)
 	if err != nil {
@@ -294,10 +321,10 @@ func checkCmd(args []string, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen check [flags] [SPEC]\n\nExit status 1 if generating would change any file, if a method you wrote\nhas drifted from the spec, or (without -allow-holes) if holes remain.\n\n")
 		fs.PrintDefaults()
 	}
-	fs.Parse(args)
+	pos := parseAnywhere(fs, args)
 	o.Spec = "spec"
-	if fs.NArg() > 0 {
-		o.Spec = fs.Arg(0)
+	if len(pos) > 0 {
+		o.Spec = pos[0]
 	}
 	o.Check = true
 	return run(o, log)
@@ -372,4 +399,19 @@ func checkReport(rep *Report, c *Ctx, o Options, log io.Writer) error {
 	}
 	fmt.Fprintf(log, "ok: %d generated file(s) match the spec; %s\n", rep.Unchanged, holes)
 	return nil
+}
+
+// parseAnywhere parses flags that may come before, between or after the
+// positional arguments (Go's flag package stops at the first non-flag, so
+// `tilegen check spec/ -allow-holes` would otherwise ignore the flag).
+func parseAnywhere(fs *flag.FlagSet, args []string) []string {
+	var pos []string
+	for {
+		fs.Parse(args)
+		if fs.NArg() == 0 {
+			return pos
+		}
+		pos = append(pos, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
 }
