@@ -68,7 +68,7 @@ Run fill for real, and let measured numbers replace declared costs.
 Describe what you want; tiling chooses how.
 
 - [ ] **Tiles as data**: Done when tiles can be written in `.sexp` tile files and loaded as packs, not only in Go.
-- [ ] **Policy file**: Done when `(policy (prefer ...) (avoid ...) (weights ...))` changes which tiles win without editing any tile.
+- [x] **Policy file**: Done when `(policy (prefer ...) (avoid ...) (weights ...))` changes which tiles win without editing any tile.
 - [ ] **Abstract storage**: Done when `(persistent relational)` plus project constraints resolves to a concrete backend through costed rewrites, visible in the dump.
 - [ ] **Whole-stack choices**: Done when non-additive costs such as "one dependency, used everywhere" are handled by comparing candidate stacks, each costed per node.
 

@@ -50,6 +50,7 @@ demo-dir: build ## Generate the split-file spec in examples/shopdir and prove it
 demo-auto: build ## Per-store backend selection: memory and postgres-sqlc in one project (needs sqlc)
 	@command -v $(SQLC) >/dev/null || { echo "sqlc not found: brew install sqlc"; exit 1; }
 	$(BIN) explain examples/auto
+	$(BIN) explain -policy examples/auto/policy.sexp examples/auto >/dev/null # the policy file parses
 	$(BIN) -out out/auto -dump examples/auto
 	cd out/auto && $(SQLC) generate && go mod tidy && go build ./... && go vet ./...
 	$(BIN) check -out out/auto -allow-holes examples/auto

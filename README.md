@@ -421,6 +421,33 @@ backends are registered: `memory`, `postgres-sqlc` (tilegen writes SQL,
 sqlc writes Go) and `postgres-pgx` (tilegen writes the schema, the LLM
 writes the SQL, with the query sqlc would have used as a hint).
 
+### The policy: what your team values
+
+Tiles declare what they cost; a policy prices them. It lives beside the spec
+(any `.sexp` file in the folder) or in `-policy FILE`:
+
+```lisp
+(policy
+  (weights (llm-work 4) (maintenance 3) (dependency 1) (runtime 1) (uncertainty 5))
+  (prefer postgres-sqlc)                  ; break near-ties its way
+  (margin 8)                              ; how far behind "near" is
+  (avoid pgx "we standardised on sqlc"))  ; never choose it
+```
+
+The same spec then gives different teams different architectures, with no
+tile edited. A team that weighs LLM work heavily and prefers sqlc keeps sqlc
+even for an entity whose row-mapper is expensive; a team that weighs
+dependencies heavily, or avoids codegen, gets pgx everywhere, with the
+reason recorded:
+
+```
+  illegal postgres-sqlc   avoided by the policy: we do not want a codegen step in CI
+```
+
+`tilegen explain` prints the policy in force and, when a preference decided
+it, why. Weights price chain rules too, so a policy that discounts LLM work
+also discounts the row-mapper.
+
 ### Pinning choices: tilegen.lock
 
 Every choice is pinned in `tilegen.lock` in the generated project. Commit it,

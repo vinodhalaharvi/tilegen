@@ -51,7 +51,7 @@ type Step struct {
 
 // convert finds the cheapest sequence of converters from one form to
 // another for an entity (Dijkstra over forms; the graph is tiny).
-func convert(from, to string, e EntityShape) ([]Step, int, bool) {
+func convert(from, to string, e EntityShape, p *Policy) ([]Step, int, bool) {
 	if from == to {
 		return nil, 0, true
 	}
@@ -80,7 +80,7 @@ func convert(from, to string, e EntityShape) ([]Step, int, bool) {
 				continue
 			}
 			cost, detail := ch.Cost(e)
-			s, _ := score(cost)
+			s, _ := p.score(cost)
 			next := dist[cur].score + s
 			if b, ok := dist[ch.To]; !ok || next < b.score {
 				path := append(append([]Step{}, dist[cur].path...), Step{ch, s, detail})

@@ -1924,7 +1924,7 @@ func TestChainTipsTheChoice(t *testing.T) {
 
 func TestChainCostsAndPaths(t *testing.T) {
 	e := EntityShape{Fields: []FieldShape{{Name: "A", Enum: true}, {Name: "B", Nullable: true}, {Name: "C", JSONB: true}, {Name: "D"}}}
-	steps, s, ok := convert("db-rows", domainForm, e)
+	steps, s, ok := convert("db-rows", domainForm, e, DefaultPolicy())
 	if !ok || len(steps) != 1 || steps[0].Chain.Name != "row-mapper" {
 		t.Fatalf("path: %v %v", steps, ok)
 	}
@@ -1932,10 +1932,10 @@ func TestChainCostsAndPaths(t *testing.T) {
 	if s != 29 || steps[0].Detail != "1 entity, 1 enum field, 1 nullable field, 1 JSONB field" {
 		t.Errorf("cost %d, detail %q", s, steps[0].Detail)
 	}
-	if _, s, ok := convert(domainForm, domainForm, e); !ok || s != 0 {
+	if _, s, ok := convert(domainForm, domainForm, e, DefaultPolicy()); !ok || s != 0 {
 		t.Error("no conversion needed for domain")
 	}
-	if _, _, ok := convert("xml", domainForm, e); ok {
+	if _, _, ok := convert("xml", domainForm, e, DefaultPolicy()); ok {
 		t.Error("no chain converts xml")
 	}
 }
@@ -2055,5 +2055,101 @@ func TestCheckFlagsAnUnpinnedStore(t *testing.T) {
 	log, err := checkRun(t, filepath.Join(dir, "spec.sexp"), filepath.Join(dir, "out"), true)
 	if err == nil || !strings.Contains(log, "stale    tilegen.lock") {
 		t.Errorf("a new store changes the lock, so check should fail: %v\n%s", err, log)
+	}
+}
+
+// ---- policy ----
+
+const polSpec = `(project p (module example.com/p) (go 1.22)
+  (package orders
+    (enum Status placed paid)
+    (entity Order (field ID int64) (field S Status) (field A *string) (field B *string) (field C *time.Time)
+      (store get (durable))))
+  (package sessions (entity Session (field ID string) (store get))))`
+
+func policyExplain(t *testing.T, policy string) string {
+	t.Helper()
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, polSpec, "")
+	args := []string{sp}
+	if policy != "" {
+		pf := filepath.Join(dir, "policy.sexp")
+		os.WriteFile(pf, []byte(policy), 0o644)
+		args = append([]string{"-policy", pf}, args...)
+	}
+	var out strings.Builder
+	if err := explainCmd(args, &out, io.Discard); err != nil {
+		t.Fatalf("%v", err)
+	}
+	return out.String()
+}
+
+// TestPolicyChangesTheArchitecture: one spec, two teams, different choices.
+func TestPolicyChangesTheArchitecture(t *testing.T) {
+	// Default: the heavy entity's row-mapper tips it to pgx.
+	if got := policyExplain(t, ""); !strings.Contains(got, "chosen  postgres-pgx") {
+		t.Errorf("default policy:\n%s", got)
+	}
+	// Team A values LLM work most and prefers sqlc within a margin.
+	a := policyExplain(t, `(policy (weights (llm-work 6) (dependency 1)) (prefer postgres-sqlc) (margin 20))`)
+	if !strings.Contains(a, "chosen  postgres-sqlc") || !strings.Contains(a, "policy: preferred, and within the margin of postgres-pgx") {
+		t.Errorf("team A should keep sqlc:\n%s", a)
+	}
+	// Team B avoids sqlc outright.
+	b := policyExplain(t, `(policy (weights (dependency 6) (llm-work 1)) (avoid postgres-sqlc "no codegen in CI"))`)
+	if !strings.Contains(b, "chosen  postgres-pgx") || !strings.Contains(b, "illegal postgres-sqlc   avoided by the policy: no codegen in CI") {
+		t.Errorf("team B should avoid sqlc, with the reason:\n%s", b)
+	}
+	if !strings.Contains(b, "avoid: postgres-sqlc (no codegen in CI)") {
+		t.Errorf("explain should print the policy:\n%s", b)
+	}
+}
+
+func TestPolicyAffectsChainCosts(t *testing.T) {
+	got := policyExplain(t, `(policy (weights (llm-work 1) (maintenance 1)))`)
+	if !strings.Contains(got, "+ row-mapper 8 (1 entity, 1 enum field, 3 nullable fields)") {
+		t.Errorf("the chain must be priced by the policy too:\n%s", got)
+	}
+}
+
+func TestPolicyInTheSpecAndValidation(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, polSpec+"\n(policy (avoid postgres-sqlc))", "")
+	var out strings.Builder
+	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "illegal postgres-sqlc   avoided by the policy") {
+		t.Errorf("a (policy ...) form in the spec should apply:\n%s", out.String())
+	}
+	for src, want := range map[string]string{
+		`(policy (weights (llm-work 3)) (weights (runtime 1)))`: "duplicate (weights ...)",
+		`(policy (weights (llm-werk 3)))`:                       "(did you mean llm-work?)",
+		`(policy (weights (llm-work 500)))`:                     "must be 0 to 100",
+		`(policy (margin -1))`:                                  "margin must be 0 to 1000",
+		`(policy (preffer memory))`:                             "(did you mean prefer?)",
+	} {
+		n, _ := Parse("policy.sexp", src)
+		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+	n, _ := Parse("policy.sexp", `(policy (prefer postgres-sqlk) (avoid memroy))`)
+	p, _ := ParsePolicy(n[0])
+	err := p.checkTileNames()
+	if err == nil || !strings.Contains(err.Error(), "(prefer postgres-sqlk): no such tile (did you mean postgres-sqlc?)") ||
+		!strings.Contains(err.Error(), "(avoid memroy): no such tile (did you mean memory?)") {
+		t.Errorf("unknown tile names: %v", err)
+	}
+}
+
+func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, polSpec, "")
+	pf := filepath.Join(dir, "policy.sexp")
+	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx))`), 0o644)
+	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "no storage backend is legal for orders.OrderStore") {
+		t.Fatalf("want a clear error, got %v", err)
 	}
 }

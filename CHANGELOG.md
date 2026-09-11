@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Policy file: `(policy (weights ...) (prefer ...) (margin N) (avoid TILE
+  "why"))`, beside the spec or in `-policy FILE`, sets what a team values.
+  Weights price every tile and chain rule, `prefer` with `margin` breaks
+  near-ties, and `avoid` rejects a tile with its reason shown in `explain`.
+  The same spec can then give different teams different architectures with
+  no tile edited. Unknown dimensions or tile names are errors with
+  suggestions.
 ## v0.3.0 - 2026-09-11
 
 v0.3 hands the holes to an LLM and makes tilegen choose. `tilegen prompt`
