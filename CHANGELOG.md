@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `tilegen.lock` pins each store's backend in the generated project. A
+  pinned choice sticks while it stays legal, so cost or spec changes never
+  silently move a store; `explain` shows when auto would now choose
+  differently. Illegal or unregistered pins are re-selected with a warning;
+  `-reselect` (also on `explain`) chooses again; an explicit
+  `(storage NAME)` wins. Generation writes the lock; `check` verifies it.
 - Chain rules. Backends declare the form their code yields (sqlc: db-rows;
   memory and pgx: domain), and registered converters (`RegisterChain`)
   turn one form into another at a cost computed from the entity. The

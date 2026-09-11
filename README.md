@@ -421,6 +421,28 @@ backends are registered: `memory`, `postgres-sqlc` (tilegen writes SQL,
 sqlc writes Go) and `postgres-pgx` (tilegen writes the schema, the LLM
 writes the SQL, with the query sqlc would have used as a hint).
 
+### Pinning choices: tilegen.lock
+
+Every choice is pinned in `tilegen.lock` in the generated project. Commit it,
+like `go.sum`:
+
+```lisp
+(lock
+  (store orders.OrderStore (backend postgres))
+  (store profiles.ProfileStore (backend pgx))
+  (store sessions.SessionStore (backend memory)))
+```
+
+A pinned choice sticks while it stays legal, so a spec change that makes
+another backend cheaper (say, new enum and nullable fields that raise
+sqlc's mapper cost) never silently moves a store and rewrites its code.
+`tilegen explain` shows the drift instead: *pinned by tilegen.lock; auto
+would now pick postgres-pgx (score 45). Run with -reselect to switch.* A pin
+that becomes illegal is re-selected with a warning pointing at its line.
+Delete a line, or run `tilegen -reselect`, to choose again; an explicit
+`(storage NAME)` wins and is recorded. `tilegen check` treats the lock like
+any generated file.
+
 ### Chain rules
 
 A backend's output has a *form*. memory and pgx hand back your domain types
