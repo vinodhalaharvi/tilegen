@@ -16,13 +16,13 @@ import (
 var Concretize = &Pass{
 	Name: "concretize",
 	Rules: []Rule{
-		{Name: "package-layout", Pattern: Pat("(package ?name ?items...)"), Then: concretizePackage},
-		{Name: "json-tag", Pattern: Pat("(field ?name ?type ?opts...)"), Then: concretizeField},
-		{Name: "context-first", Pattern: Pat("(method ?name ?parts...)"), Then: concretizeMethod},
-		{Name: "backend", Pattern: Pat("(impl ?iface ?parts...)"), Then: concretizeImpl},
+		{Name: "package-layout", Pattern: Pat("(package ?name ?items...)"), Then: concretizePackage, Produces: "package", Doc: "places a package per (layout ...)"},
+		{Name: "json-tag", Pattern: Pat("(field ?name ?type ?opts...)"), Then: concretizeField, Produces: "field", Doc: "adds json tags per (json-tags ...)"},
+		{Name: "context-first", Pattern: Pat("(method ?name ?parts...)"), Then: concretizeMethod, Produces: "method", Doc: "prepends ctx context.Context per (context-first ...)"},
+		{Name: "backend", Pattern: Pat("(impl ?iface ?parts...)"), Then: concretizeImpl, Produces: "impl", Doc: "records the storage backend chosen by (storage ...)"},
 		// implement's (field ...) forms are dependencies, not data: no json
 		// tags, so this tile covers the whole form and stops.
-		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Produces: "implement", Doc: "keeps implement dependencies free of json tags", Then: func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			return []*Node{n}, nil
 		}},
 	},

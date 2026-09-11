@@ -46,14 +46,14 @@ Make the LLM step one command, and measure everything it does.
 
 - [x] **`tilegen prompt <id>`**: Done when it prints one self-contained prompt per hole: instructions, contract, intent, constraints, and context files inlined.
 - [x] **`tilegen fill`**: Done when `tilegen fill -llm "claude -p"` (any CLI that reads a prompt on stdin) fills each hole, splices the body in with go/ast, runs `go build`, retries once with the compiler error, and leaves failures as open holes.
-- [ ] **Metrics log**: Done when every fill attempt appends to `.tilegen/metrics.jsonl`: hole id, prompt and response size, token counts when the CLI reports them, attempts, and first-try build success.
+- [ ] **Metrics log** (deferred until fill runs for real; build it with Experiment 1): Done when every fill attempt appends to `.tilegen/metrics.jsonl`: hole id, prompt and response size, token counts when the CLI reports them, attempts, and first-try build success.
 - [ ] **Experiment 1: agent-only vs tilegen**: Done when `docs/experiment-1.md` compares building the same feature both ways on tokens, cost, time, and first-try build success.
 
 ## v0.4.0 - Costs
 
 The compiler chooses between tiles, explains why, and stays stable.
 
-- [ ] **Tile registry**: Done when the storage backends are registered tiles that declare what they cover, produce and cost, and `tilegen tiles` lists the registry.
+- [x] **Tile registry**: Done when the storage backends are registered tiles that declare what they cover, produce and cost, and `tilegen tiles` lists the registry.
 - [ ] **Event bus tile**: Done when `(events (event Name (field ...))...)` generates event structs, a typed bus interface and an in-process implementation, added through the registry without changing the core.
 - [ ] **Legality guards on tiles**: Done when a tile can declare conditions (for example "no dynamic queries") and illegal tiles are skipped before costing.
 - [ ] **Forms and chain rules**: Done when tiles declare the form they produce (`db-rows`, `domain`) and converters between forms are costed tiles, so a mapper's cost counts.

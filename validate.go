@@ -246,8 +246,10 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 	if name.Atom != strings.ToLower(name.Atom) {
 		v.bad(name, "package name %q should be lower case", name.Atom)
 	}
-	if name.Atom == "db" && v.c.Cfg.Storage == "postgres" {
-		v.bad(name, `package name "db" is reserved for sqlc output when storage is postgres`)
+	if be := lookupBackend(v.c.Cfg.Storage); be != nil {
+		if dir, ok := be.Packages[name.Atom]; ok {
+			v.bad(name, "package name %q is reserved: the %s backend puts its code in %s", name.Atom, be.Tile, dir)
+		}
 	}
 	if seen[name.Atom] {
 		v.bad(name, "duplicate package %q", name.Atom)

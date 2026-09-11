@@ -26,7 +26,7 @@ func DefaultConfig() Config {
 var configChoices = map[string][]string{
 	"json-tags":     {"snake", "camel", "none"},
 	"context-first": {"yes", "no"},
-	"storage":       {"memory", "postgres"},
+	"storage":       nil, // the registered backends; see choicesFor
 	"layout":        {"flat", "internal"},
 }
 
@@ -66,7 +66,7 @@ func ParseConfig(form *Node) (Config, error) {
 			continue
 		}
 		key, val := ob.Atom("key"), ob.Atom("val")
-		choices, ok := configChoices[key]
+		choices, ok := choicesFor(key)
 		if !ok {
 			errs = append(errs, fmt.Errorf("%s: unknown config key %q%s", o.Pos, key, didYouMean(key, sortedKeys(configChoices))))
 			continue
@@ -152,4 +152,14 @@ func plural(s string) string {
 // exported reports whether a Go identifier is exported.
 func exported(s string) bool {
 	return s != "" && unicode.IsUpper([]rune(s)[0])
+}
+
+// choicesFor returns a config key's allowed values. Storage comes from the
+// backend registry, so a new backend needs no change here.
+func choicesFor(key string) ([]string, bool) {
+	choices, ok := configChoices[key]
+	if key == "storage" {
+		choices = backendNames()
+	}
+	return choices, ok
 }
