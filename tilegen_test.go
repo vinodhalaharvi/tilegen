@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -147,7 +148,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(enum Color red green)))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(sp, "", out, false, false, io.Discard); err != nil {
+	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	tasks, _ := os.ReadFile(filepath.Join(out, "tilegen.tasks.json"))
@@ -159,7 +160,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 func TestUnknownQualifier(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(struct S (field X decimal.Decimal))))`, "")
-	err := run(sp, "", filepath.Join(dir, "out"), false, false, io.Discard)
+	err := run(Options{Spec: sp, Config: "", Out: filepath.Join(dir, "out"), Dump: false, Strict: false}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "require") || !strings.Contains(err.Error(), "spec.sexp:1:") {
 		t.Fatalf("want positioned 'add (require ...)' error, got %v", err)
 	}
@@ -167,7 +168,7 @@ func TestUnknownQualifier(t *testing.T) {
 
 func TestShopEndToEnd(t *testing.T) {
 	out := t.TempDir()
-	err := run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, true, false, io.Discard)
+	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: true, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,7 +189,7 @@ func TestShopEndToEnd(t *testing.T) {
 	}
 
 	// Golden: the tiling result is the contract of the passes.
-	got := read(t, out, ".tilegen/03-select.sexp")
+	got := read(t, out, ".tilegen/04-select.sexp")
 	golden := "testdata/shop.select.golden"
 	if *update {
 		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
@@ -203,7 +204,7 @@ func TestShopEndToEnd(t *testing.T) {
 func TestRegenerationKeepsYourCode(t *testing.T) {
 	out := t.TempDir()
 	args := func() error {
-		return run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, false, false, io.Discard)
+		return run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	}
 	if err := args(); err != nil {
 		t.Fatal(err)
@@ -227,7 +228,7 @@ func TestRegenerationKeepsYourCode(t *testing.T) {
 
 func TestPostgresConfig(t *testing.T) {
 	out := t.TempDir()
-	err := run("examples/shop/spec.sexp", "examples/shop/config.postgres.sexp", out, false, false, io.Discard)
+	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.postgres.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,7 +262,7 @@ const twoPkgs = `(project p (module example.com/p) (go 1.22)
 
 func TestCrossPackageImport(t *testing.T) {
 	out := t.TempDir()
-	if err := run("examples/shop/spec.sexp", "examples/shop/config.sexp", out, false, false, io.Discard); err != nil {
+	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "billing/billing_gen.go")
@@ -295,10 +296,207 @@ func TestTasksIncludeForeignContext(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(twoPkgs, "", "(field Order *orders.Order)"), "")
 	out := filepath.Join(dir, "out")
-	if err := run(sp, "", out, false, false, io.Discard); err != nil {
+	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if tasks := read(t, out, "tilegen.tasks.json"); !strings.Contains(tasks, `"orders/orders_gen.go"`) {
 		t.Fatalf("billing store tasks should list orders' generated file as context:\n%s", tasks)
+	}
+}
+
+// ---- spec directories and the merge pass ----
+
+func TestSpecDirMatchesSingleFile(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: a}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(Options{Spec: "examples/shopdir", Out: b}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"go.mod", "orders/orders_gen.go", "orders/memory_order_store.go",
+		"billing/billing_gen.go", "billing/memory_invoice_store.go", "tilegen.tasks.json"} {
+		if read(t, a, f) != read(t, b, f) {
+			t.Errorf("%s differs between the single-file spec and the spec directory", f)
+		}
+	}
+}
+
+func mergeSrc(t *testing.T, files ...string) error {
+	t.Helper()
+	var forms []*Node
+	for i, src := range files {
+		fs, err := Parse(fmt.Sprintf("f%d.sexp", i), src)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forms = append(forms, fs...)
+	}
+	_, _, err := Merge(forms)
+	return err
+}
+
+func TestMergeErrors(t *testing.T) {
+	proj := `(project p (module example.com/p) (go 1.22) (require (u github.com/google/uuid v1.6.0)))`
+	for name, tc := range map[string]struct {
+		files []string
+		want  string
+	}{
+		"two projects":     {[]string{proj, proj}, "second (project ...) form; the first is at f0.sexp:1:1"},
+		"require conflict": {[]string{proj, `(require (u github.com/google/uuid v1.5.0))`}, "conflicts with (u github.com/google/uuid v1.6.0) at f0.sexp"},
+		"two package docs": {[]string{proj, `(package a (doc "x"))`, `(package a (doc "y"))`}, "package a already has a (doc ...) at f1.sexp"},
+		"unknown form":     {[]string{proj, `(servce x)`}, "f1.sexp:1:1: unknown top-level form (servce x)"},
+		"no project":       {[]string{`(package a)`}, "exactly one (project NAME ...)"},
+	} {
+		err := mergeSrc(t, tc.files...)
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: want error containing %q, got %v", name, tc.want, err)
+		}
+	}
+	if err := mergeSrc(t, proj, `(require (u github.com/google/uuid v1.6.0))`); err != nil {
+		t.Errorf("identical requires should dedupe, got %v", err)
+	}
+}
+
+func TestRepoValidation(t *testing.T) {
+	base := `(project p (module example.com/p) (go 1.22) (package a) %s)`
+	for form, want := range map[string]string{
+		`(repo (visibility secret))`:   "visibility must be public, private or internal",
+		`(repo (topics Go))`:           "topic Go must be lowercase",
+		`(repo (license gpl))`:         "license must be mit or none",
+		`(repo (github a/b/c))`:        "github must be owner/name or name",
+		`(repo (colour blue))`:         "unknown repo item",
+		`(repo (github x) (github y))`: "duplicate (github ...)",
+	} {
+		err := validateSrc(t, fmt.Sprintf(base, form), false)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
+	}
+}
+
+// ---- git and GitHub, with an in-process fake ----
+
+type fakeGH struct {
+	exists bool
+	did    []string
+}
+
+func (f *fakeGH) Query(dir, name string, args ...string) (string, error) {
+	switch cmd := name + " " + strings.Join(args, " "); {
+	case strings.HasPrefix(cmd, "gh api user"):
+		return "octocat", nil
+	case strings.HasPrefix(cmd, "gh repo view"):
+		if f.exists {
+			return `{"name":"x"}`, nil
+		}
+		return "GraphQL: Could not resolve to a Repository with the name 'x'.", fmt.Errorf("exit status 1")
+	default:
+		return "", fmt.Errorf("unexpected query %s", cmd)
+	}
+}
+
+func (f *fakeGH) Do(dir, name string, args ...string) error {
+	f.did = append(f.did, name+" "+strings.Join(args, " "))
+	return nil
+}
+
+func (f *fakeGH) ran(prefix string) bool {
+	for _, c := range f.did {
+		if strings.HasPrefix(c, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+const ghSpec = `(project shop (go 1.22)
+  (repo (github shop) (visibility public) (description "d") (topics orders))
+  (package orders (struct Order (field ID int64))))`
+
+func TestGitCreatesMissingRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	gh := &fakeGH{}
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Name: "myshop", Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"git init -q -b main", "go mod tidy", "git add -A", "git commit",
+		"gh repo create octocat/myshop --public --source=. --remote=origin --push --description d",
+		"gh repo edit octocat/myshop --add-topic go,golang,tilegen,orders",
+	} {
+		if !gh.ran(want) {
+			t.Errorf("missing command %q in %q", want, gh.did)
+		}
+	}
+	if mod := read(t, out, "go.mod"); !strings.Contains(mod, "module github.com/octocat/myshop") {
+		t.Errorf("module should derive from -name and the gh login:\n%s", mod)
+	}
+	for _, f := range []string{"README.md", "LICENSE", "Makefile", ".gitignore"} {
+		read(t, out, f)
+	}
+}
+
+func TestGitClonesExistingRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	gh := &fakeGH{exists: true}
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !gh.ran("gh repo clone octocat/shop") || gh.ran("gh repo create") || gh.ran("git commit") {
+		t.Fatalf("want clone without create or commit, got %q", gh.did)
+	}
+}
+
+func TestGitUsesExistingLocalRepo(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := os.MkdirAll(filepath.Join(out, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	gh := &fakeGH{exists: true}
+	if err := run(Options{Spec: sp, Out: out, Git: true, Runner: gh}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if gh.ran("gh repo clone") || gh.ran("git init") || gh.ran("git commit") {
+		t.Fatalf("an existing local repository must be used as is, got %q", gh.did)
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, ghSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Git: true, DryRun: true, Runner: &fakeGH{}}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Fatalf("dry run created %s", out)
+	}
+}
+
+// TestGitLocalOnlyRealGit runs real git: -git without (repo ...) makes a
+// local repository with one commit and never calls gh.
+func TestGitLocalOnlyRealGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	for k, v := range map[string]string{"GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
+		"GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"} {
+		t.Setenv(k, v)
+	}
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out, Git: true}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	log, err := exec.Command("git", "-C", out, "log", "--oneline").Output()
+	if err != nil || !strings.Contains(string(log), "Initial scaffold from tilegen") {
+		t.Fatalf("want one commit, got %q, %v", log, err)
 	}
 }
