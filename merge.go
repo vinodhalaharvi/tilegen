@@ -162,7 +162,8 @@ func Merge(forms []*Node) (*Linked, error) {
 func errorsFor(other []*Node) error {
 	var errs []error
 	for _, f := range other {
-		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace)", f.Pos, short(f)))
+		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace)%s",
+			f.Pos, short(f), didYouMean(f.Head(), []string{"project", "package", "require", "repo", "config", "workspace"})))
 	}
 	return errors.Join(errs...)
 }

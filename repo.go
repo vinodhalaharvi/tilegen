@@ -115,7 +115,8 @@ func (v *validator) repo(n *Node) {
 				v.bad(it, "license must be mit or none (add other licenses by hand; tilegen never overwrites LICENSE)")
 			}
 		default:
-			v.bad(it, "unknown repo item %s (want github, visibility, description, topics, license)", short(it))
+			v.bad(it, "unknown repo item %s (want github, visibility, description, topics, license)%s", short(it),
+				didYouMean(it.Head(), []string{"github", "visibility", "description", "topics", "license"}))
 		}
 	}
 }

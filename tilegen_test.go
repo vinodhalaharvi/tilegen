@@ -1111,3 +1111,62 @@ func TestOwnerFromExplicitModule(t *testing.T) {
 		t.Errorf("owner should come from the module path:\n%s", log.String())
 	}
 }
+
+// ---- did you mean ----
+
+func TestOSADistance(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		d    int
+	}{{"entity", "entity", 0}, {"entiy", "entity", 1}, {"strcut", "struct", 1}, {"lst", "list", 1}, {"enum", "entity", 4}} {
+		if got := osaDistance(c.a, c.b); got != c.d {
+			t.Errorf("osaDistance(%s, %s) = %d, want %d", c.a, c.b, got, c.d)
+		}
+	}
+	if closest("J", []string{"I"}) != "" {
+		t.Error("one-letter names are different names, not typos")
+	}
+}
+
+func TestTypoIsAnErrorUnknownFormIsATask(t *testing.T) {
+	if err := validateSrc(t, okPrefix+`(entiy E (field ID int64))))`, false); err == nil ||
+		!strings.Contains(err.Error(), "unknown form (entiy E (field ID int64)) (did you mean entity?)") {
+		t.Errorf("a typo of a known form must be an error with a suggestion, got %v", err)
+	}
+	if err := validateSrc(t, okPrefix+`(enum Color red green)))`, false); err != nil {
+		t.Errorf("a genuinely unknown form should still go to the LLM, got %v", err)
+	}
+}
+
+func TestDidYouMeanEverywhere(t *testing.T) {
+	spec := func(pkg, extra string) string {
+		return `(project p (module example.com/p) (go 1.22) ` + extra + ` (package a ` + pkg + `))`
+	}
+	for src, want := range map[string]string{
+		spec(`(struct S (feild X int))`, ""):                                                  "unexpected (feild X int) in struct (did you mean field?)",
+		spec(`(entity E (field ID int64) (field NoteID int64) (store lst))`, ""):              `unknown store op "lst" (did you mean list?)`,
+		spec(`(entity E (field ID int64) (field NoteID int64) (store (list-by NoteId)))`, ""): "(did you mean NoteID?)",
+		spec(`(entity E (field ID int64) (store (cont-by ID)))`, ""):                          "(did you mean count-by?)",
+		spec(`(interface I (methd M))`, ""):                                                   "(did you mean method?)",
+		spec(`(interface I (method M (retrns error)))`, ""):                                   "(did you mean returns?)",
+		spec(`(struct S (field X int (tga "x")))`, ""):                                        "(did you mean tag?)",
+		spec(`(interface Mailer (method M)) (implement Mailr (as X))`, ""):                    "(did you mean Mailer?)",
+		spec(``, `(reqire (u github.com/google/uuid v1.6.0))`):                                "unknown project item (reqire (u github.com/google/uuid v1.6.0)) (did you mean require?)",
+		spec(``, `(repo (visibilty private))`):                                                "(did you mean visibility?)",
+	} {
+		if err := validateSrc(t, src, false); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s\n  want %q\n  got  %v", src, want, err)
+		}
+	}
+	cfg, _ := Parse("c.sexp", `(config (json-tag snake) (storage postgress))`)
+	_, err := ParseConfig(cfg[0])
+	if err == nil || !strings.Contains(err.Error(), "(did you mean json-tags?)") || !strings.Contains(err.Error(), "(did you mean postgres?)") {
+		t.Errorf("config should report both typos at once, got %v", err)
+	}
+	if err := mergeSrc(t, `(project p (module example.com/p) (go 1.22))`, `(pakage a)`); err == nil || !strings.Contains(err.Error(), "(did you mean package?)") {
+		t.Errorf("top-level typo, got %v", err)
+	}
+	if _, err := parseWS(t, `(workspace (out ..) (worktress))`); err == nil || !strings.Contains(err.Error(), "(did you mean worktrees?)") {
+		t.Errorf("workspace typo, got %v", err)
+	}
+}

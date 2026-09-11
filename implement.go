@@ -28,7 +28,7 @@ func (v *validator) implement(n *Node, ifaces, types map[string]bool) {
 		return
 	}
 	if in := b.One("iface"); in.IsList || !ifaces[in.Atom] {
-		v.bad(in, "implement: %s is not an interface declared in this package (have: %s)", in.Flat(), strings.Join(sortedKeys(ifaces), ", "))
+		v.bad(in, "implement: %s is not an interface declared in this package%s (have: %s)", in.Flat(), didYouMean(in.Atom, sortedKeys(ifaces)), strings.Join(sortedKeys(ifaces), ", "))
 	}
 	as := 0
 	fields := map[string]bool{}
@@ -51,7 +51,7 @@ func (v *validator) implement(n *Node, ifaces, types map[string]bool) {
 		case "doc", "constraint":
 			v.shape(p, "(_ ?text)")
 		default:
-			v.bad(p, "implement takes (as Name), (field name Type), (doc ...) and (constraint ...), got %s", short(p))
+			v.bad(p, "implement takes (as Name), (field name Type), (doc ...) and (constraint ...), got %s%s", short(p), didYouMean(p.Head(), []string{"as", "field", "doc", "constraint"}))
 		}
 	}
 	if as != 1 {

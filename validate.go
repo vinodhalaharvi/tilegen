@@ -41,6 +41,16 @@ func (c *Ctx) warn(p Pos, format string, a ...any) {
 	c.Warnings = append(c.Warnings, fmt.Sprintf("%s: %s", p, fmt.Sprintf(format, a...)))
 }
 
+// The names each context knows, for did-you-mean suggestions.
+var (
+	projectItems = []string{"module", "go", "require", "package", "repo", "doc"}
+	packageForms = []string{"entity", "struct", "interface", "implement", "doc", "llm"}
+)
+
+func allStoreOps() []string {
+	return append(append([]string{"method", "constraint"}, storeOps...), fieldOps...)
+}
+
 // Validate checks the spec's shape before any lowering. Everything here
 // reuses real tooling: x/mod for module paths and versions, go/parser for
 // type expressions, go/token for identifiers. It reports all errors at once.
@@ -134,7 +144,7 @@ func (v *validator) project(p *Node) {
 		case "doc":
 			v.shape(it, "(doc ?text)")
 		default:
-			v.bad(it, "unknown project item %s (want module, go, require, package, repo, doc)", short(it))
+			v.bad(it, "unknown project item %s%s (want module, go, require, package, repo, doc)", short(it), didYouMean(it.Head(), projectItems))
 		}
 	}
 	switch {
@@ -257,7 +267,10 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 		case "doc", "llm":
 			v.shape(it, "(_ ?text ?more...)")
 		default:
-			if v.c.Strict {
+			if s := closest(it.Head(), packageForms); s != "" {
+				// A likely typo is an error: it must not quietly become an LLM task.
+				v.bad(it, "unknown form %s (did you mean %s?)", short(it), s)
+			} else if v.c.Strict {
 				v.bad(it, "no tile covers %s (strict mode)", short(it))
 			}
 			// Otherwise the select pass's catch-all turns it into an LLM task.
@@ -297,7 +310,7 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 			v.typ(fb.One("type"))
 			for _, o := range fb.Rest("opts") {
 				if o.Head() != "tag" && o.Head() != "doc" {
-					v.bad(o, "field options are (tag \"...\") and (doc \"...\"), got %s", short(o))
+					v.bad(o, "field options are (tag \"...\") and (doc \"...\"), got %s%s", short(o), didYouMean(o.Head(), []string{"tag", "doc"}))
 				}
 			}
 		case "doc":
@@ -316,8 +329,8 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 				switch kind := op.Head(); {
 				case !op.IsList:
 					if !contains(storeOps, op.Atom) {
-						v.bad(op, "unknown store op %q (want %s, or one of (%s F), (method ...), (constraint ...))",
-							op.Atom, strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
+						v.bad(op, "unknown store op %q%s (want %s, or one of (%s F), (method ...), (constraint ...))",
+							op.Atom, didYouMean(op.Atom, allStoreOps()), strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
 						continue
 					}
 					name = opMethodName(op.Atom, "")
@@ -335,13 +348,13 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 						continue
 					}
 					if f := b.Atom("field"); !fields[f] {
-						v.bad(op, "(%s %s): %s is not a field declared before the store", kind, f, f)
+						v.bad(op, "(%s %s): %s is not a field declared before the store%s", kind, f, f, didYouMean(f, sortedKeys(fields)))
 						continue
 					}
 					name = opMethodName(kind, b.Atom("field"))
 				default:
-					v.bad(op, "unknown store op %s (want %s, or one of (%s F), (method ...), (constraint ...))",
-						short(op), strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
+					v.bad(op, "unknown store op %s%s (want %s, or one of (%s F), (method ...), (constraint ...))",
+						short(op), didYouMean(kind, allStoreOps()), strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
 					continue
 				}
 				if name != "" && methods[name] {
@@ -350,7 +363,11 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 				methods[name] = true
 			}
 		default:
-			v.bad(it, "unexpected %s in %s", short(it), s.Head())
+			opts := []string{"field", "doc"}
+			if s.Head() == "entity" {
+				opts = append(opts, "store")
+			}
+			v.bad(it, "unexpected %s in %s%s", short(it), s.Head(), didYouMean(it.Head(), opts))
 		}
 	}
 }
@@ -372,7 +389,7 @@ func (v *validator) iface(i *Node, types map[string]bool) {
 				v.typ(eb.One("type"))
 			}
 		default:
-			v.bad(it, "unexpected %s in interface (want method, embed, doc)", short(it))
+			v.bad(it, "unexpected %s in interface (want method, embed, doc)%s", short(it), didYouMean(it.Head(), []string{"method", "embed", "doc"}))
 		}
 	}
 }
@@ -410,7 +427,7 @@ func (v *validator) method(m *Node) {
 		case "doc":
 			v.shape(part, "(doc ?text)")
 		default:
-			v.bad(part, "method parts are (params ...), (returns ...), (doc ...), got %s", short(part))
+			v.bad(part, "method parts are (params ...), (returns ...), (doc ...), got %s%s", short(part), didYouMean(part.Head(), []string{"params", "returns", "doc"}))
 		}
 	}
 }

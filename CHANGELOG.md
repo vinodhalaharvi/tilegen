@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Did you mean: every unknown name gets a suggestion when it is a likely
+  typo, across the spec, config, repo and workspace forms, store ops and
+  field references. A typo of a known package form, like `(entiy ...)`, is
+  now an error instead of quietly becoming an LLM task; a genuinely
+  unknown form still goes to the LLM. Config errors are reported all at
+  once, like spec errors.
 - A spec with `(github name)` and no `(module ...)` takes its module path
   and owner from the project's go.mod (or the spec's module), so plain
   generation never calls `gh`, and every machine gets the same module.

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"go/token"
 	"os"
@@ -57,18 +58,22 @@ func ParseConfig(form *Node) (Config, error) {
 	if !Match(Pat("(config ?opts...)"), form, b) {
 		return cfg, fmt.Errorf("%s: expected (config ...), got %s", form.Pos, short(form))
 	}
+	var errs []error // report every problem at once, like the spec validator
 	for _, o := range b.Rest("opts") {
 		ob := Bindings{}
 		if !Match(Pat("(?key ?val)"), o, ob) || ob.One("val").IsList {
-			return cfg, fmt.Errorf("%s: expected (key value), got %s", o.Pos, o.Flat())
+			errs = append(errs, fmt.Errorf("%s: expected (key value), got %s", o.Pos, o.Flat()))
+			continue
 		}
 		key, val := ob.Atom("key"), ob.Atom("val")
 		choices, ok := configChoices[key]
 		if !ok {
-			return cfg, fmt.Errorf("%s: unknown config key %q", o.Pos, key)
+			errs = append(errs, fmt.Errorf("%s: unknown config key %q%s", o.Pos, key, didYouMean(key, sortedKeys(configChoices))))
+			continue
 		}
 		if !contains(choices, val) {
-			return cfg, fmt.Errorf("%s: %s must be one of %s, got %q", o.Pos, key, strings.Join(choices, "|"), val)
+			errs = append(errs, fmt.Errorf("%s: %s must be one of %s, got %q%s", o.Pos, key, strings.Join(choices, "|"), val, didYouMean(val, choices)))
+			continue
 		}
 		switch key {
 		case "json-tags":
@@ -81,7 +86,7 @@ func ParseConfig(form *Node) (Config, error) {
 			cfg.Layout = val
 		}
 	}
-	return cfg, nil
+	return cfg, errors.Join(errs...)
 }
 
 func contains(xs []string, s string) bool {
