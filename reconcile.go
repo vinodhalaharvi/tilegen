@@ -264,14 +264,7 @@ func sweep(out string, r *Report) {
 		if r.Produced[rel] {
 			return nil
 		}
-		head := make([]byte, 256)
-		f, err := os.Open(p)
-		if err != nil {
-			return nil
-		}
-		n, _ := f.Read(head)
-		f.Close()
-		switch h := string(head[:n]); {
+		switch h := firstLine(p); {
 		case strings.Contains(h, generatedMarker):
 			generated = append(generated, rel)
 		case strings.Contains(h, scaffoldMarker):
@@ -353,6 +346,21 @@ func pureScaffolding(file string) bool {
 		}
 	}
 	return types == 1 && ctors <= 1
+}
+
+// firstLine returns a file's first line. tilegen's markers count only
+// there, as Go's generated-code convention requires: sqlc, for one, can
+// copy a marker from db/query.sql further down into its own output.
+func firstLine(p string) string {
+	f, err := os.Open(p)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	head := make([]byte, 256)
+	n, _ := f.Read(head)
+	line, _, _ := strings.Cut(string(head[:n]), "\n")
+	return line
 }
 
 func removeEmptyDirs(dir, stop string) {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fix: regenerating a postgres project could delete sqlc's `query.sql.go`.
+  sqlc copied the `db/query.sql` header comment into its Go, and the sweep
+  looked for tilegen's marker in a file's first 256 bytes. Markers now
+  count only on a file's first line (Go's convention), and the header ends
+  with an empty SQL statement so it no longer leaks into sqlc's output.
 - `tilegen check [SPEC]` fails (exit 1) if generating would change any
   file, if a method you wrote has drifted from the spec, or, without
   `-allow-holes`, if holes remain. It writes nothing. Generation is now
