@@ -41,8 +41,6 @@ func (c *Ctx) warn(p Pos, format string, a ...any) {
 	c.Warnings = append(c.Warnings, fmt.Sprintf("%s: %s", p, fmt.Sprintf(format, a...)))
 }
 
-var storeOps = []string{"get", "list", "save", "delete"}
-
 // Validate checks the spec's shape before any lowering. Everything here
 // reuses real tooling: x/mod for module paths and versions, go/parser for
 // type expressions, go/token for identifiers. It reports all errors at once.
@@ -309,12 +307,44 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 			if !fields["ID"] {
 				v.bad(it, "(store ...) needs an ID field declared before it")
 			}
+			methods := map[string]bool{}
 			for _, op := range it.Args() {
-				if op.IsList {
+				var name string
+				switch kind := op.Head(); {
+				case !op.IsList:
+					if !contains(storeOps, op.Atom) {
+						v.bad(op, "unknown store op %q (want %s, or one of (%s F), (method ...), (constraint ...))",
+							op.Atom, strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
+						continue
+					}
+					name = opMethodName(op.Atom, "")
+				case kind == "constraint":
 					v.shape(op, "(constraint ?text)")
-				} else if !contains(storeOps, op.Atom) {
-					v.bad(op, "unknown store op %q (want %s)", op.Atom, strings.Join(storeOps, ", "))
+					continue
+				case kind == "method":
+					v.method(op)
+					if len(op.List) > 1 && !op.List[1].IsList {
+						name = op.List[1].Atom
+					}
+				case contains(fieldOps, kind):
+					b := v.shape(op, "(_ ?field)")
+					if b == nil {
+						continue
+					}
+					if f := b.Atom("field"); !fields[f] {
+						v.bad(op, "(%s %s): %s is not a field declared before the store", kind, f, f)
+						continue
+					}
+					name = opMethodName(kind, b.Atom("field"))
+				default:
+					v.bad(op, "unknown store op %s (want %s, or one of (%s F), (method ...), (constraint ...))",
+						short(op), strings.Join(storeOps, ", "), strings.Join(fieldOps, " F), ("))
+					continue
 				}
+				if name != "" && methods[name] {
+					v.bad(op, "duplicate store method %s", name)
+				}
+				methods[name] = true
 			}
 		default:
 			v.bad(it, "unexpected %s in %s", short(it), s.Head())

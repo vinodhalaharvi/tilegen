@@ -43,12 +43,14 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 		Str(fmt.Sprintf("CREATE TABLE %s (\n%s\n);", table, strings.Join(cols, ",\n"))))}
 
 	for _, op := range ops.Args() {
-		var name, body string
-		switch op.Atom {
+		kind, f := opKind(op)
+		col := snake(f)
+		var body string
+		switch kind {
 		case "get":
-			name, body = "Get"+entity, fmt.Sprintf(":one\nSELECT * FROM %s WHERE id = $1;", table)
+			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE id = $1;", table)
 		case "list":
-			name, body = "List"+plural(entity), fmt.Sprintf(":many\nSELECT * FROM %s ORDER BY id;", table)
+			body = fmt.Sprintf(":many\nSELECT * FROM %s ORDER BY id;", table)
 		case "save":
 			ph := make([]string, len(names))
 			var set []string
@@ -62,12 +64,26 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 			if len(set) > 0 {
 				conflict = "DO UPDATE SET " + strings.Join(set, ", ")
 			}
-			name = "Save" + entity
 			body = fmt.Sprintf(":exec\nINSERT INTO %s (%s)\nVALUES (%s)\nON CONFLICT (id) %s;",
 				table, strings.Join(names, ", "), strings.Join(ph, ", "), conflict)
 		case "delete":
-			name, body = "Delete"+entity, fmt.Sprintf(":exec\nDELETE FROM %s WHERE id = $1;", table)
+			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE id = $1;", table)
+		case "count":
+			body = fmt.Sprintf(":one\nSELECT count(*) FROM %s;", table)
+		case "list-by":
+			body = fmt.Sprintf(":many\nSELECT * FROM %s WHERE %s = $1 ORDER BY id;", table, col)
+		case "get-by":
+			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE %s = $1 ORDER BY id LIMIT 1;", table, col)
+		case "count-by":
+			body = fmt.Sprintf(":one\nSELECT count(*) FROM %s WHERE %s = $1;", table, col)
+		case "exists-by":
+			body = fmt.Sprintf(":one\nSELECT EXISTS (SELECT 1 FROM %s WHERE %s = $1);", table, col)
+		case "delete-by":
+			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE %s = $1;", table, col)
+		default:
+			continue // custom methods: no SQL
 		}
+		name := queryName(kind, entity, f)
 		out = append(out, L(Sym("sql/query"), Str(name), Str("-- name: "+name+" "+body)))
 	}
 	return out, nil
@@ -87,4 +103,32 @@ func sqlcConfig(c *Ctx) *Node {
 		}
 	}
 	return n
+}
+
+// queryName names the sqlc query for an op; sqlc turns it into the method
+// the LLM calls: (list-by NoteID) on Share -> ListSharesByNoteID.
+func queryName(kind, entity, field string) string {
+	switch kind {
+	case "get":
+		return "Get" + entity
+	case "list":
+		return "List" + plural(entity)
+	case "save":
+		return "Save" + entity
+	case "delete":
+		return "Delete" + entity
+	case "count":
+		return "Count" + plural(entity)
+	case "list-by":
+		return "List" + plural(entity) + "By" + field
+	case "get-by":
+		return "Get" + entity + "By" + field
+	case "count-by":
+		return "Count" + plural(entity) + "By" + field
+	case "exists-by":
+		return "Exists" + entity + "By" + field
+	case "delete-by":
+		return "Delete" + plural(entity) + "By" + field
+	}
+	return ""
 }
