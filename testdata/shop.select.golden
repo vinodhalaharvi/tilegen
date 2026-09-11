@@ -34,7 +34,15 @@
     (method Delete
       (doc "Delete removes the Order with the given ID.")
       (params (ctx context.Context) (id uuid.UUID))
-      (returns error)))
+      (returns error))
+    (method ListByCustomerEmail
+      (doc "ListByCustomerEmail returns the Order values whose CustomerEmail equals customerEmail, ordered by ID.")
+      (params (ctx context.Context) (customerEmail string))
+      (returns []*Order error))
+    (method Count
+      (doc "Count returns how many Order values exist.")
+      (params (ctx context.Context))
+      (returns int64 error)))
   (go/assert OrderStore MemoryOrderStore)
   (go/var ErrNotFound "errors.New(\"orders: not found\")"
     (doc "ErrNotFound is returned when a requested value does not exist."))
@@ -77,7 +85,17 @@
     (recv s *MemoryOrderStore)
     (params (ctx context.Context) (id uuid.UUID))
     (returns error)
-    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Delete\")")))
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Delete\")"))
+  (go/func ListByCustomerEmail
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context) (customerEmail string))
+    (returns []*Order error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.ListByCustomerEmail\")"))
+  (go/func Count
+    (recv s *MemoryOrderStore)
+    (params (ctx context.Context))
+    (returns int64 error)
+    (body "panic(\"tilegen:hole orders.MemoryOrderStore.Count\")")))
 
 (llm/task
   (id "orders.MemoryOrderStore.Get")
@@ -115,6 +133,26 @@
   (symbol "(*MemoryOrderStore).Delete")
   (contract "Delete(ctx context.Context, id uuid.UUID) error")
   (intent "Remove id from s.m while holding s.mu. Deleting a missing ID is not an error.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.MemoryOrderStore.ListByCustomerEmail")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).ListByCustomerEmail")
+  (contract "ListByCustomerEmail(ctx context.Context, customerEmail string) ([]*Order, error)")
+  (intent "Collect the values in s.m whose CustomerEmail equals customerEmail, sorted by ID, while holding s.mu.")
+  (context-file "orders/orders_gen.go")
+  (constraint "Save must be idempotent for the same ID.")
+  (constraint "Never log CustomerEmail."))
+
+(llm/task
+  (id "orders.MemoryOrderStore.Count")
+  (file "orders/memory_order_store.go")
+  (symbol "(*MemoryOrderStore).Count")
+  (contract "Count(ctx context.Context) (int64, error)")
+  (intent "Return len(s.m) while holding s.mu.")
   (context-file "orders/orders_gen.go")
   (constraint "Save must be idempotent for the same ID.")
   (constraint "Never log CustomerEmail."))

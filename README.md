@@ -72,6 +72,27 @@ or parentheses: `(field F "func(int) error")`. Standard-library qualifiers
 another project package are written qualified (`orders.Order`); tilegen adds
 the import and rejects import cycles between packages.
 
+### Store operations
+
+`(store ...)` inside an entity lists the methods of its `NameStore`
+interface. Query methods are derived from fields, so they stay
+deterministic down to the SQL: with `(storage postgres)` each one gets a
+sqlc query, and the LLM only maps rows to domain types.
+
+| Op | Method on `ShareStore` | sqlc query |
+|---|---|---|
+| `get` `list` `save` `delete` | `Get(id)`, `List()`, `Save(share)`, `Delete(id)` | `GetShare`, `ListShares`, ... |
+| `count` | `Count() (int64, error)` | `CountShares` |
+| `(list-by NoteID)` | `ListByNoteID(noteID) ([]*Share, error)` | `ListSharesByNoteID` |
+| `(get-by Email)` | `GetByEmail(email) (*Share, error)` | `GetShareByEmail` |
+| `(count-by NoteID)` | `CountByNoteID(noteID) (int64, error)` | `CountSharesByNoteID` |
+| `(exists-by Email)` | `ExistsByEmail(email) (bool, error)` | `ExistsShareByEmail` |
+| `(delete-by NoteID)` | `DeleteByNoteID(noteID) error` | `DeleteSharesByNoteID` |
+| `(method Name (params ...) (returns ...) (doc ...))` | custom, as written | none: a hole for the LLM |
+
+Add or remove ops at any time: reconciliation appends new stubs to your
+implementation and never touches the methods you wrote.
+
 ## Specs across files
 
 `SPEC` can be a directory. tilegen reads every `.sexp` file in it in name

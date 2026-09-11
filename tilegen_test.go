@@ -890,3 +890,75 @@ func TestSweepSkipsNestedModules(t *testing.T) {
 		t.Fatal("sweep deleted a generated file inside a nested module")
 	}
 }
+
+// ---- store query ops ----
+
+func TestStoreOpsValidation(t *testing.T) {
+	base := okPrefix + `(entity E (field ID int64) (field Email string) (store %s))))`
+	for ops, want := range map[string]string{
+		`get fly`:                       `unknown store op "fly"`,
+		`(list-by Phone)`:               "Phone is not a field declared before the store",
+		`(get-by Email) (get-by Email)`: "duplicate store method GetByEmail",
+		`count (method Count (returns int64 error))`: "duplicate store method Count",
+		`(frobnicate Email)`:                         "unknown store op (frobnicate Email)",
+		`(list-by)`:                                  "expected (_ ?field)",
+	} {
+		if err := validateSrc(t, fmt.Sprintf(base, ops), false); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", ops, want, err)
+		}
+	}
+}
+
+func TestStoreQueryOps(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package s (entity Share (field ID int64) (field NoteID int64) (field Email string)
+    (store get count (list-by NoteID) (get-by Email) (count-by NoteID) (exists-by Email) (delete-by NoteID)
+      (method RevokeAll (doc "RevokeAll removes all.") (params (noteID int64)) (returns int64 error))))))
+(config (storage postgres))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "s/s_gen.go")
+	for _, want := range []string{
+		"Count(ctx context.Context) (int64, error)",
+		"ListByNoteID(ctx context.Context, noteID int64) ([]*Share, error)",
+		"GetByEmail(ctx context.Context, email string) (*Share, error)",
+		"CountByNoteID(ctx context.Context, noteID int64) (int64, error)",
+		"ExistsByEmail(ctx context.Context, email string) (bool, error)",
+		"DeleteByNoteID(ctx context.Context, noteID int64) error",
+		"RevokeAll(ctx context.Context, noteID int64) (int64, error)",
+	} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("interface missing %q", want)
+		}
+	}
+	sql := read(t, out, "db/query.sql")
+	for _, want := range []string{
+		"-- name: CountShares :one\nSELECT count(*) FROM shares;",
+		"-- name: ListSharesByNoteID :many\nSELECT * FROM shares WHERE note_id = $1 ORDER BY id;",
+		"-- name: GetShareByEmail :one\nSELECT * FROM shares WHERE email = $1 ORDER BY id LIMIT 1;",
+		"-- name: ExistsShareByEmail :one\nSELECT EXISTS (SELECT 1 FROM shares WHERE email = $1);",
+		"-- name: DeleteSharesByNoteID :exec\nDELETE FROM shares WHERE note_id = $1;",
+	} {
+		if !strings.Contains(sql, want) {
+			t.Errorf("query.sql missing %q", want)
+		}
+	}
+	if strings.Contains(sql, "RevokeAll") {
+		t.Error("custom methods get no SQL")
+	}
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "s.q.ListSharesByNoteID") || !strings.Contains(tasks, "Implement it as documented: RevokeAll removes all.") {
+		t.Errorf("tasks should point at the sqlc query and the custom doc:\n%s", tasks)
+	}
+}
+
+func TestLowerFirstWord(t *testing.T) {
+	for in, want := range map[string]string{"NoteID": "noteID", "Email": "email", "ID": "id", "HTTPServer": "httpServer", "URLPath": "urlPath"} {
+		if got := lowerFirstWord(in); got != want {
+			t.Errorf("lowerFirstWord(%s) = %s, want %s", in, got, want)
+		}
+	}
+}
