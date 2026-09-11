@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- go.mod versions are only ever raised: regenerating keeps a `go` line or
+  a require that `go mod tidy` raised, instead of lowering it back to the
+  spec's version and breaking the build until the next tidy.
 - CI runs the postgres example through real sqlc (v1.31.1) and requires the
   result to build and vet. `make demo-postgres` explains how to install sqlc
   when it is missing, and honors `SQLC=/path/to/sqlc`.

@@ -8,6 +8,7 @@ import (
 	"go/format"
 	"go/parser"
 	"go/token"
+	goversion "go/version"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"strings"
 
 	"golang.org/x/mod/modfile"
+	"golang.org/x/mod/semver"
 	"golang.org/x/tools/go/ast/astutil"
 	"golang.org/x/tools/imports"
 )
@@ -96,7 +98,8 @@ func emitTextFile(n *Node, out string, r *Report) error {
 }
 
 // emitGoMod edits go.mod with x/mod/modfile. If go.mod exists (say after
-// `go mod tidy` added indirect requirements) it is merged, not clobbered.
+// `go mod tidy` added indirect requirements) it is merged, not clobbered,
+// and versions tidy raised are kept.
 func emitGoMod(n *Node, out string, r *Report) error {
 	p := filepath.Join(out, "go.mod")
 	f := new(modfile.File)
@@ -110,11 +113,24 @@ func emitGoMod(n *Node, out string, r *Report) error {
 	if err := f.AddModuleStmt(n.Text("module")); err != nil {
 		return err
 	}
-	if err := f.AddGoStmt(n.Text("go")); err != nil {
-		return err
+	// The spec's versions are minimums. `go mod tidy` may raise them (say, a
+	// dependency needs a newer Go), and lowering them again would break the
+	// build until the next tidy - so tilegen only ever raises versions.
+	if want := n.Text("go"); f.Go == nil || goversion.Compare("go"+want, "go"+f.Go.Version) > 0 {
+		if err := f.AddGoStmt(want); err != nil {
+			return err
+		}
+	}
+	have := map[string]string{}
+	for _, r := range f.Require {
+		have[r.Mod.Path] = r.Mod.Version
 	}
 	for _, req := range n.FindAll("require") {
-		if err := f.AddRequire(req.List[1].Atom, req.List[2].Atom); err != nil {
+		path, want := req.List[1].Atom, req.List[2].Atom
+		if cur, ok := have[path]; ok && semver.Compare(cur, want) >= 0 {
+			continue
+		}
+		if err := f.AddRequire(path, want); err != nil {
 			return err
 		}
 	}
