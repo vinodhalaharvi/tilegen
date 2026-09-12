@@ -168,5 +168,6 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n```%s\n%s\n```\n", f, lang, strings.TrimRight(string(data), "\n"))
 	}
+	b.WriteString(apiSurface(r.out, files, r, c.Module, t.Intent, t.Contract))
 	return b.String()
 }

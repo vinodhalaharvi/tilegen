@@ -227,7 +227,7 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 		return L(Sym("text/file"), Str(path), L(Sym("mode"), Sym("keep")), Str(content))
 	}
 	out := []*Node{
-		file(".gitignore", "# Build output\n/bin/\n*.test\ncoverage.out\n\n# tilegen pass dumps (regenerate with -dump)\n/.tilegen/\n\n# Editors and OS\n.idea/\n.vscode/\n.DS_Store\n"),
+		file(".gitignore", "# Build output\n/bin/\n*.test\ncoverage.out\n\n# tilegen pass dumps and API cache (both regenerate)\n/.tilegen/\n\n# Editors and OS\n.idea/\n.vscode/\n.DS_Store\n"),
 		file("README.md", readme(c, project, info)),
 		file("Makefile", makefile(c)),
 	}

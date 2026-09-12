@@ -358,6 +358,20 @@ involved, including sqlc's generated code for postgres stores. It is built
 from the same plan as generation, so it reflects the current spec even
 before you regenerate, and it writes nothing. Pipe it into any LLM CLI.
 
+It also carries the **API surface** of the packages that task touches: the
+exported declarations of each one, with doc comments, signatures only,
+printed from `go/types`. So a postgres store task gets pgx's real
+`ErrNoRows` and `Rows` rather than the model's memory of them. Scope is
+narrow on purpose: only packages the task's files import, plus any named in
+its intent (`map pgx.ErrNoRows to ErrNotFound`) and resolved through
+go.mod, never the standard library, at most four per prompt and trimmed to
+a budget. Results are cached under `<out>/.tilegen/api`. See what a package
+contributes with:
+
+```sh
+tilegen api github.com/jackc/pgx/v5
+```
+
 `tilegen.tasks.json` lists every open hole with `file`, `line`, `symbol`,
 `contract`, `intent`, `constraints`, and `context_files`, plus instructions.
 Give it to your LLM together with the listed files. Then:

@@ -221,6 +221,7 @@ func fillOne(t Task, out string, c *Ctx, fc FillConfig, log io.Writer, pending m
 			return attempt, err
 		}
 		disk := &Report{out: out, staged: map[string][]byte{}, unlinked: map[string]bool{}}
+
 		if holes, err := findHolesSrc(t.File, orig); err == nil && holes[t.ID] > 0 {
 			t.Line = holes[t.ID] // earlier fills may have moved it
 		}
