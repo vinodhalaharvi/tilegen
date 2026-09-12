@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"html"
 	"io"
 	"io/fs"
 	"net/http"
@@ -3977,5 +3978,53 @@ func TestWorksWithoutTheGoToolchain(t *testing.T) {
 	}
 	if src := read(t, out2, "a/a_gen.go"); !strings.Contains(src, `"context"`) {
 		t.Errorf("generated without a toolchain, but the import is missing:\n%s", src)
+	}
+}
+
+// TestDocsExamplesGenerate: every example in the documentation that has a
+// "try this" button must actually generate, or the docs teach a spec that
+// does not work.
+func TestDocsExamplesGenerate(t *testing.T) {
+	blocks := strings.Split(docsHTML, `<button class="try">`)
+	if len(blocks) < 8 {
+		t.Fatalf("expected several runnable examples, found %d", len(blocks)-1)
+	}
+	for i := 1; i < len(blocks); i++ {
+		before := blocks[i-1]
+		start := strings.LastIndex(before, "<pre><code>")
+		end := strings.LastIndex(before, "</code></pre>")
+		if start < 0 || end < start {
+			t.Errorf("button %d has no example before it", i)
+			continue
+		}
+		spec := html.UnescapeString(before[start+len("<pre><code>") : end])
+		t.Run(fmt.Sprintf("example%d", i), func(t *testing.T) {
+			dir := t.TempDir()
+			sp, _ := writeSpec(t, dir, spec, "")
+			if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
+				t.Errorf("a documented example must generate: %v\n%s", err, spec)
+			}
+		})
+	}
+}
+
+// TestDocsStayUserFacing: the documentation is for people writing specs,
+// so it should not explain how tilegen works inside.
+func TestDocsStayUserFacing(t *testing.T) {
+	page := strings.ToLower(indexHTML + docsHTML)
+	for _, jargon := range []string{
+		"compiler", "tiling", "maximal munch", "dynamic programming",
+		"cost model", "capability", "row-mapper", "dijkstra", "lowering pass",
+	} {
+		if strings.Contains(page, jargon) {
+			t.Errorf("the docs mention %q, which is about how tilegen works, not how to use it", jargon)
+		}
+	}
+	// And they should cover every form a spec can contain.
+	for _, form := range []string{"project", "package", "entity", "store", "durable", "enum",
+		"http", "events", "interface", "implement", "struct", "config", "policy"} {
+		if !strings.Contains(docsHTML, `id="`+form+`"`) && !strings.Contains(docsHTML, "("+form+" ") {
+			t.Errorf("the docs do not cover (%s ...)", form)
+		}
 	}
 }
