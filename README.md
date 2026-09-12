@@ -147,6 +147,41 @@ method lists are hardcoded. Variadic last parameters are written
 `(args "...any")`. Like every scaffolded file, it is reconciled as the
 interface changes.
 
+## Starting from an existing project
+
+Most projects already exist. `tilegen import` lifts one into a spec:
+
+```sh
+tilegen import ~/go-projects/myapp
+  wrote  spec/00-project.sexp
+  wrote  spec/10-catalog.sexp
+  wrote  spec/NOTES.md
+imported 5 of 8 exported type(s) in 1 package(s); 3 skipped (see spec/NOTES.md)
+next: tilegen check spec   # what the spec would regenerate, next to what you have
+```
+
+Everything it writes comes from the **type checker**
+(`x/tools/go/packages`, `go/types`), never from names or source text:
+structs and their field types and tags, interfaces and their method sets
+(embedded and variadic included), defined string types with typed constants
+(enums), which concrete type implements which interface
+(`types.Implements`), and the module and its requires. If the project does
+not type-check, import refuses and prints the errors, because a spec lifted
+from types the compiler rejects would be quietly wrong; `-force` imports
+the packages that do check.
+
+What it cannot prove, it does not guess. Generic types, aliases, unexported
+fields and anything else are listed in `NOTES.md` with the reason. Store
+ops, needs and events are **not** inferred from method names, because a rule
+like "a method called `GetByX` means `(get-by X)`" works on one codebase and
+not the next. An interface that is really a store imports as a plain
+`(interface ...)`, which is always correct; turn it into
+`(entity ... (store get list save (durable)))` yourself when you want
+tilegen to own it.
+
+It is a starting point, not a round trip. The spec covers what it covers,
+the rest stays ordinary Go, and `tilegen check` shows the difference.
+
 ## Specs across files
 
 `SPEC` can be a directory. tilegen reads every `.sexp` file in it in name
