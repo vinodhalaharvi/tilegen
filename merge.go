@@ -103,8 +103,12 @@ func Merge(forms []*Node) (*Linked, error) {
 		}
 	}
 	if project == nil || len(project.List) < 2 {
-		errs = append(errs, errors.New("spec needs exactly one (project NAME ...) form"))
-		return nil, errors.Join(errs...)
+		// No project: still a valid link for the commands that only need
+		// the workspace (up, status, down). Generation checks for itself.
+		if len(errs) > 0 {
+			return nil, errors.Join(errs...)
+		}
+		return &Linked{Config: config, Workspace: workspace, Policy: policy}, errorsFor(other)
 	}
 
 	merged := &Node{IsList: true, Pos: project.Pos, List: []*Node{project.List[0], project.List[1]}}

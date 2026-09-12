@@ -350,7 +350,6 @@ func TestMergeErrors(t *testing.T) {
 		"require conflict": {[]string{proj, `(require (u github.com/google/uuid v1.5.0))`}, "conflicts with (u github.com/google/uuid v1.6.0) at f0.sexp"},
 		"two package docs": {[]string{proj, `(package a (doc "x"))`, `(package a (doc "y"))`}, "package a already has a (doc ...) at f1.sexp"},
 		"unknown form":     {[]string{proj, `(servce x)`}, "f1.sexp:1:1: unknown top-level form (servce x)"},
-		"no project":       {[]string{`(package a)`}, "exactly one (project NAME ...)"},
 	} {
 		err := mergeSrc(t, tc.files...)
 		if err == nil || !strings.Contains(err.Error(), tc.want) {
@@ -3191,5 +3190,35 @@ func TestCostProvenance(t *testing.T) {
 	tilesCmd([]string{"-sexp", "postgres-pgx"}, &tiles)
 	if !strings.Contains(tiles.String(), `(llm-work 7 (source derived "the LLM writes every query and scan by hand"))`) {
 		t.Errorf("the registry should carry provenance:\n%s", tiles.String())
+	}
+}
+
+// TestWorkspaceOnlySpec: up, status and down need only the workspace, so a
+// spec folder with no project yet still opens its session.
+func TestWorkspaceOnlySpec(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "spec"), 0o755)
+	os.WriteFile(filepath.Join(dir, "spec", "workspace.sexp"),
+		[]byte("(workspace (name demo) (out ..) (tmux (session demo (window work (dir .)))))"), 0o644)
+	ws, err := loadWorkspace(filepath.Join(dir, "spec"))
+	if err != nil {
+		t.Fatalf("a workspace-only spec should load: %v", err)
+	}
+	if ws.Session != "demo" || ws.Out != canonical(dir) && ws.Out != dir {
+		t.Errorf("workspace: %+v", ws)
+	}
+	// A session needs no git repository; only worktrees do.
+	r := &scriptRunner{answers: map[string]string{}}
+	if err := Up(ws, r, io.Discard, true); err != nil {
+		t.Fatalf("opening a session should not need a repository: %v", err)
+	}
+	if len(r.did) == 0 || !strings.HasPrefix(r.did[0], "tmux new-session") {
+		t.Errorf("want the session created, got %q", r.did)
+	}
+	// Generation still says what is missing, and points at what works.
+	err = run(Options{Spec: filepath.Join(dir, "spec"), Out: filepath.Join(dir, "out")}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "no (project NAME ...) form") ||
+		!strings.Contains(err.Error(), "`tilegen up` still works") {
+		t.Fatalf("want a helpful generation error, got %v", err)
 	}
 }

@@ -240,6 +240,10 @@ one folder holds everything:
       (window pricing (worktree pricing) (run "claude")))))
 ```
 
+A workspace on its own is enough for `up`, `status` and `down`, so you can
+open the session before there is anything to generate, and watch the project
+appear:
+
 ```sh
 tilegen -git spec/        # generate into ..; create or clone the GitHub repo
 tilegen up spec/          # create missing worktrees, open or attach the session

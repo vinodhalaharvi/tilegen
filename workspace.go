@@ -239,7 +239,7 @@ func loadWorkspace(spec string) (*Workspace, error) {
 		return nil, err
 	}
 	if linked.Workspace == nil {
-		return nil, fmt.Errorf("%s has no (workspace ...) form", spec)
+		return nil, fmt.Errorf("%s has no (workspace ...) form; add one to say where this project is generated and how you work on it", spec)
 	}
 	ws, err := ParseWorkspace(linked.Workspace, specBase(spec))
 	if err != nil {
@@ -284,9 +284,12 @@ func worktreesOf(main string, r Runner) (map[string]bool, error) {
 // Up creates missing worktrees, then creates or completes the tmux session
 // and attaches to it. Running it again reuses everything that exists.
 func Up(ws *Workspace, r Runner, log io.Writer, noAttach bool) error {
-	have, err := worktreesOf(ws.Out, r)
-	if err != nil {
-		return err
+	have := map[string]bool{}
+	if len(ws.Worktrees) > 0 {
+		var err error
+		if have, err = worktreesOf(ws.Out, r); err != nil {
+			return err // worktrees need a repository; a session does not
+		}
 	}
 	for _, wt := range ws.Worktrees {
 		if have[canonical(wt.Path)] {
