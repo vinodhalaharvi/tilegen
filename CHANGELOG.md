@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- The documentation is three walkthroughs, each carried from the spec to
+  the generated code and then through one change to the spec: a task list
+  gaining `(durable)`, an orders API meeting a client policy, and a
+  two-package service with events and an interface. Every sample is real
+  generated output.
+- Fixed the syntax highlighting, which chained regexes over text it had
+  already marked up and printed its own span tags into the page. Each
+  language now has a single-pass tokeniser.
+- A sqlite store's hints named `pgx.ErrNoRows`; they now name
+  `sql.ErrNoRows`, which is what that driver returns.
 - The service has a Docs tab: what a spec can contain, form by form, each
   shown beside the code it produces, with eleven complete examples that
   load into the editor and run. Written for people using tilegen, not

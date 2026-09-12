@@ -116,12 +116,18 @@ func memoryHint(meth *Node) string {
 	return customHint(meth)
 }
 
-func postgresHint(meth *Node, entity string) string {
+func postgresHint(meth *Node, entity string) string { return sqlcHint(meth, entity, "pgx.ErrNoRows") }
+
+// sqlcHint describes a method sqlc has already written the query for. The
+// sentinel differs by driver: pgx has its own, database/sql has
+// sql.ErrNoRows, and naming the wrong one sends the reader to a package
+// the project does not import.
+func sqlcHint(meth *Node, entity, noRows string) string {
 	kind, f := methodOp(meth)
 	q := queryName(kind, entity, f)
 	switch kind {
 	case "get", "get-by":
-		return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert the db.%s row to *%s. Map pgx.ErrNoRows to ErrNotFound.", q, entity, entity)
+		return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert the db.%s row to *%s. Map %s to ErrNotFound.", q, entity, entity, noRows)
 	case "list", "list-by":
 		return fmt.Sprintf("Call the sqlc-generated s.q.%s and convert each db.%s row to *%s.", q, entity, entity)
 	case "save":

@@ -60,7 +60,7 @@ func init() {
 				Params: L(Sym("params"), L(Sym("q"), Sym("*db.Queries"))),
 				Body:   fmt.Sprintf("return &%s{q: q}", in.Impl),
 				Hint: func(meth *Node) string {
-					h := postgresHint(meth, in.Entity)
+					h := sqlcHint(meth, in.Entity, "sql.ErrNoRows") // database/sql, not pgx
 					kind, _ := methodOp(meth)
 					if len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {
 						h += " sqlite stores these as TEXT, so convert " + strings.Join(parse, ", ") + "; never a bare cast."
