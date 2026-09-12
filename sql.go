@@ -10,32 +10,25 @@ import (
 // compiler from SQL to Go - generates the typed data layer. The LLM only
 // writes the thin mapping between sqlc rows and domain types.
 
-var sqlTypes = map[string]string{
-	"string": "TEXT", "bool": "BOOLEAN",
-	"int": "BIGINT", "int64": "BIGINT", "int32": "INTEGER", "int16": "SMALLINT",
-	"float64": "DOUBLE PRECISION", "float32": "REAL",
-	"[]byte": "BYTEA", "time.Time": "TIMESTAMPTZ", "uuid.UUID": "UUID",
-	"json.RawMessage": "JSONB",
-}
+// sqlTypes is the postgres mapping, kept as the default for code that
+// asks about a type without a project in hand (the chain cost model).
+var sqlTypes = Postgres.Types
 
 func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
+	d := dialectOf(c)
 	table := plural(snake(entity))
 	var cols, names []string
 	for _, f := range st.FindAll("field") {
 		name, typ := f.List[1].Atom, f.List[2].Atom
 		col := snake(name)
 		nullable := strings.HasPrefix(typ, "*")
-		sqlt, ok := sqlTypes[strings.TrimPrefix(typ, "*")]
+		sqlt, ok := d.Types[strings.TrimPrefix(typ, "*")]
 		if vals := c.enumFor(typ, c.Pkg.Name); vals != nil {
-			quoted := make([]string, len(vals))
-			for i, v := range vals {
-				quoted[i] = "'" + v + "'"
-			}
-			sqlt, ok = fmt.Sprintf("TEXT CHECK (%s IN (%s))", col, strings.Join(quoted, ", ")), true
+			sqlt, ok = d.Enum(col, vals), true
 		}
 		if !ok {
-			c.warn(f.Pos, "no SQL type for %s; using JSONB for column %s", typ, col)
-			sqlt = "JSONB"
+			c.warn(f.Pos, "no SQL type for %s; using %s for column %s", typ, d.Fallback, col)
+			sqlt = d.Fallback
 		}
 		switch {
 		case name == "ID":
@@ -55,38 +48,33 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 		var body string
 		switch kind {
 		case "get":
-			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE id = $1;", table)
+			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE id = %s;", table, d.Placeholder(0))
 		case "list":
 			body = fmt.Sprintf(":many\nSELECT * FROM %s ORDER BY id;", table)
 		case "save":
 			ph := make([]string, len(names))
 			var set []string
 			for i, n := range names {
-				ph[i] = fmt.Sprintf("$%d", i+1)
+				ph[i] = d.Placeholder(i)
 				if n != "id" {
 					set = append(set, fmt.Sprintf("%s = EXCLUDED.%s", n, n))
 				}
 			}
-			conflict := "DO NOTHING"
-			if len(set) > 0 {
-				conflict = "DO UPDATE SET " + strings.Join(set, ", ")
-			}
-			body = fmt.Sprintf(":exec\nINSERT INTO %s (%s)\nVALUES (%s)\nON CONFLICT (id) %s;",
-				table, strings.Join(names, ", "), strings.Join(ph, ", "), conflict)
+			body = ":exec\n" + d.Upsert(table, names, set, ph)
 		case "delete":
-			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE id = $1;", table)
+			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE id = %s;", table, d.Placeholder(0))
 		case "count":
 			body = fmt.Sprintf(":one\nSELECT count(*) FROM %s;", table)
 		case "list-by":
-			body = fmt.Sprintf(":many\nSELECT * FROM %s WHERE %s = $1 ORDER BY id;", table, col)
+			body = fmt.Sprintf(":many\nSELECT * FROM %s WHERE %s = %s ORDER BY id;", table, col, d.Placeholder(0))
 		case "get-by":
-			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE %s = $1 ORDER BY id LIMIT 1;", table, col)
+			body = fmt.Sprintf(":one\nSELECT * FROM %s WHERE %s = %s ORDER BY id LIMIT 1;", table, col, d.Placeholder(0))
 		case "count-by":
-			body = fmt.Sprintf(":one\nSELECT count(*) FROM %s WHERE %s = $1;", table, col)
+			body = fmt.Sprintf(":one\nSELECT count(*) FROM %s WHERE %s = %s;", table, col, d.Placeholder(0))
 		case "exists-by":
-			body = fmt.Sprintf(":one\nSELECT EXISTS (SELECT 1 FROM %s WHERE %s = $1);", table, col)
+			body = fmt.Sprintf(":one\nSELECT EXISTS (SELECT 1 FROM %s WHERE %s = %s);", table, col, d.Placeholder(0))
 		case "delete-by":
-			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE %s = $1;", table, col)
+			body = fmt.Sprintf(":exec\nDELETE FROM %s WHERE %s = %s;", table, col, d.Placeholder(0))
 		default:
 			continue // custom methods: no SQL
 		}
@@ -99,15 +87,15 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 // sqlcConfig describes sqlc.yaml. Overrides make sqlc emit the same Go
 // types the domain uses, which shrinks the mapping the LLM has to write.
 func sqlcConfig(c *Ctx) *Node {
+	d := dialectOf(c)
 	n := L(Sym("sqlc/config"),
+		L(Sym("engine"), Str(d.Name)),
+		L(Sym("sql-package"), Str(d.SQLPackage)),
 		L(Sym("schema"), Str("db/schema.sql")),
 		L(Sym("queries"), Str("db/query.sql")),
-		L(Sym("out"), Str("internal/db")),
-		L(Sym("override"), Str("timestamptz"), Str("time.Time")))
-	for _, imp := range c.Requires {
-		if imp == "github.com/google/uuid" {
-			n.List = append(n.List, L(Sym("override"), Str("uuid"), Str("github.com/google/uuid.UUID")))
-		}
+		L(Sym("out"), Str("internal/db")))
+	for _, o := range d.Overrides(c) {
+		n.List = append(n.List, o)
 	}
 	return n
 }
