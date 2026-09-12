@@ -2814,3 +2814,136 @@ func TestEventBusRequirementValidation(t *testing.T) {
 		}
 	}
 }
+
+// ---- the plan graph ----
+
+func planGraphOf(t *testing.T, spec, out string) (*PlanGraph, [][]string) {
+	t.Helper()
+	cp, err := compile(Options{Spec: spec, Out: out}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g := buildPlanGraph(r, cp.c)
+	levels, err := g.Levels()
+	if err != nil {
+		t.Fatalf("the plan should be acyclic: %v", err)
+	}
+	return g, levels
+}
+
+// levelOf returns which level a node landed in.
+func levelOf(levels [][]string, id string) int {
+	for i, level := range levels {
+		for _, n := range level {
+			if n == id {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// TestPlanGraphOrdersGeneratedWork: a postgres store's tasks must come
+// after sqlc has run, a memory store's need not. Every edge is inferred.
+func TestPlanGraphOrdersGeneratedWork(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package orders (entity Order (field ID int64) (store get save (durable))))
+  (package sessions (entity Session (field ID string) (store get))))`, "")
+	g, levels := planGraphOf(t, sp, filepath.Join(dir, "out"))
+
+	sqlc := levelOf(levels, toolNode("sqlc generate"))
+	dbPkg := levelOf(levels, "dir:internal/db")
+	pgTask := levelOf(levels, taskNode("orders.PostgresOrderStore.Get"))
+	memTask := levelOf(levels, taskNode("sessions.MemorySessionStore.Get"))
+	schema := levelOf(levels, fileNode("db/schema.sql"))
+	for name, lvl := range map[string]int{"sqlc": sqlc, "internal/db": dbPkg, "postgres task": pgTask, "memory task": memTask, "schema": schema} {
+		if lvl < 0 {
+			t.Fatalf("%s is missing from the plan", name)
+		}
+	}
+	if !(schema < sqlc && sqlc < dbPkg && dbPkg < pgTask) {
+		t.Errorf("want schema < sqlc < internal/db < postgres task, got %d %d %d %d", schema, sqlc, dbPkg, pgTask)
+	}
+	if memTask > sqlc || memTask >= dbPkg {
+		t.Errorf("a memory store's task needs nothing generated, so it must not wait for sqlc's output: task %d, sqlc %d, internal/db %d", memTask, sqlc, dbPkg)
+	}
+	// Files are credited to the tile responsible for them.
+	if n := g.Nodes[fileNode("db/schema.sql")]; n == nil || n.By != "postgres-sqlc" {
+		t.Errorf("schema.sql should be credited to postgres-sqlc, got %+v", n)
+	}
+	if n := g.Nodes[fileNode("sessions/memory_session_store.go")]; n == nil || n.By != "memory" {
+		t.Errorf("the memory store file should be credited to memory, got %+v", n)
+	}
+	// The solver's coverings are in the graph too.
+	if n := g.Nodes["need:orders.OrderStore"]; n == nil || !strings.Contains(n.Note, "store, chosen by auto") {
+		t.Errorf("the covering should be shown: %+v", n)
+	}
+}
+
+func TestPlanGraphDot(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a (entity E (field ID int64) (store get))))`, "")
+	g, _ := planGraphOf(t, sp, filepath.Join(dir, "out"))
+	dot := g.Dot()
+	if !strings.HasPrefix(dot, "digraph tilegen {") || !strings.HasSuffix(dot, "}\n") {
+		t.Fatalf("not a DOT document:\n%s", dot)
+	}
+	if !strings.Contains(dot, `"file:a/a_gen.go"`) || !strings.Contains(dot, " -> ") {
+		t.Errorf("DOT should have nodes and edges:\n%s", dot)
+	}
+	// Every edge names nodes the document declares.
+	for _, line := range strings.Split(dot, "\n") {
+		from, to, isEdge := strings.Cut(line, " -> ")
+		if !isEdge {
+			continue
+		}
+		for _, id := range []string{strings.TrimSpace(from), strings.TrimSuffix(strings.TrimSpace(to), ";")} {
+			if !strings.Contains(dot, id+" [label=") {
+				t.Errorf("edge names an undeclared node %s", id)
+			}
+		}
+	}
+}
+
+func TestPlanGraphCycleIsReported(t *testing.T) {
+	g := newPlanGraph()
+	for _, id := range []string{"a", "b", "c", "loose"} {
+		g.add(&PlanNode{ID: id, Kind: "file", Name: id})
+	}
+	g.dep("a", "b")
+	g.dep("b", "c")
+	g.dep("c", "a") // a cycle
+	levels, err := g.Levels()
+	if err == nil || !strings.Contains(err.Error(), "dependency cycle among 3 node(s): a, b, c") {
+		t.Fatalf("want a cycle naming its nodes, got %v", err)
+	}
+	if len(levels) != 1 || levels[0][0] != "loose" {
+		t.Errorf("nodes outside the cycle should still be ordered: %v", levels)
+	}
+}
+
+func TestPlanGraphIsDeterministicAndWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a (entity E (field ID int64) (store get save (durable))) (events (event Happened (field ID int64)))))`, "")
+	out := filepath.Join(dir, "out")
+	first := ""
+	for i := 0; i < 10; i++ {
+		g, levels := planGraphOf(t, sp, out)
+		got := g.Dot() + fmt.Sprint(levels)
+		if i == 0 {
+			first = got
+		} else if got != first {
+			t.Fatal("the plan graph must be deterministic")
+		}
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Error("tilegen plan must write nothing")
+	}
+}

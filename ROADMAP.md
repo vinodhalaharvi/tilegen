@@ -65,6 +65,9 @@ Run fill for real, and let measured numbers replace declared costs.
 
 ## v0.5.0 - Intent
 
+- [x] **Plan graph**: Done when `tilegen plan` shows the plan in dependency order, inferred rather than declared, with cycle detection and DOT output.
+- [ ] **Parallel and incremental work on the graph**: Done when independent holes fill concurrently, a spec change invalidates only what depends on it, and expensive fills are cached by input hash.
+
 - [x] **Capability-driven selection**: Done when any capability's tiles compete through one bottom-up solver, with totality, determinism, legality and optimality each tested.
 
 - [x] **API surface in prompts**: Done when a task's prompt carries the exported API of the packages it touches, extracted with go/types.

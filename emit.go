@@ -30,10 +30,14 @@ type Report struct {
 	TaskList      []Task
 
 	// The plan (see plan.go).
-	out      string
-	staged   map[string][]byte
-	order    []string
-	unlinked map[string]bool
+	out        string
+	by         string            // the tile currently staging files
+	producedBy map[string]string // file -> the tile responsible for it
+	inPlan     map[string]bool
+	planned    []string // every file in the plan, staged or kept
+	staged     map[string][]byte
+	order      []string
+	unlinked   map[string]bool
 
 	// Reconciliation (see reconcile.go).
 	Produced        map[string]bool // every file this run produces, written or kept
@@ -50,11 +54,13 @@ type Report struct {
 // decision was made by the passes, and every format is handled by the
 // tool that owns it.
 func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
-	r := &Report{Produced: map[string]bool{}, out: out, staged: map[string][]byte{}, unlinked: map[string]bool{}}
+	r := &Report{Produced: map[string]bool{}, out: out, staged: map[string][]byte{},
+		unlinked: map[string]bool{}, producedBy: map[string]string{}, inPlan: map[string]bool{}}
 	var tables, queries, tasks []*Node
 	var sqlc *Node
 	for _, n := range nodes {
 		var err error
+		r.by = producerOf(n, c) // who to credit for whatever this form stages
 		switch n.Head() {
 		case "gomod":
 			err = emitGoMod(n, out, r)
@@ -95,8 +101,10 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 		}
 	}
 	if len(c.Cover) > 0 {
-		r.stage(lockFile, lockText(c.Cover))
+		r.by = ""
+		r.stageBy(lockFile, "", lockText(c.Cover))
 	}
+	r.by = ""
 	r.Produced["tilegen.tasks.json"] = true
 	sweep(out, r)
 	if err := emitTasks(tasks, out, c, r); err != nil {
@@ -110,7 +118,7 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 }
 
 func writeFile(out, rel string, data []byte, r *Report) error {
-	r.stage(rel, data)
+	r.stageBy(rel, r.by, data)
 	return nil
 }
 
@@ -120,6 +128,7 @@ func emitTextFile(n *Node, out string, r *Report) error {
 	if n.Text("mode") == "keep" {
 		if r.exists(rel) {
 			r.Produced[rel] = true
+			r.note(rel, r.by)
 			r.Kept = append(r.Kept, rel)
 			return nil
 		}
@@ -177,6 +186,7 @@ func emitGoFile(n *Node, out string, r *Report) error {
 	if n.Text("mode") == "keep" {
 		if r.exists(rel) {
 			r.Produced[rel] = true
+			r.note(rel, r.by) // kept, but still part of the plan
 			return reconcileKeep(n, full, rel, r)
 		}
 	}
@@ -488,4 +498,34 @@ func findHolesSrc(file string, src []byte) (map[string]int, error) {
 		return true
 	})
 	return holes, nil
+}
+
+// producerOf credits a target form to the tile responsible for it: the
+// file's own package for Go files, the storage tile for SQL and sqlc
+// config. Inferred from the form, so no tile declares anything.
+func producerOf(n *Node, c *Ctx) string {
+	switch n.Head() {
+	case "sql/table", "sql/query", "sqlc/config":
+		for _, be := range usedBackends(c) {
+			if be.Generate != "" || be.Form == "db-rows" {
+				return be.Tile
+			}
+		}
+	case "go/file":
+		base := path.Base(n.List[1].Atom)
+		for _, id := range sortedKeys(c.Cover) {
+			cov := c.Cover[id]
+			if tr, ok := cov.Offer.Impl.(*BusTransport); ok && base == snake(tr.Suffix)+".go" {
+				return cov.Offer.Tile
+			}
+			if b, ok := cov.Offer.Impl.(*Backend); ok {
+				// PostgresOrderStore -> postgres_order_store.go
+				prefix := snake(strings.ToUpper(b.Name[:1]) + b.Name[1:])
+				if strings.HasPrefix(base, prefix+"_") && strings.HasSuffix(base, "_store.go") {
+					return cov.Offer.Tile
+				}
+			}
+		}
+	}
+	return ""
 }
