@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `-json` on the read-only commands: `explain` (coverings, scores,
+  candidates, rejections, chains, positions), `plan` (levels with each
+  node's dependencies), `tiles` (capabilities, offers, costs, legality) and
+  `check` (what would change, and the problems). Text and JSON come from
+  one computation, so they cannot disagree, and `check -json` still exits
+  non-zero on failure.
 - `tilegen plan [-dot] [SPEC]` prints the plan as a dependency graph in
   topological levels, or as graphviz DOT. Every edge is inferred from the
   plan tilegen already builds: which tile staged which file, a tool step's

@@ -17,6 +17,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
 	fs.StringVar(&o.Out, "out", "", "the generated project, whose tilegen.lock pins choices (default: the workspace's (out ...), else ./out)")
 	fs.BoolVar(&o.Reselect, "reselect", false, "ignore tilegen.lock: show what a fresh choice would be")
+	asJSON := fs.Bool("json", false, "print the coverings as JSON")
 	fs.StringVar(&o.PolicyFile, "policy", "", "policy .sexp file (default: a (policy ...) form in the spec)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen explain [flags] [SPEC] [STORE...]\n\n")
@@ -38,6 +39,18 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if *asJSON {
+		out := ExplainJSON{Policy: policyJSON(cp.c.Policy)}
+		for _, n := range names {
+			if len(pos) == 0 || matchesAny(n, pos) {
+				out.Coverage = append(out.Coverage, coverageJSON(cp.c.Cover[n]))
+			}
+		}
+		if len(out.Coverage) == 0 && len(pos) > 0 {
+			return fmt.Errorf("no need %s%s", pos[0], didYouMean(pos[0], names))
+		}
+		return writeJSON(stdout, out)
+	}
 	fmt.Fprintf(stdout, "%s\n\n", cp.c.Policy.describe())
 	shown := 0
 	for _, n := range names {
