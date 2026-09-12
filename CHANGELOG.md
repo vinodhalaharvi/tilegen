@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `tilegen serve`: the compiler over HTTP. `POST /generate` returns the
+  project as a zip, `POST /explain` and `POST /plan` answer as JSON,
+  `GET /tiles` lists the registry, and `GET /` is a page with a spec
+  editor beside the tile choices. It executes nothing and writes nothing:
+  generation stays a plan in memory, which is zipped directly. Requests are
+  bounded by body size, timeout and spec size.
+- A `Dockerfile` (distroless, non-root, static) and `deploy/cloudrun.sh`.
 - A SQL backend declares a `Dialect`: column types, placeholders, upsert,
   enum constraint and sqlc overrides. `sql.go` no longer assumes postgres,
   and sqlc.yaml takes its engine and driver from the dialect.
