@@ -4038,39 +4038,64 @@ func TestDocsStayUserFacing(t *testing.T) {
 	}
 }
 
-// TestEveryWalkthroughChangesSomething: a walkthrough that only shows a
-// spec and its output undersells what tilegen does. Each one must carry a
-// change through to the generated code, and the docs must show what a
-// policy does, since that is the part a reader cannot guess.
-func TestEveryWalkthroughChangesSomething(t *testing.T) {
+// TestEveryWalkthroughIsComplete: a walkthrough has to show the whole
+// spec, twice, with a policy in each, and the real output of both. A
+// fragment or a spec with no policy teaches the reader that the thing
+// tilegen is for is an afterthought.
+func TestEveryWalkthroughIsComplete(t *testing.T) {
 	sections := strings.Split(docsHTML, `<h2 id=`)
-	var walkthroughs []string
-	for _, s := range sections {
-		if strings.HasPrefix(s, `"one"`) || strings.HasPrefix(s, `"two"`) || strings.HasPrefix(s, `"three"`) {
-			walkthroughs = append(walkthroughs, s)
+	var walks []string
+	for _, sec := range sections {
+		for _, id := range []string{`"one"`, `"two"`, `"three"`} {
+			if strings.HasPrefix(sec, id) {
+				walks = append(walks, sec)
+			}
 		}
 	}
-	if len(walkthroughs) != 3 {
-		t.Fatalf("expected three walkthroughs, found %d", len(walkthroughs))
+	if len(walks) != 3 {
+		t.Fatalf("expected three walkthroughs, found %d", len(walks))
 	}
-	for i, w := range walkthroughs {
+	for i, w := range walks {
 		name := fmt.Sprintf("walkthrough %d", i+1)
-		if !strings.Contains(w, "Change one thing") && !strings.Contains(w, "Change one more thing") {
-			t.Errorf("%s never changes the spec", name)
+		specs := specBlocks(w)
+		if len(specs) != 2 {
+			t.Errorf("%s shows %d spec(s); it should show the same spec twice, once per decision", name, len(specs))
+			continue
 		}
-		if !strings.Contains(w, "(policy") && !strings.Contains(w, "cross-process") {
-			t.Errorf("%s never shows a decision that comes from outside the code", name)
+		for n, spec := range specs {
+			switch {
+			case !strings.Contains(spec, "(project "):
+				t.Errorf("%s spec %d is a fragment, not a whole spec", name, n+1)
+			case !strings.Contains(spec, "(policy"):
+				t.Errorf("%s spec %d has no policy", name, n+1)
+			}
 		}
-		if !strings.Contains(w, "What would it do?") {
-			t.Errorf("%s never shows what tilegen decided", name)
+		if specs[0] == specs[1] {
+			t.Errorf("%s shows the same spec twice with no change", name)
 		}
-		if !strings.Contains(w, `data-lang="go"`) && !strings.Contains(w, `data-lang="sql"`) {
-			t.Errorf("%s never shows generated code", name)
+		for _, want := range []string{"What would it do?", `data-lang="go"`, `data-lang="sh"`} {
+			if strings.Count(w, want) < 2 {
+				t.Errorf("%s should show %s for both versions", name, want)
+			}
 		}
 	}
-	// Two of the three show a policy form outright.
-	policies := strings.Count(docsHTML, "(policy\n")
-	if policies < 2 {
-		t.Errorf("only %d walkthrough(s) show a (policy ...) form", policies)
+}
+
+// specBlocks returns the whole specs in a section, in order.
+func specBlocks(section string) []string {
+	var out []string
+	rest := section
+	for {
+		i := strings.Index(rest, `<code data-lang="sexp">`)
+		if i < 0 {
+			return out
+		}
+		rest = rest[i+len(`<code data-lang="sexp">`):]
+		j := strings.Index(rest, "</code>")
+		if j < 0 {
+			return out
+		}
+		out = append(out, html.UnescapeString(rest[:j]))
+		rest = rest[j:]
 	}
 }
