@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- HTTP routing tile: `(http (route GET "/links/{id}" (get Link)) ...)`
+  generates a `Handler` over the package's stores, `Routes()` returning an
+  `*http.ServeMux`, and a handler per route: typed path values, JSON
+  decoding that rejects unknown fields, the store call, and the right
+  status. No dependency, since Go 1.22's router matches methods and
+  wildcards and answers 404 and 405. Only validation and error mapping are
+  holes, one pair per resource. The shop example now serves an API.
+- `(uses T)` on a `go/func`: types a body names but no signature does, so
+  imports resolve. `stubsAndTasksAs` lets a tile choose its receiver name.
 - A tmux window can be split into panes: `(window demo (split horizontal)
   (pane (run "...")) (pane (run "...")))`, with `vertical` for stacked.
   Panes take the same `(dir ...)`, `(worktree ...)` and `(run ...)` as

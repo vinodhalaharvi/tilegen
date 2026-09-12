@@ -2382,7 +2382,7 @@ func TestImportSelfRoundTrip(t *testing.T) {
 	if err := importCmd([]string{first}, &out, &log); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(out.String(), "imported 9 of 9 exported type(s)") {
+	if !strings.Contains(out.String(), "imported 10 of 10 exported type(s)") {
 		t.Errorf("a generated project should import completely: %s", out.String())
 	}
 	if notes := read(t, first, "spec/NOTES.md"); !strings.Contains(notes, "look like tilegen's event bus") {
@@ -3331,5 +3331,178 @@ func TestPanesWithRealTmux(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("pane %d (%s) should have run %s:\n%s", i, id, want, b)
 		}
+	}
+}
+
+// ---- the http tile ----
+
+const httpSpec = `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package links
+    (entity Link (field ID uuid.UUID) (field URL string) (store get list save delete))
+    (http
+      (route GET    "/links"      (list Link))
+      (route GET    "/links/{id}" (get Link))
+      (route POST   "/links"      (save Link))
+      (route DELETE "/links/{id}" (delete Link)))))`
+
+func TestHTTPTile(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, httpSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "links/http_gen.go")
+	for _, want := range []string{
+		"// " + generatedMarker,
+		"type Handler struct {\n\tlinks LinkStore\n}",
+		"func NewHandler(links LinkStore) *Handler",
+		`mux.HandleFunc("GET /links/{id}", h.GetLink)`, // method and wildcard: net/http routes it
+		`mux.HandleFunc("DELETE /links/{id}", h.DeleteLink)`,
+		"id, err := uuid.Parse(r.PathValue(\"id\"))", // the ID type decides the parse
+		"h.statusForLink(err)",                       // errors go through the hole
+		"if err := h.validateLink(&v); err != nil {", // so does validation
+		"w.WriteHeader(http.StatusNoContent)",        // delete
+		`"github.com/google/uuid"`,                   // the import the body needs
+	} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("http_gen.go missing %q", want)
+		}
+	}
+	if strings.Contains(gen, holePrefix) {
+		t.Error("the routing layer should have no holes")
+	}
+	impl := read(t, out, "links/http.go")
+	for _, want := range []string{
+		"func (h *Handler) validateLink(link *Link) error",
+		"func (h *Handler) statusForLink(err error) int",
+		`panic("tilegen:hole links.Handler.validateLink")`,
+	} {
+		if !strings.Contains(impl, want) {
+			t.Errorf("http.go missing %q:\n%s", want, impl)
+		}
+	}
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "ErrNotFound to 404") || !strings.Contains(tasks, "sent to the client with 400") {
+		t.Errorf("the two judgment calls should carry their intent:\n%s", tasks)
+	}
+	if strings.Count(tasks, "links.Handler.") != 2 {
+		t.Errorf("one pair of holes per resource, not per route:\n%s", tasks)
+	}
+}
+
+// TestHTTPTileServes: the generated routing must actually route, so the
+// test fills the two holes and exercises every status the tile promises.
+func TestHTTPTileServes(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, httpSpec, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	fill := func(file string, repl map[string]string, header string) {
+		p := filepath.Join(out, file)
+		b, _ := os.ReadFile(p)
+		s := string(b)
+		for hole, body := range repl {
+			s = strings.Replace(s, fmt.Sprintf("panic(%q)", holePrefix+hole), body, 1)
+		}
+		if header != "" {
+			s = strings.Replace(s, "package links\n", "package links\n\n"+header+"\n", 1)
+		}
+		os.WriteFile(p, []byte(s), 0o644)
+	}
+	lock := "s.mu.Lock()\n\tdefer s.mu.Unlock()\n\t"
+	fill("links/memory_link_store.go", map[string]string{
+		"links.MemoryLinkStore.Get":    lock + "v, ok := s.m[id]\n\tif !ok {\n\t\treturn nil, ErrNotFound\n\t}\n\treturn v, nil",
+		"links.MemoryLinkStore.List":   lock + "out := make([]*Link, 0, len(s.m))\n\tfor _, v := range s.m {\n\t\tout = append(out, v)\n\t}\n\treturn out, nil",
+		"links.MemoryLinkStore.Save":   lock + "s.m[link.ID] = link\n\treturn nil",
+		"links.MemoryLinkStore.Delete": lock + "delete(s.m, id)\n\treturn nil",
+	}, "")
+	fill("links/http.go", map[string]string{
+		"links.Handler.validateLink":  "if link.URL == \"\" {\n\t\treturn errors.New(\"url is required\")\n\t}\n\treturn nil",
+		"links.Handler.statusForLink": "if errors.Is(err, ErrNotFound) {\n\t\treturn http.StatusNotFound\n\t}\n\treturn http.StatusInternalServerError",
+	}, "import (\n\t\"errors\"\n\t\"net/http\"\n)")
+
+	test := `package links
+
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+
+	"github.com/google/uuid"
+)
+
+func TestServes(t *testing.T) {
+	mux := NewHandler(NewMemoryLinkStore()).Routes()
+	do := func(m, p, b string) int {
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, httptest.NewRequest(m, p, strings.NewReader(b)))
+		return rec.Code
+	}
+	id := uuid.New()
+	for _, c := range []struct {
+		name, method, path, body string
+		want                     int
+	}{
+		{"save", "POST", "/links", ` + "`" + `{"id":"` + "`" + `+id.String()+` + "`" + `","url":"https://x"}` + "`" + `, 200},
+		{"get", "GET", "/links/" + id.String(), "", 200},
+		{"list", "GET", "/links", "", 200},
+		{"missing", "GET", "/links/" + uuid.New().String(), "", http.StatusNotFound},
+		{"bad id", "GET", "/links/not-a-uuid", "", http.StatusBadRequest},
+		{"invalid", "POST", "/links", ` + "`" + `{"id":"` + "`" + `+uuid.New().String()+` + "`" + `","url":""}` + "`" + `, http.StatusBadRequest},
+		{"unknown field", "POST", "/links", ` + "`" + `{"nope":1}` + "`" + `, http.StatusBadRequest},
+		{"delete", "DELETE", "/links/" + id.String(), "", http.StatusNoContent},
+		{"wrong method", "PATCH", "/links", "", http.StatusMethodNotAllowed},
+		{"unknown path", "GET", "/nope", "", http.StatusNotFound},
+	} {
+		if got := do(c.method, c.path, c.body); got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+`
+	os.WriteFile(filepath.Join(out, "links", "serves_test.go"), []byte(test), 0o644)
+	for _, args := range [][]string{{"mod", "tidy"}, {"test", "./links/"}} {
+		cmd := exec.Command("go", args...)
+		cmd.Dir = out
+		if b, err := cmd.CombinedOutput(); err != nil {
+			if args[0] == "mod" {
+				t.Skipf("go mod tidy needs the module proxy: %v", err)
+			}
+			t.Fatalf("the generated API must serve: %v\n%s", err, b)
+		}
+	}
+}
+
+func TestHTTPValidation(t *testing.T) {
+	base := `(project p (module example.com/p) (go %s)
+  (package a (entity E (field ID int64) (store get list)) (http %s)))`
+	for _, c := range []struct{ goVer, form, want string }{
+		{"1.22", `(route GET "/e" (get E))`, "needs {id} in the path"},
+		{"1.22", `(route GET "/e/{id}" (list E))`, "acts on the collection, so the path should not have {id}"},
+		{"1.22", `(route get "/e" (list E))`, "route method must be GET"},
+		{"1.22", `(route GET "e" (list E))`, "route path must start with /"},
+		{"1.22", `(route GET "/e" (lst E))`, "(did you mean list?)"},
+		{"1.22", `(route GET "/e" (list E)) (route GET "/e" (list E))`, "duplicate route GET /e"},
+		{"1.22", ``, "needs at least one (route ...)"},
+		{"1.21", `(route GET "/e" (list E))`, "needs (go 1.22) or later"},
+		{"1.22", `(rout GET "/e" (list E))`, "(did you mean route?)"},
+	} {
+		err := validateSrc(t, fmt.Sprintf(base, c.goVer, c.form), false)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", c.form, c.want, err)
+		}
+	}
+	// A route whose entity has no store is an error at generation.
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a (struct E (field ID int64)) (http (route GET "/e" (list E)))))`, "")
+	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err == nil ||
+		!strings.Contains(err.Error(), "has no store in this package") {
+		t.Errorf("want a clear error, got %v", err)
 	}
 }

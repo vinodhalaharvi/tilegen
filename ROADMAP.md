@@ -65,6 +65,8 @@ Run fill for real, and let measured numbers replace declared costs.
 
 ## v0.5.0 - Intent
 
+- [x] **HTTP routing tile**: Done when a spec's routes generate a working `ServeMux` with holes only where judgment is needed.
+
 - [x] **Structured output for agents**: Done when the read-only commands print JSON, from the same computation as the text.
 - [ ] **MCP server**: Done when a thin adapter exposes the same queries over MCP, once the JSON shapes have proved themselves.
 

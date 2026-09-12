@@ -65,6 +65,7 @@ Or from a clone: `make demo`, `make dump`, `make help`.
 | `(implement Iface (as Name) (field n T)...)` | an implementation of any interface in the package |
 | `(enum Status pending paid shipped)` | a string type with constants, `StatusValues`, `Valid()`, `ParseStatus()` |
 | `(events (event Name (field ...))...)` | event structs, a typed `Bus` interface, and an in-process `LocalBus` |
+| `(http (route GET "/x/{id}" (get X))...)` | a `Handler` and `ServeMux` over the package's stores |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -117,6 +118,38 @@ returns their errors joined, so there are no goroutines to leak and errors
 reach the publisher. It is tested for ordering, unsubscribing, error
 joining, subscribing from a handler, and concurrency (under `-race`).
 Asynchronous or networked buses are future event-bus tiles.
+
+### HTTP routing
+
+```lisp
+(http
+  (doc "The links API.")
+  (route GET    "/links"      (list Link))
+  (route GET    "/links/{id}" (get Link))
+  (route POST   "/links"      (save Link))
+  (route DELETE "/links/{id}" (delete Link)))
+```
+
+generates `<package>/http_gen.go`: a `Handler` over the package's stores,
+`Routes()` returning an `*http.ServeMux`, and one handler per route that
+parses the path value into the entity's ID type, decodes the body
+(rejecting unknown fields), calls the store, and writes JSON with the right
+status. Go 1.22's router matches methods and `{wildcards}` itself, so there
+is no dependency, and `404` and `405` come from `net/http`.
+
+Two things are judgment rather than structure, so they are the only holes,
+one pair per resource:
+
+```go
+func (h *Handler) validateLink(link *Link) error  // what makes a request unacceptable
+func (h *Handler) statusForLink(err error) int    // which status a store error deserves
+```
+
+Everything else is generated, and tested: tilegen's own suite fills those
+two holes and exercises every route, checking 200, 404 for a missing
+record, 400 for an unparsable id, for failed validation and for unknown
+fields, 204 on delete, 405 for the wrong method and 404 for an unknown
+path.
 
 ### Implementing any interface
 

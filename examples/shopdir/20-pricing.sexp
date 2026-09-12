@@ -8,6 +8,13 @@
       (params (o *Order))
       (returns int64 error)))
 
+  ; HTTP: a Handler and ServeMux over the store; only validation and
+  ; error mapping are left open.
+  (http
+    (route GET    "/orders"      (list Order))
+    (route GET    "/orders/{id}" (get Order))
+    (route POST   "/orders"      (save Order)))
+
   ; Events: typed structs, a Bus interface and an in-process LocalBus, no holes.
   (events
     (event OrderPlaced (field OrderID uuid.UUID) (field TotalCents int64))
