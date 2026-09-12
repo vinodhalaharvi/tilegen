@@ -17,10 +17,40 @@ import (
 func (r *Report) path(rel string) string { return filepath.Join(r.out, filepath.FromSlash(rel)) }
 
 // stage records rel's content in the plan.
+// note records that a file is part of the plan and who is responsible,
+// even when it is kept rather than written.
+func (r *Report) note(rel, by string) {
+	if r.producedBy == nil {
+		r.producedBy = map[string]string{}
+	}
+	if by != "" {
+		r.producedBy[rel] = by
+	}
+	if !r.inPlan[rel] {
+		if r.inPlan == nil {
+			r.inPlan = map[string]bool{}
+		}
+		r.inPlan[rel] = true
+		r.planned = append(r.planned, rel)
+	}
+}
+
+// stage records rel's content in the plan, and which tile staged it.
+func (r *Report) stageBy(rel, by string, data []byte) {
+	r.stage(rel, data)
+	if r.producedBy == nil {
+		r.producedBy = map[string]string{}
+	}
+	if by != "" {
+		r.producedBy[rel] = by
+	}
+}
+
 func (r *Report) stage(rel string, data []byte) {
 	if _, ok := r.staged[rel]; !ok {
 		r.order = append(r.order, rel)
 	}
+	r.note(rel, "")
 	r.staged[rel] = data
 	delete(r.unlinked, rel)
 	r.Produced[rel] = true

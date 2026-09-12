@@ -53,6 +53,11 @@ func loadLock(out string) (map[string]LockEntry, error) {
 	for _, e := range b.Rest("entries") {
 		eb := Bindings{}
 		if !Match(Pat("(tile ?need ?tile)"), e, eb) || eb.One("need").IsList || eb.One("tile").IsList {
+			// A lock written by an older tilegen: say so once and choose
+			// again, rather than making the project unbuildable.
+			if e.Head() == "store" {
+				return map[string]LockEntry{}, staleLock{path}
+			}
 			errs = append(errs, fmt.Errorf("%s: expected (tile NEED TILE), got %s", e.Pos, short(e)))
 			continue
 		}
@@ -75,4 +80,11 @@ func lockText(cover map[string]*Covering) []byte {
 	}
 	b.WriteString(")\n")
 	return []byte(b.String())
+}
+
+// staleLock is a lock file in a format tilegen no longer writes.
+type staleLock struct{ path string }
+
+func (e staleLock) Error() string {
+	return e.path + " was written by an older tilegen; choosing again and rewriting it"
 }

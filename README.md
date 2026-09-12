@@ -382,6 +382,42 @@ Give it to your LLM together with the listed files. Then:
 3. Re-run tilegen at any time. Holes are found by parsing the real files, so
    filled ones drop off the list and line numbers stay current.
 
+## The plan graph
+
+`tilegen plan` shows what a run makes and in what order, inferred from the
+plan tilegen already builds. Nothing is declared and nothing is written:
+
+```
+$ tilegen plan spec/
+level 1
+  file   db/schema.sql   (postgres-sqlc)
+  need   sessions.SessionStore   (memory: store, chosen by auto (score 12))
+  task   sessions.MemorySessionStore.Get   Look up id in s.m while holding s.mu. ...
+level 2
+  tool   sqlc generate   (postgres-sqlc: run after tilegen, before building)
+level 3
+  file   internal/db/   (postgres-sqlc: written by sqlc generate)
+level 4
+  task   links.PostgresLinkStore.Get   Call the sqlc-generated s.q.GetLink ...
+```
+
+The levels carry real information: a postgres store's holes cannot be
+filled until sqlc has produced the types they use, while a memory store's
+can be filled straight away. Edges come from what the plan already knows,
+which tile staged which file, what each task was given as context, and what
+each covering delegated to, so there is nothing for a tile to declare and
+nothing to get out of step.
+
+```sh
+tilegen plan spec/          # levels
+tilegen plan -dot spec/ | dot -Tsvg -o plan.svg
+```
+
+A cycle is reported with the nodes involved rather than silently dropped.
+Later work (filling independent holes in parallel, invalidating only what a
+spec change touches, caching expensive fills) builds on this graph; today it
+is a projection, so you can see how the compiler arrived.
+
 ## Checking in CI
 
 ```sh

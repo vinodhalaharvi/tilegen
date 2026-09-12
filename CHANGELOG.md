@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- `tilegen plan [-dot] [SPEC]` prints the plan as a dependency graph in
+  topological levels, or as graphviz DOT. Every edge is inferred from the
+  plan tilegen already builds: which tile staged which file, a tool step's
+  inputs and outputs, each task's context files, and each covering's
+  children. So a postgres store's holes sit after `sqlc generate` and its
+  output, while a memory store's do not. Cycles are reported with the nodes
+  involved. It writes nothing.
+- A `tilegen.lock` written by an older tilegen is a warning and is
+  rewritten, rather than an error that blocks the project.
 - Selection is one general mechanism. Nodes declare needs, tiles register
   offers of a capability, and one bottom-up solver finds the cheapest legal
   covering: a tile's own cost, plus its children's coverings, plus any
