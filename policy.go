@@ -22,10 +22,43 @@ import (
 // Policy prices tiles for one project or team.
 type Policy struct {
 	Weights map[string]int
-	Prefer  map[string]bool   // tile names: win ties, and near-ties within Margin
-	Avoid   map[string]string // tile name -> why; never chosen automatically
-	Margin  int               // how far behind a preferred tile may be and still win
+	Prefer  map[string]Preference // tile name -> how much, and who says so
+	Avoid   map[string]string     // tile name -> why; never chosen automatically
+	Margin  int                   // how far behind a weak preference may be and still win
 	Pos     Pos
+}
+
+// A Preference is what people want, as opposed to what costs less. Tiles
+// declare technical costs; a tile cannot know your team or your client, so
+// preferences live here, with who holds them and how strongly.
+//
+//	(prefer postgres-gorm (strength required) (source client "contract §4"))
+//
+// Strength decides how it meets cost:
+//
+//	required  everything else becomes illegal, with the source as the reason
+//	strong    it wins over any legal candidate, however much cheaper
+//	weak      it wins ties, and anything within (margin N): today's behaviour
+type Preference struct {
+	Strength string // required | strong | weak
+	Source   string // client | architecture-team | ...; free text
+	Why      string
+	Pos      Pos
+}
+
+var preferenceStrengths = []string{"required", "strong", "weak"}
+
+// describeSource renders "source: client, contract §4" for explain.
+func (p Preference) describeSource() string {
+	switch {
+	case p.Source != "" && p.Why != "":
+		return fmt.Sprintf("source: %s, %s", p.Source, p.Why)
+	case p.Source != "":
+		return "source: " + p.Source
+	case p.Why != "":
+		return p.Why
+	}
+	return ""
 }
 
 // DefaultPolicy is the built-in pricing, used when no policy is given.
@@ -34,7 +67,7 @@ func DefaultPolicy() *Policy {
 	for d, v := range defaultWeights {
 		w[d] = v
 	}
-	return &Policy{Weights: w, Prefer: map[string]bool{}, Avoid: map[string]string{}, Margin: 0}
+	return &Policy{Weights: w, Prefer: map[string]Preference{}, Avoid: map[string]string{}, Margin: 0}
 }
 
 // ParsePolicy reads a (policy ...) form.
@@ -70,19 +103,17 @@ func ParsePolicy(n *Node) (*Policy, error) {
 				}
 				p.Weights[dim] = v
 			}
-		case "prefer", "avoid":
+		case "prefer":
+			p.parsePrefer(it, bad)
+		case "avoid":
 			for _, t := range it.Args() {
 				if t.IsList {
 					bad(t, "expected a tile name, got %s", short(t))
 					continue
 				}
-				if h == "prefer" {
-					p.Prefer[t.Atom] = true
-				} else {
-					p.Avoid[t.Atom] = ""
-				}
+				p.Avoid[t.Atom] = ""
 			}
-			if h == "avoid" && len(it.Args()) == 2 && !it.Args()[1].IsList && it.Args()[1].Quoted {
+			if len(it.Args()) == 2 && !it.Args()[1].IsList && it.Args()[1].Quoted {
 				p.Avoid[it.Args()[0].Atom] = it.Args()[1].Atom // (avoid pgx "reason")
 				delete(p.Avoid, it.Args()[1].Atom)
 			}
@@ -103,6 +134,53 @@ func ParsePolicy(n *Node) (*Policy, error) {
 		}
 	}
 	return p, errors.Join(errs...)
+}
+
+// parsePrefer reads (prefer TILE... [(strength S)] [(source WHO "why")]).
+// Without a strength it is weak, which is what (prefer X) has always meant.
+func (p *Policy) parsePrefer(n *Node, bad func(*Node, string, ...any)) {
+	pref := Preference{Strength: "weak", Pos: n.Pos}
+	var tiles []string
+	for _, a := range n.Args() {
+		if !a.IsList {
+			tiles = append(tiles, a.Atom)
+			continue
+		}
+		switch a.Head() {
+		case "strength":
+			if len(a.List) != 2 || a.List[1].IsList || !contains(preferenceStrengths, a.List[1].Atom) {
+				bad(a, "strength must be one of %s, got %s%s", strings.Join(preferenceStrengths, ", "), short(a),
+					didYouMean(lastAtom(a), preferenceStrengths))
+				continue
+			}
+			pref.Strength = a.List[1].Atom
+		case "source":
+			if len(a.List) < 2 || a.List[1].IsList {
+				bad(a, "expected (source WHO [\"why\"]), got %s", short(a))
+				continue
+			}
+			pref.Source = a.List[1].Atom
+			if len(a.List) > 2 && !a.List[2].IsList {
+				pref.Why = a.List[2].Atom
+			}
+		default:
+			bad(a, "prefer takes tile names, (strength ...) and (source ...), got %s%s", short(a),
+				didYouMean(a.Head(), []string{"strength", "source"}))
+		}
+	}
+	if len(tiles) == 0 {
+		bad(n, "prefer needs at least one tile name")
+	}
+	for _, t := range tiles {
+		p.Prefer[t] = pref
+	}
+}
+
+func lastAtom(n *Node) string {
+	if len(n.List) > 1 && !n.List[len(n.List)-1].IsList {
+		return n.List[len(n.List)-1].Atom
+	}
+	return ""
 }
 
 // LoadPolicy reads a file holding a single (policy ...) form.
@@ -165,7 +243,19 @@ func (p *Policy) describe() string {
 	}
 	s := "weights: " + strings.Join(w, ", ")
 	if len(p.Prefer) > 0 {
-		s += fmt.Sprintf("\nprefer: %s (margin %d)", strings.Join(sortedKeys(p.Prefer), ", "), p.Margin)
+		var parts []string
+		for _, n := range sortedKeys(p.Prefer) {
+			pref := p.Prefer[n]
+			part := fmt.Sprintf("%s (%s", n, pref.Strength)
+			if src := pref.describeSource(); src != "" {
+				part += "; " + src
+			}
+			parts = append(parts, part+")")
+		}
+		s += fmt.Sprintf("\nprefer: %s", strings.Join(parts, ", "))
+		if p.Margin > 0 {
+			s += fmt.Sprintf(" [margin %d]", p.Margin)
+		}
 	}
 	if len(p.Avoid) > 0 {
 		var parts []string

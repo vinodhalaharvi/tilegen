@@ -20,6 +20,24 @@ type Cost []CostTerm
 type CostTerm struct {
 	Dim   string // llm-work | maintenance | dependency | runtime | uncertainty
 	Value int
+
+	// Where the number came from. A cost with no provenance is a guess,
+	// and explain says so, because a reader should be able to tell a
+	// measurement from an author's estimate.
+	Source string // default | measured | derived | user
+	Note   string // "bench 2026-08", "deps.dev: 41 transitive"
+}
+
+// provenance describes a term's source for explain; "" when it is the
+// built-in default.
+func (t CostTerm) provenance() string {
+	if t.Source == "" || t.Source == "default" {
+		return ""
+	}
+	if t.Note != "" {
+		return t.Source + ": " + t.Note
+	}
+	return t.Source
 }
 
 // Short is the compact form for tables: llm 3, maint 2, dep 3.
@@ -215,7 +233,15 @@ func tileSexp(t TileInfo) *Node {
 	if len(t.Cost) > 0 {
 		cost := L(Sym("cost"))
 		for _, c := range t.Cost {
-			cost.List = append(cost.List, L(Sym(c.Dim), Sym(fmt.Sprint(c.Value))))
+			term := L(Sym(c.Dim), Sym(fmt.Sprint(c.Value)))
+			if c.Source != "" && c.Source != "default" {
+				src := L(Sym("source"), Sym(c.Source))
+				if c.Note != "" {
+					src.List = append(src.List, Str(c.Note))
+				}
+				term.List = append(term.List, src)
+			}
+			cost.List = append(cost.List, term)
 		}
 		n.List = append(n.List, cost)
 	}

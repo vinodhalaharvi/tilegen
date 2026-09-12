@@ -36,10 +36,16 @@ type ExplainJSON struct {
 }
 
 type PolicyJSON struct {
-	Weights map[string]int    `json:"weights"`
-	Prefer  []string          `json:"prefer,omitempty"`
-	Margin  int               `json:"margin,omitempty"`
-	Avoid   map[string]string `json:"avoid,omitempty"`
+	Weights map[string]int            `json:"weights"`
+	Prefer  map[string]PreferenceJSON `json:"prefer,omitempty"`
+	Margin  int                       `json:"margin,omitempty"`
+	Avoid   map[string]string         `json:"avoid,omitempty"`
+}
+
+type PreferenceJSON struct {
+	Strength string `json:"strength"`
+	Source   string `json:"source,omitempty"`
+	Why      string `json:"why,omitempty"`
 }
 
 type CoverageJSON struct {
@@ -61,7 +67,17 @@ type CandidateJSON struct {
 	Score int         `json:"score"`
 	Own   int         `json:"own"`
 	Terms string      `json:"terms"`
+	Cost  []TermJSON  `json:"cost,omitempty"`
 	Chain []ChainJSON `json:"chain,omitempty"`
+}
+
+// TermJSON is one cost dimension and where its number came from.
+type TermJSON struct {
+	Dimension string `json:"dimension"`
+	Value     int    `json:"value"`
+	Weight    int    `json:"weight"`
+	Source    string `json:"source,omitempty"`
+	Note      string `json:"note,omitempty"`
 }
 
 type ChainJSON struct {
@@ -81,7 +97,10 @@ func policyJSON(p *Policy) PolicyJSON {
 		out.Weights[d] = p.Weights[d]
 	}
 	if len(p.Prefer) > 0 {
-		out.Prefer = sortedKeys(p.Prefer)
+		out.Prefer = map[string]PreferenceJSON{}
+		for tile, pref := range p.Prefer {
+			out.Prefer[tile] = PreferenceJSON{Strength: pref.Strength, Source: pref.Source, Why: pref.Why}
+		}
 	}
 	if len(p.Avoid) > 0 {
 		out.Avoid = p.Avoid
@@ -99,6 +118,10 @@ func coverageJSON(cov *Covering) CoverageJSON {
 	}
 	for _, cand := range cov.Ranked {
 		c := CandidateJSON{Tile: cand.Offer.Tile, Score: cand.Score, Own: cand.Own, Terms: cand.Terms}
+		for _, term := range cand.Offer.Cost {
+			c.Cost = append(c.Cost, TermJSON{Dimension: term.Dim, Value: term.Value,
+				Weight: weightsOf(cov)[term.Dim], Source: term.Source, Note: term.Note})
+		}
 		for _, st := range cand.Via {
 			c.Chain = append(c.Chain, ChainJSON{Rule: st.Chain.Name, Score: st.Score, Detail: st.Detail})
 		}
@@ -233,3 +256,9 @@ type NoteJSON struct {
 	Symbol string `json:"symbol,omitempty"`
 	Detail string `json:"detail"`
 }
+
+// weightsOf is the policy's weights as applied to this covering; the
+// policy is the same for every need in a run, so explain passes it down.
+var jsonWeights map[string]int
+
+func weightsOf(*Covering) map[string]int { return jsonWeights }

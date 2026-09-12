@@ -31,12 +31,12 @@ var Select = &Pass{
 		{Name: "project", Pattern: Pat("(project ?name ?items...)"), Then: selectProject, Produces: "gomod", Doc: "writes go.mod and resolves imports"},
 		{Name: "package", Pattern: Pat("(package ?name ?items...)"), Then: selectPackage, Produces: "go/file", Doc: "collects a package into its generated file"},
 		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl, Produces: "store", Doc: "implements a store through the registered backend"},
-		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct"), Produces: "go/struct", Doc: "a struct, as written", Cost: Cost{{"llm-work", 0}}},
-		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface, Produces: "go/interface", Doc: "an interface, as written", Cost: Cost{{"llm-work", 0}}},
-		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement, Produces: "go/file", Doc: "implements any interface: struct, constructor, stubs, check", Cost: Cost{{"llm-work", 5}, {"maintenance", 2}}},
-		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum, Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()", Cost: Cost{{"llm-work", 0}, {"maintenance", 0}}},
-		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM, Produces: "llm/task", Doc: "an explicit hole: pure intent for the LLM", Cost: Cost{{"llm-work", 8}, {"uncertainty", 6}}},
-		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered, Produces: "llm/task", Doc: "covers anything no other tile covers: the LLM as the tile of last resort", Cost: Cost{{"llm-work", 10}, {"uncertainty", 10}}},
+		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct"), Produces: "go/struct", Doc: "a struct, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
+		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface, Produces: "go/interface", Doc: "an interface, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
+		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement, Produces: "go/file", Doc: "implements any interface: struct, constructor, stubs, check", Cost: Cost{{Dim: "llm-work", Value: 5}, {Dim: "maintenance", Value: 2}}},
+		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum, Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()", Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}}},
+		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM, Produces: "llm/task", Doc: "an explicit hole: pure intent for the LLM", Cost: Cost{{Dim: "llm-work", Value: 8}, {Dim: "uncertainty", Value: 6}}},
+		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered, Produces: "llm/task", Doc: "covers anything no other tile covers: the LLM as the tile of last resort", Cost: Cost{{Dim: "llm-work", Value: 10}, {Dim: "uncertainty", Value: 10}}},
 	},
 }
 

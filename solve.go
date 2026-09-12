@@ -161,8 +161,24 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 	if want == "" {
 		want = domainForm
 	}
+	// A required preference is a constraint, not a cost: everything else
+	// is illegal, with the source as the reason.
+	required, requiredPref := "", Preference{}
+	for _, o := range cands {
+		if pref, ok := c.Policy.Prefer[o.Tile]; ok && pref.Strength == "required" {
+			required, requiredPref = o.Tile, pref
+		}
+	}
 	byTile := map[string]*Covering{}
 	for _, o := range cands {
+		if required != "" && o.Tile != required {
+			reason := fmt.Sprintf("the policy requires %s", required)
+			if src := requiredPref.describeSource(); src != "" {
+				reason += " (" + src + ")"
+			}
+			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, reason})
+			continue
+		}
 		if why := offerIllegalFor(o, n.Requirements); why != "" {
 			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, why})
 			continue
@@ -223,19 +239,48 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 	return cov, nil
 }
 
-// pickOffer applies the policy's preferences to ranked candidates.
+// pickOffer applies the policy's preferences to ranked candidates, which
+// are already sorted by cost. Costs say what a tile is worth technically;
+// preferences say what people want, and can overturn the ranking. A
+// (strength required) preference is handled earlier, as legality.
 func pickOffer(p *Policy, ranked []Candidate) (*Offer, string) {
 	best := ranked[0]
-	for _, s := range ranked[1:] {
-		if p.Prefer[s.Offer.Tile] && !p.Prefer[best.Offer.Tile] && s.Score <= best.Score+p.Margin {
-			return s.Offer, fmt.Sprintf("preferred, and within the margin of %s (%d vs %d, margin %d)",
-				best.Offer.Tile, s.Score, best.Score, p.Margin)
+	bestPref, bestPreferred := p.Prefer[best.Offer.Tile]
+
+	// Strong: it wins over any cheaper candidate, however much cheaper.
+	for _, s := range ranked {
+		pref, ok := p.Prefer[s.Offer.Tile]
+		if !ok || pref.Strength != "strong" {
+			continue
 		}
+		if s.Offer == best.Offer {
+			return s.Offer, describePick(s, best, pref, "cheapest, and strongly preferred")
+		}
+		return s.Offer, describePick(s, best, pref,
+			fmt.Sprintf("strongly preferred; cost alone would have picked %s (%d vs %d)", best.Offer.Tile, best.Score, s.Score))
 	}
-	if p.Prefer[best.Offer.Tile] {
-		return best.Offer, "cheapest, and preferred"
+	// Weak: it wins ties, and anything within the margin.
+	for _, s := range ranked[1:] {
+		pref, ok := p.Prefer[s.Offer.Tile]
+		if !ok || bestPreferred || s.Score > best.Score+p.Margin {
+			continue
+		}
+		return s.Offer, describePick(s, best, pref,
+			fmt.Sprintf("preferred, and within the margin of %s (%d vs %d, margin %d)", best.Offer.Tile, s.Score, best.Score, p.Margin))
+	}
+	if bestPreferred {
+		return best.Offer, describePick(best, best, bestPref, "cheapest, and preferred")
 	}
 	return best.Offer, ""
+}
+
+// describePick appends a preference's provenance to the reason, so explain
+// says who wanted this and why, not just that something was preferred.
+func describePick(chosen, cheapest Candidate, pref Preference, why string) string {
+	if src := pref.describeSource(); src != "" {
+		return why + " [" + src + "]"
+	}
+	return why
 }
 
 func offerIllegalFor(o *Offer, reqs []string) string {

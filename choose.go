@@ -210,6 +210,13 @@ func explainCovering(cov *Covering) string {
 	for _, r := range cov.Illegal {
 		fmt.Fprintf(&b, "  illegal %-15s %s\n", r.Tile, r.Reason)
 	}
+	for _, cand := range cov.Ranked {
+		for _, term := range cand.Offer.Cost {
+			if src := term.provenance(); src != "" {
+				fmt.Fprintf(&b, "  cost    %s %s: %d (%s)\n", cand.Offer.Tile, term.Dim, term.Value, src)
+			}
+		}
+	}
 	if cov.Why != "" {
 		fmt.Fprintf(&b, "  policy: %s\n", cov.Why)
 	}

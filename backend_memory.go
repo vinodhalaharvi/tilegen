@@ -8,7 +8,7 @@ func init() {
 		Name:        "memory",
 		Tile:        "memory",
 		Doc:         "in-memory store: a map guarded by a mutex",
-		Cost:        Cost{{"llm-work", 2}, {"maintenance", 1}, {"dependency", 0}, {"runtime", 1}},
+		Cost:        Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalWhen: map[string]string{"durable": "an in-memory map loses its data on restart"},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{
