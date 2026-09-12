@@ -328,11 +328,18 @@ func foreignGenFiles(c *Ctx, ts []*Node) []string {
 // for any tile that implements an interface.
 func stubsAndTasks(pkg *PkgScope, impl, iface, file string, methods []*Node, hint func(*Node) string,
 	contextFiles, constraints []string) (stubs, tasks []*Node) {
+	return stubsAndTasksAs("s", pkg, impl, iface, file, methods, hint, contextFiles, constraints)
+}
+
+// stubsAndTasksAs is stubsAndTasks with the receiver name a tile wants, so
+// a handler's methods read the same as the generated ones beside them.
+func stubsAndTasksAs(recv string, pkg *PkgScope, impl, iface, file string, methods []*Node, hint func(*Node) string,
+	contextFiles, constraints []string) (stubs, tasks []*Node) {
 	ptr := "*" + impl
 	for _, meth := range methods {
 		name := meth.List[1].Atom
 		id := pkg.Name + "." + impl + "." + name
-		fn := L(Sym("go/func"), Sym(name), L(Sym("recv"), Sym("s"), Sym(ptr)))
+		fn := L(Sym("go/func"), Sym(name), L(Sym("recv"), Sym(recv), Sym(ptr)))
 		if p := meth.Find("params"); p != nil {
 			fn.List = append(fn.List, p)
 		}
@@ -467,6 +474,11 @@ func declTypes(decls []*Node) []*Node {
 			}
 		case "go/func":
 			sig(d)
+			// Types a body references but no signature names, declared by
+			// the tile with (uses T): the ID type a handler parses, say.
+			for _, u := range d.FindAll("uses") {
+				out = append(out, u.Args()...)
+			}
 		}
 	}
 	return out
