@@ -7,6 +7,8 @@
   (mode generated)
   (package orders)
   (doc "Package orders tracks customer orders.")
+  (import context "context")
+  (import time "time")
   (import uuid "github.com/google/uuid")
   (go/type Status string (doc "Status is where an order is in its lifecycle."))
   (go/consts
@@ -76,6 +78,8 @@
 (go/file "orders/memory_order_store.go"
   (mode keep)
   (package orders)
+  (import context "context")
+  (import sync "sync")
   (import uuid "github.com/google/uuid")
   (go/struct MemoryOrderStore
     (doc "MemoryOrderStore implements OrderStore using memory storage.")
@@ -180,6 +184,7 @@
 (go/file "orders/http_gen.go"
   (mode generated)
   (package orders)
+  (import http "net/http")
   (import uuid "github.com/google/uuid")
   (go/struct Handler
     (doc "Handler serves the orders HTTP API over its stores.")
@@ -253,6 +258,7 @@
 (go/file "orders/events_gen.go"
   (mode generated)
   (package orders)
+  (import context "context")
   (import uuid "github.com/google/uuid")
   (go/struct OrderPlaced
     (doc "OrderPlaced is an event of package orders.")
@@ -320,7 +326,9 @@
   (mode generated)
   (package billing)
   (doc "Package billing invoices orders.")
+  (import context "context")
   (import orders "github.com/acme/shop/orders")
+  (import time "time")
   (import uuid "github.com/google/uuid")
   (go/struct Invoice
     (doc "Invoice bills one order.")
@@ -351,6 +359,8 @@
 (go/file "billing/memory_invoice_store.go"
   (mode keep)
   (package billing)
+  (import context "context")
+  (import sync "sync")
   (import uuid "github.com/google/uuid")
   (go/struct MemoryInvoiceStore
     (doc "MemoryInvoiceStore implements InvoiceStore using memory storage.")

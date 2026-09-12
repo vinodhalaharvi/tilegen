@@ -426,7 +426,14 @@ func goFile(c *Ctx, file, mode, doc string, decls []*Node) (*Node, error) {
 			case local != "" && q != c.Pkg.Name:
 				imports[q] = local
 			case isStd(q):
-				// goimports adds it
+				// Say it outright rather than leave it to goimports:
+				// tilegen knows the path, and must work where the Go
+				// toolchain is not installed.
+				sp, err := stdPath(q)
+				if err != nil {
+					return nil, &TileError{Pos: t.Pos, Pass: "select", Rule: "imports", Err: err}
+				}
+				imports[q] = sp
 			default:
 				return nil, &TileError{Pos: t.Pos, Pass: "select", Rule: "imports",
 					Err: fmt.Errorf("unknown package %q in type %s: add (require (%s <module> <version>)) or use a project package", q, t.Atom, q)}
@@ -508,16 +515,32 @@ func stdPath(name string) (string, error) {
 	}
 }
 
+// loadStd indexes the standard library by package name. The list is
+// baked in (stdlist.go, from gen_std.go), because tilegen must work where
+// the Go toolchain is not installed: the HTTP service runs in an image
+// with no `go` binary, and shelling out there failed silently, leaving
+// every standard package unrecognised.
+//
+// A newer toolchain than the one tilegen was built with may have packages
+// the list lacks, so `go list std` is still consulted when it is there,
+// and anything it adds is merged in.
 func loadStd() {
 	stdOnce.Do(func() {
 		stdPaths = map[string][]string{}
-		out, err := exec.Command("go", "list", "std").Output()
-		if err != nil {
-			return
-		}
-		for _, p := range strings.Fields(string(out)) {
+		add := func(p string) {
 			if !strings.Contains(p, "internal") && !strings.HasPrefix(p, "vendor/") {
-				stdPaths[path.Base(p)] = append(stdPaths[path.Base(p)], p)
+				name := path.Base(p)
+				if !contains(stdPaths[name], p) {
+					stdPaths[name] = append(stdPaths[name], p)
+				}
+			}
+		}
+		for _, p := range stdList {
+			add(p)
+		}
+		if out, err := exec.Command("go", "list", "std").Output(); err == nil {
+			for _, p := range strings.Fields(string(out)) {
+				add(p)
 			}
 		}
 	})
