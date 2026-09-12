@@ -410,6 +410,12 @@ involved, including sqlc's generated code for postgres stores. It is built
 from the same plan as generation, so it reflects the current spec even
 before you regenerate, and it writes nothing. Pipe it into any LLM CLI.
 
+The prompt also names the modules the project depends on, with versions,
+and says to import nothing else. Told only "modules already in go.mod", a
+model fills the path in from memory, and library paths go stale: asked to
+return 409 on a duplicate, one reached for `github.com/jackc/pgconn`, the
+v4 module, in a project using `github.com/jackc/pgx/v5`.
+
 It also carries the **API surface** of the packages that task touches: the
 exported declarations of each one, with doc comments, signatures only,
 printed from `go/types`. So a postgres store task gets pgx's real
@@ -469,6 +475,23 @@ deciding architecture itself or guessing at reasons. Both renderings come
 from one computation, so they cannot disagree; a test checks that they
 report the same problems. `check -json` still exits non-zero on failure, so
 it works in CI either way.
+
+## Two layers, kept apart
+
+tilegen is a scaffold, not a code generator that finishes the job. The
+deterministic layer produces structure and typed holes, and stops. What
+fills the holes is interchangeable: an LLM, a person, another tool. Neither
+layer knows the other exists.
+
+That is a property, not a slogan, and a test pins it: **generation is
+byte-identical whether or not any hole was ever filled.** Regeneration
+never reads filled code, never reacts to it, and never rewrites it. If that
+test fails, the layers have begun to know about each other.
+
+It is why `tilegen fill` asks once, retries once with the compiler's
+errors, and then restores the hole and reports. Converging on working code
+is a well-served problem, and agents do it better than a generator's own
+loop could; the product here is the hole, its contract and its prompt.
 
 ## The plan graph
 

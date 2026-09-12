@@ -76,6 +76,7 @@ type Backend struct {
 	GenerateDoc  string               // what it does, for the starter README
 	IllegalWhen  map[string]string    // need -> why this backend cannot serve it, e.g. durable
 	Imports      map[string]string    // package qualifiers its code uses -> import paths
+	ErrorPackage string               // the package whose errors its stores return, for prompts
 	ProjectForms func(c *Ctx) []*Node // project-level target forms, once per project using it
 	Form         string               // what its store code yields: "" (domain values) or e.g. db-rows
 

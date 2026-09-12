@@ -22,6 +22,7 @@ func init() {
 			{Dim: "runtime", Value: 1},
 		},
 		Topics:       []string{"postgres", "sqlc"},
+		ErrorPackage: "github.com/jackc/pgx/v5/pgconn", // PgError and its SQLSTATE codes
 		Packages:     map[string]string{"db": "internal/db"},
 		Generate:     "sqlc generate",
 		GenerateDoc:  "generate internal/db from db/*.sql",

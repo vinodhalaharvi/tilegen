@@ -182,9 +182,28 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		intents["validate"+e] = fmt.Sprintf("Report what makes this %s unacceptable, before it reaches the store. Return nil when it is fine; the error's text is sent to the client with 400.", e)
 		intents["statusFor"+e] = fmt.Sprintf("Map an error from %sStore to an HTTP status: ErrNotFound to 404, a conflict to 409, anything else to 500. Do not leak internal detail to the client.", e)
 	}
+	context := []string{genFile, path.Join(pkg.Dir, "http_gen.go")}
 	stubs, tasks := stubsAndTasksAs("h", pkg, "Handler", "the HTTP API", file, methods,
-		func(meth *Node) string { return intents[meth.List[1].Atom] },
-		[]string{genFile, path.Join(pkg.Dir, "http_gen.go")}, nil)
+		func(meth *Node) string { return intents[meth.List[1].Atom] }, context, nil)
+	// A statusFor hole decides which errors mean 409, which is a question
+	// about the store's driver, so name its error package: the prompt then
+	// carries the real API instead of a remembered one.
+	for _, t := range tasks {
+		id := t.Text("id")
+		if !strings.Contains(id, ".statusFor") {
+			continue
+		}
+		// The backend that serves this resource, not every backend in the
+		// project: a memory-backed store has no driver errors to map.
+		e := strings.TrimPrefix(id[strings.LastIndex(id, ".statusFor"):], ".statusFor")
+		cov := c.Cover[pkg.Name+"."+e+"Store"]
+		if cov == nil {
+			continue
+		}
+		if be, ok := cov.Offer.Impl.(*Backend); ok && be.ErrorPackage != "" {
+			t.List = append(t.List, L(Sym("api-package"), Str(be.ErrorPackage)))
+		}
+	}
 
 	implFile, err := goFile(c, file, "keep", "", stubs)
 	if err != nil {

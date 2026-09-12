@@ -3506,3 +3506,140 @@ func TestHTTPValidation(t *testing.T) {
 		t.Errorf("want a clear error, got %v", err)
 	}
 }
+
+// ---- the boundary between the layers ----
+
+// TestGenerationIgnoresFilledHoles pins the property the whole design
+// rests on: the deterministic layer produces the same scaffolding whether
+// or not anything ever filled a hole. Generation must not read, react to,
+// or depend on filled code. If this ever fails, the two layers have begun
+// to know about each other.
+func TestGenerationIgnoresFilledHoles(t *testing.T) {
+	spec := `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package links
+    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable)))
+    (http (route GET "/links/{id}" (get Link)) (route POST "/links" (save Link)))
+    (events (event LinkSaved (field LinkID uuid.UUID)))))`
+
+	// Generate twice into separate trees; fill every hole in the second.
+	untouched, filled := t.TempDir(), t.TempDir()
+	for _, out := range []string{untouched, filled} {
+		dir := t.TempDir()
+		sp, _ := writeSpec(t, dir, spec, "")
+		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fillEvery(t, filled)
+
+	// Regenerate both. The generated files must be byte-identical.
+	for _, out := range []string{untouched, filled} {
+		dir := t.TempDir()
+		sp, _ := writeSpec(t, dir, spec, "")
+		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, f := range []string{"links/links_gen.go", "links/http_gen.go", "links/events_gen.go", "db/schema.sql", "db/query.sql", "sqlc.yaml", "tilegen.lock"} {
+		a, b := read(t, untouched, f), read(t, filled, f)
+		if a != b {
+			t.Errorf("%s differs once holes are filled: the layers must stay independent\n--- untouched\n%s\n--- filled\n%s", f, a, b)
+		}
+	}
+	// And the filled code itself is never rewritten.
+	if src := read(t, filled, "links/http.go"); strings.Contains(src, holePrefix) {
+		t.Error("regeneration must not restore a filled hole")
+	}
+}
+
+// fillEvery replaces every hole in a tree with a trivial body, the way any
+// filler would.
+func fillEvery(t *testing.T, out string) {
+	t.Helper()
+	n := 0
+	filepath.Walk(out, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !strings.HasSuffix(p, ".go") {
+			return nil
+		}
+		src, _ := os.ReadFile(p)
+		s := string(src)
+		if !strings.Contains(s, holePrefix) {
+			return nil
+		}
+		for {
+			i := strings.Index(s, `panic("`+holePrefix)
+			if i < 0 {
+				break
+			}
+			j := strings.Index(s[i:], "\")") + i + 2
+			s = s[:i] + "panic(\"filled by a test\")" + s[j:]
+			n++
+		}
+		return os.WriteFile(p, []byte(s), 0o644)
+	})
+	if n == 0 {
+		t.Fatal("the spec should have produced holes to fill")
+	}
+}
+
+func TestPromptNamesAvailableModules(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package links
+    (entity Link (field ID uuid.UUID) (store get save (durable)))
+    (http (route GET "/links/{id}" (get Link)))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	pr, err := promptOut(t, sp, out, "links.Handler.statusForLink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"these modules, which are the only ones available:",
+		"    github.com/google/uuid v1.6.0",
+		"Do not import any other module.",
+	} {
+		if !strings.Contains(pr, want) {
+			t.Errorf("prompt missing %q:\n%s", want, pr)
+		}
+	}
+	// The tile asks for the backend's error package on a statusFor hole,
+	// so the task carries it; whether its API can be read depends on the
+	// module being downloaded, which is not this test's business.
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, `"api_packages"`) || !strings.Contains(tasks, "github.com/jackc/pgx/v5/pgconn") {
+		t.Errorf("a statusFor task should name the driver's error package:\n%s", tasks)
+	}
+	if strings.Count(tasks, "pgx/v5/pgconn") != 1 {
+		t.Errorf("only statusFor should ask for it:\n%s", tasks)
+	}
+
+	// And only when the store behind it has a driver: a memory-backed
+	// resource has no driver errors to map.
+	dir2 := t.TempDir()
+	sp2, _ := writeSpec(t, dir2, `(project p (module example.com/p) (go 1.22)
+  (package s
+    (entity S (field ID string) (store get save))
+    (http (route GET "/s/{id}" (get S)))))`, "")
+	out2 := filepath.Join(dir2, "out")
+	if err := run(Options{Spec: sp2, Out: out2}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if tasks := read(t, out2, "tilegen.tasks.json"); strings.Contains(tasks, "api_packages") {
+		t.Errorf("a memory-backed resource needs no driver API:\n%s", tasks)
+	}
+
+	// A validate hole is about the entity, not the driver, so it gets no
+	// driver API: prompts should carry what the hole needs and no more.
+	pr, err = promptOut(t, sp, out, "links.Handler.validateLink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(pr, "pgconn") {
+		t.Errorf("a validate hole should not carry the driver's API:\n%s", pr)
+	}
+}
