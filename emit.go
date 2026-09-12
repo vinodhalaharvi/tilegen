@@ -381,6 +381,7 @@ type Task struct {
 	Intent       string   `json:"intent"`
 	Constraints  []string `json:"constraints,omitempty"`
 	ContextFiles []string `json:"context_files,omitempty"`
+	APIPackages  []string `json:"api_packages,omitempty"` // packages whose API the prompt should carry
 	SExpr        string   `json:"sexpr,omitempty"`
 }
 
@@ -414,6 +415,9 @@ func emitTasks(tasks []*Node, out string, c *Ctx, r *Report) error {
 		}
 		for _, k := range n.FindAll("constraint") {
 			t.Constraints = append(t.Constraints, k.List[1].Atom)
+		}
+		for _, k := range n.FindAll("api-package") {
+			t.APIPackages = append(t.APIPackages, k.List[1].Atom)
 		}
 		for _, k := range n.FindAll("context-file") {
 			t.ContextFiles = append(t.ContextFiles, k.List[1].Atom)

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Prompts name the project's direct modules with versions and say to import
+  nothing else, so a filler works from what the spec declares rather than
+  from a remembered import path.
+- A tile can ask for a package's API by path: the http tile's `statusFor`
+  hole gets the error package of the backend behind that resource
+  (`pgconn` for postgres, nothing for memory), since deciding what deserves
+  a 409 is a question about the driver.
+- A test pins the boundary: generation is byte-identical whether or not any
+  hole has been filled.
 - HTTP routing tile: `(http (route GET "/links/{id}" (get Link)) ...)`
   generates a `Handler` over the package's stores, `Routes()` returning an
   `*http.ServeMux`, and a handler per route: typed path values, JSON

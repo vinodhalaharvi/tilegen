@@ -42,7 +42,17 @@ const (
 // prompt without an API section is worse, not broken.
 func apiSurface(out string, files []string, r *Report, self string, mentions ...string) string {
 	paths := importsOf(files, r)
-	paths = append(paths, mentionedPackages(mentions, paths, out)...)
+	// A mention that is already an import path (a tile naming a package a
+	// hole will need) is taken as is; prose is resolved through go.mod.
+	var prose []string
+	for _, m := range mentions {
+		if strings.Contains(m, "/") && !strings.ContainsAny(m, " \t") {
+			paths = append(paths, m)
+		} else {
+			prose = append(prose, m)
+		}
+	}
+	paths = append(paths, mentionedPackages(prose, paths, out)...)
 	if len(paths) == 0 {
 		return ""
 	}

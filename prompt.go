@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"golang.org/x/mod/modfile"
 	"io"
 	"os"
 	"path/filepath"
@@ -137,7 +138,16 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 	} else {
 		b.WriteString("- Reply with complete Go files, each in a ```go code block preceded by its path on its own line.\n")
 	}
-	b.WriteString("- Imports are added automatically; use only the standard library and modules already in go.mod.\n")
+	if mods := availableModules(r); mods != "" {
+		// Naming them matters: told only "modules in go.mod", a model
+		// fills the path in from memory, and library paths go stale
+		// (github.com/jackc/pgconn is the v4 module; this project has
+		// github.com/jackc/pgx/v5, whose subpackage is pgx/v5/pgconn).
+		fmt.Fprintf(&b, "- Imports are added automatically. Use the standard library, this project's own packages, and these modules, which are the only ones available:\n%s", mods)
+		b.WriteString("- Do not import any other module. If what you need is not here, write it with what is.\n")
+	} else {
+		b.WriteString("- Imports are added automatically; use only the standard library and modules already in go.mod.\n")
+	}
 	b.WriteString("- Never edit files marked \"Code generated ... DO NOT EDIT\"; they are regenerated from the spec.\n")
 
 	b.WriteString("\n## Context\n")
@@ -168,6 +178,32 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n```%s\n%s\n```\n", f, lang, strings.TrimRight(string(data), "\n"))
 	}
-	b.WriteString(apiSurface(r.out, files, r, c.Module, t.Intent, t.Contract))
+	b.WriteString(apiSurface(r.out, files, r, c.Module, append([]string{t.Intent, t.Contract}, t.APIPackages...)...))
 	return b.String()
+}
+
+// availableModules lists the project's direct dependencies, as a prompt
+// can state them: a filler should work within what the spec declares, and
+// telling it the exact import paths is the difference between a working
+// import and a remembered one.
+func availableModules(r *Report) string {
+	src, err := r.read("go.mod")
+	if err != nil {
+		return ""
+	}
+	f, err := modfile.Parse("go.mod", src, nil)
+	if err != nil {
+		return ""
+	}
+	var out strings.Builder
+	for _, req := range f.Require {
+		if req.Indirect {
+			continue
+		}
+		fmt.Fprintf(&out, "    %s %s\n", req.Mod.Path, req.Mod.Version)
+	}
+	if out.Len() == 0 {
+		return ""
+	}
+	return out.String()
 }

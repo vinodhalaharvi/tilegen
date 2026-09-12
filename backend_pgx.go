@@ -20,8 +20,9 @@ func init() {
 			{Dim: "dependency", Value: 1, Source: "derived", Note: "pgx only, and no build-time tool"},
 			{Dim: "runtime", Value: 1},
 		},
-		Topics:  []string{"postgres", "pgx"},
-		Imports: map[string]string{"pgxpool": "github.com/jackc/pgx/v5/pgxpool"},
+		Topics:       []string{"postgres", "pgx"},
+		ErrorPackage: "github.com/jackc/pgx/v5/pgconn", // PgError and its SQLSTATE codes
+		Imports:      map[string]string{"pgxpool": "github.com/jackc/pgx/v5/pgxpool"},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {
