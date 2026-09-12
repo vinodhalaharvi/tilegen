@@ -34,7 +34,8 @@ const exampleSpec = `(project bookmarks
     (field SavedAt time.Time)
     (store get list save delete
       (list-by Visibility)
-      (durable)))                 ; must survive a restart
+      (durable)                   ; must survive a restart
+      (constraint "Saving the same URL twice must not create two links.")))
 
   (http
     (route GET    "/links"      (list Link))
@@ -50,6 +51,13 @@ const exampleSpec = `(project bookmarks
     (field ID string)
     (field UserEmail string)
     (store get save delete)))
+
+; Change these four lines and the storage, the schema, the queries and
+; the store implementation all change. Nothing above them moves.
+(policy
+  (prefer sqlite-sqlc
+    (strength required)
+    (source ops "ships as one binary; no database server")))
 `
 
 const indexHTML = `<!doctype html>
