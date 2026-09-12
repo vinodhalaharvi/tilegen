@@ -3932,3 +3932,50 @@ func TestServeIndex(t *testing.T) {
 		t.Errorf("unknown path should be 404, got %d", res.StatusCode)
 	}
 }
+
+// TestWorksWithoutTheGoToolchain: tilegen must generate where `go` is not
+// installed, because the HTTP service runs in an image without it. The
+// standard library is baked in (stdlist.go) and its imports are stated
+// rather than left to goimports, so nothing shells out.
+func TestWorksWithoutTheGoToolchain(t *testing.T) {
+	if len(stdList) < 100 {
+		t.Fatalf("stdlist.go looks wrong: %d packages (run go generate)", len(stdList))
+	}
+	for _, want := range []string{"context", "net/http", "time", "database/sql", "errors"} {
+		if !contains(stdList, want) {
+			t.Errorf("the baked standard library is missing %q", want)
+		}
+	}
+	// Generation resolves and emits the imports itself.
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package a
+    (entity E (field ID int64) (field At time.Time) (store get list save))
+    (interface Svc (method Do (params (ctx context.Context)) (returns error)))))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	gen := read(t, out, "a/a_gen.go")
+	for _, want := range []string{`"context"`, `"time"`} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("the generated file should import %s itself, not rely on goimports:\n%s", want, gen)
+		}
+	}
+
+	// And the binary really works with an empty PATH.
+	bin := filepath.Join(t.TempDir(), "tilegen")
+	build := exec.Command("go", "build", "-o", bin, ".")
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Skipf("cannot build tilegen here: %v\n%s", err, b)
+	}
+	out2 := filepath.Join(dir, "out2")
+	cmd := exec.Command(bin, "-out", out2, sp)
+	cmd.Env = []string{"PATH=/nonexistent", "HOME=" + t.TempDir()}
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("tilegen must run without a Go toolchain: %v\n%s", err, b)
+	}
+	if src := read(t, out2, "a/a_gen.go"); !strings.Contains(src, `"context"`) {
+		t.Errorf("generated without a toolchain, but the import is missing:\n%s", src)
+	}
+}
