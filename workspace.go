@@ -41,7 +41,17 @@ type Workspace struct {
 
 type Worktree struct{ Name, Branch, Path string }
 
-type Window struct{ Name, Dir, Run string }
+// A Window is one tmux window. With panes it is split; the window's own
+// (run ...) belongs to the first pane.
+type Window struct {
+	Name, Dir, Run string
+	Split          string // horizontal (side by side) | vertical (stacked)
+	Panes          []Pane
+}
+
+// A Pane is one part of a split window. Panes are for showing a project;
+// windows are for working in it.
+type Pane struct{ Dir, Run string }
 
 var (
 	tmuxNameRE = regexp.MustCompile(`^[A-Za-z0-9_-]+$`) // no '.' or ':', which tmux targets use
@@ -178,7 +188,7 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 			bad(w, "expected (window NAME (dir PATH)|(worktree NAME) (run \"...\")), got %s", short(w))
 			continue
 		}
-		win := Window{Name: wb.Atom("name"), Dir: root}
+		win := Window{Name: wb.Atom("name"), Dir: root, Split: "horizontal"}
 		if !tmuxNameRE.MatchString(win.Name) {
 			bad(w, "window name %q must be letters, digits, '_' or '-'", win.Name)
 		}
@@ -188,6 +198,10 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 		names[win.Name] = true
 		var hasDir, hasWT bool
 		for _, o := range wb.Rest("opts") {
+			if o.Head() == "pane" {
+				win.Panes = append(win.Panes, parsePane(o, ws, root, bad))
+				continue
+			}
 			val := ""
 			if len(o.List) == 2 && !o.List[1].IsList {
 				val = o.List[1].Atom
@@ -196,6 +210,13 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 				continue
 			}
 			switch o.Head() {
+			case "split":
+				if val != "horizontal" && val != "vertical" {
+					bad(o, "split must be horizontal (side by side) or vertical (stacked), got %q%s",
+						val, didYouMean(val, []string{"horizontal", "vertical"}))
+					continue
+				}
+				win.Split = val
 			case "dir":
 				hasDir = true
 				if p, err := expandPath(root, val); err == nil {
@@ -215,7 +236,8 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 			case "run":
 				win.Run = val
 			default:
-				bad(o, "window options are (dir ...), (worktree ...) and (run ...), got %s%s", short(o), didYouMean(o.Head(), []string{"dir", "worktree", "run"}))
+				bad(o, "window options are (dir ...), (worktree ...), (run ...), (split ...) and (pane ...), got %s%s",
+					short(o), didYouMean(o.Head(), []string{"dir", "worktree", "run", "split", "pane"}))
 			}
 		}
 		if hasDir && hasWT {
@@ -226,6 +248,40 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 	if len(ws.Windows) == 0 {
 		bad(t, "tmux session needs at least one (window ...)")
 	}
+}
+
+// parsePane reads (pane [(dir P)|(worktree W)] [(run "...")]).
+func parsePane(n *Node, ws *Workspace, root string, bad func(*Node, string, ...any)) Pane {
+	p := Pane{Dir: root}
+	for _, o := range n.Args() {
+		if len(o.List) != 2 || o.List[1].IsList {
+			bad(o, "expected (%s value), got %s", o.Head(), short(o))
+			continue
+		}
+		val := o.List[1].Atom
+		switch o.Head() {
+		case "dir":
+			if d, err := expandPath(root, val); err == nil {
+				p.Dir = d
+			}
+		case "worktree":
+			found := false
+			for _, wt := range ws.Worktrees {
+				if wt.Name == val {
+					p.Dir, found = wt.Path, true
+				}
+			}
+			if !found {
+				bad(o, "no worktree named %q in (worktrees ...)", val)
+			}
+		case "run":
+			p.Run = val
+		default:
+			bad(o, "pane options are (dir ...), (worktree ...) and (run ...), got %s%s",
+				short(o), didYouMean(o.Head(), []string{"dir", "worktree", "run"}))
+		}
+	}
+	return p
 }
 
 // loadWorkspace reads a spec file or folder and returns its workspace.
@@ -341,10 +397,14 @@ func tmuxUp(ws *Workspace, r Runner, log io.Writer, noAttach bool) error {
 		if err != nil {
 			return err
 		}
-		if w.Run != "" { // typed into the window's shell, which stays open afterwards
+		// The window's own (run ...) belongs to its first pane.
+		if w.Run != "" { // typed into the shell, which stays open afterwards
 			if err := r.Do("", "tmux", "send-keys", "-t", target+":"+w.Name, w.Run, "Enter"); err != nil {
 				return err
 			}
+		}
+		if err := splitPanes(w, target, r); err != nil {
+			return err
 		}
 	}
 	switch {
@@ -358,6 +418,71 @@ func tmuxUp(ws *Workspace, r Runner, log io.Writer, noAttach bool) error {
 		return nil
 	}
 	return attach("tmux", "attach-session", "-t", target)
+}
+
+// splitPanes splits a window into its panes and starts each one. tmux
+// calls a side-by-side split "-h"; we call it horizontal, which is what
+// people mean.
+//
+// Panes are addressed by tmux's own pane ids (%7), never by index: a
+// config with pane-base-index 1 numbers them from 1, and splitting
+// renumbers whatever follows. split-window -P -F '#{pane_id}' prints the
+// id of the pane it just made, and each split targets the pane before it,
+// so the commands land where the spec says whatever the config.
+func splitPanes(w Window, target string, r Runner) error {
+	flag := "-h"
+	if w.Split == "vertical" {
+		flag = "-v"
+	}
+	if len(w.Panes) == 0 {
+		return nil // a plain window: nothing to split, and nothing to ask tmux
+	}
+	window := target + ":" + w.Name
+	first, err := firstPaneID(window, r)
+	if err != nil {
+		return err
+	}
+	last := first
+	for i, p := range w.Panes {
+		if i == 0 && w.Run == "" { // the first pane is the window itself
+			if p.Run != "" {
+				if err := r.Do("", "tmux", "send-keys", "-t", first, p.Run, "Enter"); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		id, err := r.Query("", "tmux", "split-window", "-d", flag, "-t", last, "-c", p.Dir, "-P", "-F", "#{pane_id}")
+		if err != nil {
+			return fmt.Errorf("splitting %s: %v %s", w.Name, err, id)
+		}
+		last = strings.TrimSpace(id)
+		if p.Run != "" {
+			if err := r.Do("", "tmux", "send-keys", "-t", last, p.Run, "Enter"); err != nil {
+				return err
+			}
+		}
+	}
+	if len(w.Panes) > 1 {
+		layout := "even-horizontal"
+		if w.Split == "vertical" {
+			layout = "even-vertical"
+		}
+		return r.Do("", "tmux", "select-layout", "-t", window, layout)
+	}
+	return nil
+}
+
+// firstPaneID is the id of a window's only pane, just after it is made.
+func firstPaneID(window string, r Runner) (string, error) {
+	out, err := r.Query("", "tmux", "list-panes", "-t", window, "-F", "#{pane_id}")
+	if err != nil {
+		return "", fmt.Errorf("listing panes of %s: %v %s", window, err, out)
+	}
+	if f := strings.Fields(out); len(f) > 0 {
+		return f[0], nil
+	}
+	return "", fmt.Errorf("%s has no panes", window)
 }
 
 // attach hands the terminal to tmux. A variable so tests can replace it.
