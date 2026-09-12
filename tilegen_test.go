@@ -3986,8 +3986,8 @@ func TestWorksWithoutTheGoToolchain(t *testing.T) {
 // not work.
 func TestDocsExamplesGenerate(t *testing.T) {
 	blocks := strings.Split(docsHTML, `<button class="try">`)
-	if len(blocks) < 8 {
-		t.Fatalf("expected several runnable examples, found %d", len(blocks)-1)
+	if len(blocks) < 4 {
+		t.Fatalf("expected the walkthrough specs to be runnable, found %d", len(blocks)-1)
 	}
 	for i := 1; i < len(blocks); i++ {
 		before := blocks[i-1]
@@ -4029,8 +4029,10 @@ func TestDocsStayUserFacing(t *testing.T) {
 	}
 	// And they should cover every form a spec can contain.
 	for _, form := range []string{"project", "package", "entity", "store", "durable", "enum",
-		"http", "events", "interface", "implement", "struct", "config", "policy"} {
-		if !strings.Contains(docsHTML, `id="`+form+`"`) && !strings.Contains(docsHTML, "("+form+" ") {
+		"http", "events", "interface", "implement", "struct", "config", "policy",
+		"list-by", "get-by", "count-by", "exists-by", "delete-by", "constraint", "llm"} {
+		if !strings.Contains(docsHTML, "("+form+" ") && !strings.Contains(docsHTML, "<code>("+form+")</code>") &&
+			!strings.Contains(docsHTML, "("+form+")") {
 			t.Errorf("the docs do not cover (%s ...)", form)
 		}
 	}

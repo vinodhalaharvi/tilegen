@@ -6,7 +6,7 @@ import (
 )
 
 // The pages the service serves: a spec editor, and the documentation.
-// One file, no build step, no external request, so the service stays a
+// One file, no build step, no external request: the service stays a
 // single binary and works offline.
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -59,111 +59,100 @@ const indexHTML = `<!doctype html>
 <title>tilegen — describe a Go service, get the project</title>
 <style>
   :root {
-    --ink:#172033; --paper:#fcfcfa; --rule:#d9dde5; --dim:#5b657a;
-    --chosen:#2f6f8f; --mark:#a8442a; --panel:#f3f4f1; --shade:#eceef2;
-    --kw:#2f6f8f; --str:#4a6b3d; --note:#8a93a3;
+    --bg:#0f1419; --fg:#d7dde5; --dim:#7c8899; --rule:#222c37; --panel:#151c24;
+    --kw:#7aa2c8; --str:#98b978; --com:#5a6775; --lit:#c9a26d; --mark:#d98a63; --hi:#e8edf3;
   }
-  @media (prefers-color-scheme: dark) {
+  @media (prefers-color-scheme: light) {
     :root {
-      --ink:#e6eaf2; --paper:#101722; --rule:#2a3343; --dim:#929cb0;
-      --chosen:#7fb6d4; --mark:#e08a6d; --panel:#18202c; --shade:#1c2533;
-      --kw:#7fb6d4; --str:#9dc183; --note:#6f7a8c;
+      --bg:#fdfdfc; --fg:#1d252e; --dim:#606d7e; --rule:#e0e4e9; --panel:#f4f6f8;
+      --kw:#2d6a94; --str:#4c7038; --com:#8a95a3; --lit:#8a6320; --mark:#b2542c; --hi:#0b1219;
     }
   }
   * { box-sizing:border-box; }
   html { scroll-behavior:smooth; }
   @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
-  body { margin:0; background:var(--paper); color:var(--ink);
-         font:16px/1.65 ui-serif, Iowan Old Style, Palatino, Georgia, serif;
-         -webkit-font-smoothing:antialiased; }
-  a { color:var(--chosen); }
-  :focus-visible { outline:2px solid var(--chosen); outline-offset:2px; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:14px/1.7 Monaco, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace; }
+  a { color:var(--kw); }
+  :focus-visible { outline:2px solid var(--kw); outline-offset:2px; }
 
-  /* ---- chrome ---- */
-  .top { display:flex; align-items:baseline; gap:20px; padding:14px 24px;
+  .top { display:flex; align-items:center; gap:18px; padding:12px 22px;
          border-bottom:1px solid var(--rule); flex-wrap:wrap; }
-  .wordmark { font:600 17px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing:-.2px; }
-  .tag { color:var(--dim); font-size:14px; }
+  .wordmark { color:var(--hi); font-weight:700; letter-spacing:-.2px; }
+  .tag { color:var(--dim); font-size:13px; }
   .top nav { display:flex; gap:2px; margin-left:auto; }
-  .top nav button { font:inherit; font-size:14px; padding:5px 14px; cursor:pointer;
+  .top nav button { font:inherit; font-size:13px; padding:4px 14px; cursor:pointer;
         border:1px solid transparent; border-radius:4px; background:none; color:var(--dim); }
-  .top nav button[aria-selected=true] { color:var(--ink); border-color:var(--rule); background:var(--panel); }
-  .top a.src { color:var(--dim); font-size:14px; text-decoration:none; }
-  .top a.src:hover { color:var(--chosen); }
+  .top nav button[aria-selected=true] { color:var(--hi); border-color:var(--rule); background:var(--panel); }
+  .top a.src { color:var(--dim); font-size:13px; text-decoration:none; }
 
-  /* ---- try it ---- */
-  #try { display:grid; grid-template-columns:1fr 1fr; height:calc(100vh - 106px); }
+  #try { display:grid; grid-template-columns:1fr 1fr; height:calc(100vh - 98px); }
   #try > div { display:flex; flex-direction:column; min-width:0; }
   #try > div + div { border-left:1px solid var(--rule); }
-  .bar { display:flex; gap:10px; align-items:center; padding:9px 16px;
-         border-bottom:1px solid var(--rule); color:var(--dim); font-size:13px; }
-  .bar strong { font:600 13px/1 ui-monospace, monospace; color:var(--ink); }
+  .bar { display:flex; gap:8px; align-items:center; padding:8px 14px;
+         border-bottom:1px solid var(--rule); color:var(--dim); font-size:12px; }
+  .bar strong { color:var(--fg); font-weight:600; }
   .bar .fill { margin-left:auto; }
-  #spec, #out { flex:1; margin:0; padding:16px 18px; border:0; overflow:auto;
-        background:none; color:var(--ink);
-        font:13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; tab-size:2; }
+  #spec, #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
+        color:var(--fg); font:13px/1.6 inherit; tab-size:2; }
   #spec { resize:none; outline:none; }
   #out { white-space:pre-wrap; }
-  @media (max-width:860px) {
+  @media (max-width:900px) {
     #try { grid-template-columns:1fr; height:auto; }
     #try > div + div { border-left:0; border-top:1px solid var(--rule); }
-    #spec { min-height:46vh; } #out { min-height:30vh; }
+    #spec { min-height:44vh; } #out { min-height:26vh; }
   }
-  .btn { font:inherit; font-size:13px; padding:5px 13px; border:1px solid var(--rule);
-         border-radius:4px; background:none; color:var(--ink); cursor:pointer; }
-  .btn:hover { border-color:var(--chosen); color:var(--chosen); }
-  .btn.go { background:var(--chosen); border-color:var(--chosen); color:var(--paper); }
-  .btn.go:hover { color:var(--paper); opacity:.9; }
+  .btn { font:inherit; font-size:13px; padding:5px 12px; border:1px solid var(--rule);
+         border-radius:4px; background:none; color:var(--fg); cursor:pointer; }
+  .btn:hover { border-color:var(--kw); color:var(--kw); }
+  .btn.go { background:var(--kw); border-color:var(--kw); color:var(--bg); font-weight:600; }
 
-  /* ---- docs ---- */
-  #docs { padding:0 24px 96px; }
-  .doc { max-width:66rem; margin:0 auto; }
-  .lede { max-width:38rem; margin:42px 0 8px; }
-  .lede h1 { font-size:30px; line-height:1.25; margin:0 0 12px; font-weight:600; letter-spacing:-.3px; }
-  .lede p { color:var(--dim); margin:0 0 10px; }
-  .doc h2 { font-size:21px; font-weight:600; margin:56px 0 6px; padding-top:14px;
-            border-top:1px solid var(--rule); letter-spacing:-.2px; }
-  .doc h3 { font-size:16px; font-weight:600; margin:30px 0 6px; }
-  .doc p, .doc li { max-width:38rem; }
+  #docs { padding:0 22px 90px; }
+  .doc { max-width:74rem; margin:0 auto; }
+  .lede { margin:40px 0 4px; max-width:46rem; }
+  .lede h1 { font-size:24px; line-height:1.4; margin:0 0 14px; font-weight:700; color:var(--hi);
+             letter-spacing:-.4px; }
+  .lede p { color:var(--dim); margin:0 0 10px; font-size:13.5px; }
+  .doc h2 { font-size:17px; font-weight:700; color:var(--hi); margin:52px 0 4px;
+            padding-top:16px; border-top:1px solid var(--rule); }
+  .doc h2 .n { color:var(--dim); font-weight:400; margin-right:10px; }
+  .doc h3 { font-size:14px; font-weight:700; color:var(--hi); margin:30px 0 4px; }
+  .doc p, .doc li { max-width:46rem; color:var(--fg); font-size:13.5px; }
   .doc p { margin:10px 0; }
-  .doc ul { max-width:38rem; padding-left:20px; }
-  code { font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
-         background:var(--shade); padding:1px 5px; border-radius:3px; }
-  pre { margin:0; padding:14px 16px; background:var(--panel); border-radius:6px; overflow:auto; }
-  pre code { background:none; padding:0; font-size:12.5px; line-height:1.6; display:block; }
+  .doc ul { max-width:46rem; padding-left:20px; }
+  .doc .dim { color:var(--dim); }
 
-  /* the page's one structural idea: what you write, and what that gives you */
-  .pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; margin:16px 0 8px; }
-  @media (max-width:860px) { .pair { grid-template-columns:1fr; } }
-  .pair > figure { margin:0; min-width:0; }
-  .pair figcaption, .single figcaption { font:12px/1 ui-monospace, monospace; color:var(--dim);
-        margin:0 0 6px; padding-left:2px; }
-  .single { margin:16px 0 8px; }
-  .caption { color:var(--dim); font-size:14px; margin:6px 0 0; }
+  code { font:inherit; font-size:12.5px; color:var(--hi); }
+  pre { margin:0; padding:13px 15px; background:var(--panel); border:1px solid var(--rule);
+        border-radius:5px; overflow-x:auto; }
+  pre code { display:block; font-size:12.5px; line-height:1.65; color:var(--fg); white-space:pre; }
+  p code, li code, td code { background:var(--panel); padding:1px 5px; border-radius:3px; font-size:12.5px; }
 
-  .toc { columns:2; column-gap:32px; max-width:44rem; margin:14px 0 6px; padding:0; list-style:none; }
-  @media (max-width:620px) { .toc { columns:1; } }
-  .toc a { display:block; padding:3px 0; text-decoration:none; color:var(--ink); font-size:14px; }
-  .toc a:hover { color:var(--chosen); }
-  .toc span { color:var(--dim); }
+  .pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; margin:14px 0; }
+  @media (max-width:900px) { .pair { grid-template-columns:1fr; } }
+  .pair > figure, .single { margin:0; min-width:0; }
+  .single { margin:14px 0; }
+  figcaption { font-size:11.5px; color:var(--dim); margin:0 0 5px; }
+  figcaption b { color:var(--mark); font-weight:600; }
 
-  table { border-collapse:collapse; width:100%; max-width:44rem; margin:14px 0; font-size:14px; }
-  th, td { text-align:left; padding:7px 12px 7px 0; border-bottom:1px solid var(--rule); vertical-align:top; }
-  th { color:var(--dim); font-weight:600; font-size:13px; }
-  td code { font-size:12.5px; }
-  .aside { border-left:2px solid var(--rule); padding:2px 0 2px 16px; color:var(--dim);
-           max-width:38rem; margin:16px 0; }
-  .try { font:inherit; font-size:13px; padding:4px 12px; border:1px solid var(--rule);
-         border-radius:4px; background:none; color:var(--dim); cursor:pointer; margin-top:10px; }
-  .try:hover { border-color:var(--chosen); color:var(--chosen); }
+  .steps { counter-reset:step; }
+  .step { margin:22px 0; }
+  .step > h4 { font-size:13px; font-weight:700; color:var(--hi); margin:0 0 6px; }
+  .step > h4::before { counter-increment:step; content:counter(step) ". "; color:var(--dim); font-weight:400; }
 
-  /* syntax */
-  .c { color:var(--note); font-style:italic; }
-  .s { color:var(--str); }
-  .k { color:var(--kw); }
-  .h { color:var(--mark); font-weight:600; }
-  .foot { border-top:1px solid var(--rule); margin-top:56px; padding:14px 24px;
-          color:var(--dim); font-size:13px; }
+  table { border-collapse:collapse; width:100%; max-width:52rem; margin:12px 0; font-size:13px; }
+  th, td { text-align:left; padding:6px 14px 6px 0; border-bottom:1px solid var(--rule); vertical-align:top; }
+  th { color:var(--dim); font-weight:600; font-size:12px; }
+  .aside { border-left:2px solid var(--rule); padding:2px 0 2px 14px; color:var(--dim);
+           max-width:46rem; margin:16px 0; font-size:13px; }
+  .try { font:inherit; font-size:12.5px; padding:5px 12px; border:1px solid var(--rule);
+         border-radius:4px; background:none; color:var(--dim); cursor:pointer; margin:4px 0 0; }
+  .try:hover { border-color:var(--kw); color:var(--kw); }
+
+  .c { color:var(--com); } .s { color:var(--str); } .k { color:var(--kw); }
+  .l { color:var(--lit); } .h { color:var(--mark); font-weight:700; }
+  .foot { border-top:1px solid var(--rule); margin-top:50px; padding:14px 22px;
+          color:var(--dim); font-size:12.5px; }
 </style>
 
 <div class="top">
@@ -179,8 +168,7 @@ const indexHTML = `<!doctype html>
 <main id="try">
   <div>
     <div class="bar">
-      <strong>spec</strong>
-      <span class="fill"></span>
+      <strong>spec</strong><span class="fill"></span>
       <button class="btn" id="explain">What would it do?</button>
       <button class="btn go" id="download">Download project</button>
     </div>
@@ -188,63 +176,116 @@ const indexHTML = `<!doctype html>
   </div>
   <div>
     <div class="bar"><strong id="title">result</strong></div>
-    <pre id="out">Edit the spec, then press <b>What would it do?</b> to see how each store
-will be kept, or <b>Download project</b> for the whole thing as a zip.
+    <pre id="out">Edit the spec, then press What would it do? to see how each store
+will be kept, or Download project for the whole thing as a zip.
 
-First time here? Open <b>Docs</b>.</pre>
+First time here? Open Docs.</pre>
   </div>
 </main>
 
 <div id="docs" hidden><div class="doc">` + docsHTML + `</div></div>
 
-<div class="foot">tilegen __VERSION__ · <code>go install github.com/vinodhalaharvi/tilegen@latest</code></div>
+<div class="foot">tilegen __VERSION__ · go install github.com/vinodhalaharvi/tilegen@latest</div>
 
 <script>
 const $ = id => document.getElementById(id);
-
-/* ---- syntax colouring, small on purpose ---- */
 const esc = s => s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+const span = (cls, text) => '<span class="' + cls + '">' + esc(text) + "</span>";
 
-function sexp(src) {
+/* One pass per language. Chaining regexes over already-marked-up text is
+   how you end up highlighting your own span tags. */
+
+function paintSexp(src) {
   let out = "", i = 0;
   while (i < src.length) {
     const ch = src[i];
-    if (ch === ";") { const j = src.indexOf("\n", i); const k = j < 0 ? src.length : j;
-      out += '<span class="c">' + esc(src.slice(i, k)) + "</span>"; i = k; continue; }
-    if (ch === '"') { let j = i + 1; while (j < src.length && (src[j] !== '"' || src[j-1] === "\\")) j++;
-      out += '<span class="s">' + esc(src.slice(i, j + 1)) + "</span>"; i = j + 1; continue; }
-    if (ch === "(") { let j = i + 1; while (j < src.length && /[\w\-\/]/.test(src[j])) j++;
-      out += "(" + '<span class="k">' + esc(src.slice(i + 1, j)) + "</span>"; i = j; continue; }
+    if (ch === ";") { const j = src.indexOf("\n", i), k = j < 0 ? src.length : j;
+      out += span("c", src.slice(i, k)); i = k; continue; }
+    if (ch === '"') { let j = i + 1;
+      while (j < src.length && (src[j] !== '"' || src[j-1] === "\\")) j++;
+      out += span("s", src.slice(i, Math.min(j + 1, src.length))); i = j + 1; continue; }
+    if (ch === "(") { let j = i + 1;
+      while (j < src.length && /[\w\-\/.]/.test(src[j])) j++;
+      out += "(" + span("k", src.slice(i + 1, j)); i = j; continue; }
     out += esc(ch); i++;
   }
   return out;
 }
 
-const goKeywords = /\b(package|import|func|type|struct|interface|var|const|return|if|else|for|range|map|chan|go|defer|switch|case|default|nil|error|panic)\b/g;
-function golang(src) {
-  return esc(src)
-    .replace(/(\/\/[^\n]*)/g, '<span class="c">$1</span>')
-    .replace(/(&#34;|")([^"\n]*)(&#34;|")/g, '<span class="s">$1$2$3</span>')
-    .replace(goKeywords, '<span class="k">$&</span>')
-    .replace(/panic\(<span class="s">[^<]*tilegen:hole[^<]*<\/span>\)/g, '<span class="h">$&</span>');
+const GO_KW = new Set(("package import func type struct interface var const return if else for range " +
+  "map chan go defer switch case default nil true false error string int int64 bool byte make new panic").split(" "));
+
+function paintGo(src) {
+  let out = "", i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "/" && src[i+1] === "/") { const j = src.indexOf("\n", i), k = j < 0 ? src.length : j;
+      out += span("c", src.slice(i, k)); i = k; continue; }
+    if (ch === '"' || ch === "` + "`" + `") { const q = ch; let j = i + 1;
+      while (j < src.length && (src[j] !== q || (q === '"' && src[j-1] === "\\"))) j++;
+      const text = src.slice(i, Math.min(j + 1, src.length));
+      out += text.includes("tilegen:hole") ? span("h", text) : span("s", text);
+      i = j + 1; continue; }
+    if (/[A-Za-z_]/.test(ch)) { let j = i;
+      while (j < src.length && /\w/.test(src[j])) j++;
+      const word = src.slice(i, j);
+      out += GO_KW.has(word) ? span("k", word) : esc(word);
+      i = j; continue; }
+    if (/\d/.test(ch)) { let j = i; while (j < src.length && /[\w.]/.test(src[j])) j++;
+      out += span("l", src.slice(i, j)); i = j; continue; }
+    out += esc(ch); i++;
+  }
+  return out;
 }
-function sql(src) {
-  return esc(src)
-    .replace(/(--[^\n]*)/g, '<span class="c">$1</span>')
-    .replace(/\b(CREATE|TABLE|PRIMARY|KEY|NOT|NULL|TEXT|INTEGER|BIGINT|UUID|TIMESTAMPTZ|CHECK|IN|SELECT|FROM|WHERE|INSERT|INTO|VALUES|ON|CONFLICT|DO|UPDATE|SET|ORDER|BY|DELETE|EXISTS)\b/g, '<span class="k">$&</span>')
-    .replace(/('[^']*')/g, '<span class="s">$1</span>');
+
+const SQL_KW = new Set(("CREATE TABLE PRIMARY KEY NOT NULL CHECK IN SELECT FROM WHERE INSERT INTO VALUES " +
+  "ON CONFLICT DO UPDATE SET ORDER BY DELETE EXISTS LIMIT AND OR AS COUNT EXCLUDED " +
+  "TEXT INTEGER BIGINT UUID TIMESTAMPTZ BOOLEAN REAL BLOB BYTEA JSONB SMALLINT").split(" "));
+
+function paintSQL(src) {
+  let out = "", i = 0;
+  while (i < src.length) {
+    const ch = src[i];
+    if (ch === "-" && src[i+1] === "-") { const j = src.indexOf("\n", i), k = j < 0 ? src.length : j;
+      out += span("c", src.slice(i, k)); i = k; continue; }
+    if (ch === "'") { let j = i + 1; while (j < src.length && src[j] !== "'") j++;
+      out += span("s", src.slice(i, Math.min(j + 1, src.length))); i = j + 1; continue; }
+    if (/[A-Za-z_]/.test(ch)) { let j = i; while (j < src.length && /\w/.test(src[j])) j++;
+      const word = src.slice(i, j);
+      out += SQL_KW.has(word.toUpperCase()) && word === word.toUpperCase() ? span("k", word) : esc(word);
+      i = j; continue; }
+    if (ch === "$" || ch === "?") { let j = i + 1; while (j < src.length && /\d/.test(src[j])) j++;
+      out += span("l", src.slice(i, j)); i = j; continue; }
+    out += esc(ch); i++;
+  }
+  return out;
 }
-const painters = {sexp, go: golang, sql, json: esc, sh: esc};
+
+function paintJSON(src) {
+  let out = "", i = 0;
+  while (i < src.length) {
+    if (src[i] === '"') { let j = i + 1;
+      while (j < src.length && (src[j] !== '"' || src[j-1] === "\\")) j++;
+      const text = src.slice(i, Math.min(j + 1, src.length));
+      i = j + 1;
+      let k = i; while (k < src.length && /\s/.test(src[k])) k++;
+      out += span(src[k] === ":" ? "k" : "s", text);
+      continue;
+    }
+    out += esc(src[i]); i++;
+  }
+  return out;
+}
+
+const painters = {sexp:paintSexp, go:paintGo, sql:paintSQL, json:paintJSON};
 document.querySelectorAll("pre code[data-lang]").forEach(el => {
-  const paint = painters[el.dataset.lang] || esc;
-  el.innerHTML = paint(el.textContent);
+  const paint = painters[el.dataset.lang];
+  el.innerHTML = paint ? paint(el.textContent) : esc(el.textContent);
 });
 
-/* ---- tabs ---- */
 function tab(name) {
   const isTry = name === "try";
-  $("try").hidden = !isTry;
-  $("docs").hidden = isTry;
+  $("try").hidden = !isTry; $("docs").hidden = isTry;
   $("tab-try").setAttribute("aria-selected", isTry);
   $("tab-docs").setAttribute("aria-selected", !isTry);
   if (isTry) history.replaceState(null, "", location.pathname); else location.hash = "#docs";
@@ -254,27 +295,22 @@ $("tab-try").onclick = () => tab("try");
 $("tab-docs").onclick = () => tab("docs");
 if (location.hash.startsWith("#docs")) tab("docs");
 
-/* a docs example goes straight into the editor */
 document.querySelectorAll("button.try").forEach(b => {
   b.onclick = () => {
-    const fig = b.previousElementSibling;
-    const code = fig.querySelector("code[data-lang=sexp]") || fig.querySelector("code");
-    if (!code) return;
-    $("spec").value = code.textContent.trim() + "\n";
-    tab("try");
-    $("explain").click();
+    let el = b.previousElementSibling;
+    while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
+    if (!el) return;
+    $("spec").value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
+    tab("try"); $("explain").click();
   };
 });
 
-/* ---- the service ---- */
 const out = $("out"), title = $("title");
-function show(html) { out.innerHTML = html; }
-function plain(text) { out.textContent = text; }
+const show = html => { out.innerHTML = html; };
+const plain = text => { out.textContent = text; };
 
-async function post(path) {
-  return fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
-                      body: JSON.stringify({spec: $("spec").value})});
-}
+const post = path => fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
+                                  body: JSON.stringify({spec: $("spec").value})});
 
 $("explain").onclick = async () => {
   title.textContent = "how each store will be kept";
@@ -299,31 +335,30 @@ $("download").onclick = async () => {
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob); a.download = name; a.click();
     URL.revokeObjectURL(a.href);
-    const dir = name.replace(/\.zip$/, "");
     show("Saved " + esc(name) + ". " + (res.headers.get("X-Tilegen-Holes") || "0") +
-         " methods are yours to write; they are listed in tilegen.tasks.json.\n\n" +
-         golang("unzip " + name + " && cd " + dir + "\n" +
-                "sqlc generate   // only if the project has a db/ folder\n" +
-                "go mod tidy\n" +
-                "go build ./..."));
+         " methods are yours to write, listed in tilegen.tasks.json.\n\n" +
+         paintGo("unzip " + name + " && cd " + name.replace(/\.zip$/, "") + "\n" +
+                 "sqlc generate   // only if the project has a db/ folder\n" +
+                 "go mod tidy\n" +
+                 "go build ./..."));
   } catch (e) { plain(String(e)); }
 };
 
 function render(b) {
-  if (!b.coverage.length) return "This spec has no stores yet, so there is nothing to decide.\n\nAdd " +
-    esc("(store get save)") + " to an entity and try again.";
+  if (!b.coverage.length) return "This spec has no stores yet, so there is nothing to decide.\n\n" +
+    "Add (store get save) to an entity and try again.";
   let s = "";
   for (const c of b.coverage) {
-    s += "<b>" + esc(c.need) + "</b>\n";
+    s += span("h", c.need) + "\n";
     if (c.requirements && c.requirements.length)
-      s += '  you asked for  <span class="h">' + esc(c.requirements.join(", ")) + "</span>\n";
+      s += "  you asked for   " + esc(c.requirements.join(", ")) + "\n";
     for (const cand of c.candidates)
       s += cand.tile === c.chosen
-        ? '  kept in       <span class="k">' + esc(cand.tile) + "</span>\n"
-        : "  also possible " + esc(cand.tile) + "\n";
+        ? "  kept in         " + span("k", cand.tile) + "\n"
+        : "  also possible   " + esc(cand.tile) + "\n";
     for (const bad of (c.illegal || []))
-      s += '  ruled out     ' + esc(bad.tile) + ' <span class="c">— ' + esc(bad.reason) + "</span>\n";
-    if (c.why) s += '  <span class="c">' + esc(c.why) + "</span>\n";
+      s += "  ruled out       " + esc(bad.tile) + "  " + span("c", "— " + bad.reason) + "\n";
+    if (c.why) s += "  " + span("c", c.why) + "\n";
     s += "\n";
   }
   return s;
