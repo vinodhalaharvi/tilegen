@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- A tmux window can be split into panes: `(window demo (split horizontal)
+  (pane (run "...")) (pane (run "...")))`, with `vertical` for stacked.
+  Panes take the same `(dir ...)`, `(worktree ...)` and `(run ...)` as
+  windows. Good for showing a project; windows remain better for working
+  in one. Panes are addressed by tmux's own pane ids, so a config with
+  `pane-base-index 1` works.
 - `up`, `status` and `down` need only a `(workspace ...)` form, so a spec
   folder with no project yet can open its session and watch the project
   appear. Opening a session no longer needs a git repository either; only

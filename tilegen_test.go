@@ -3222,3 +3222,114 @@ func TestWorkspaceOnlySpec(t *testing.T) {
 		t.Fatalf("want a helpful generation error, got %v", err)
 	}
 }
+
+// ---- panes ----
+
+func TestWindowPanes(t *testing.T) {
+	ws, err := parseWS(t, `(workspace (out ..)
+	  (worktrees (worktree feat))
+	  (tmux (session s
+	    (window demo (dir .)
+	      (split horizontal)
+	      (pane (run "left"))
+	      (pane (dir sub) (run "right")))
+	    (window stacked (dir .)
+	      (split vertical)
+	      (pane (run "top"))
+	      (pane (worktree feat) (run "bottom")))
+	    (window withrun (dir .) (run "first")
+	      (pane (run "second"))))))`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demo := ws.Windows[0]
+	if demo.Split != "horizontal" || len(demo.Panes) != 2 || demo.Panes[1].Dir != "/base/sub" || demo.Panes[1].Run != "right" {
+		t.Fatalf("panes: %+v", demo)
+	}
+	if ws.Windows[1].Panes[1].Dir != "/base.wt/feat" {
+		t.Errorf("a pane should take a worktree: %+v", ws.Windows[1].Panes[1])
+	}
+
+	r := &scriptRunner{answers: map[string]string{
+		"git worktree list": "worktree /base\n\nworktree /base.wt/feat", // both already there
+		"tmux list-panes":   "%0",
+		"tmux split-window": "%1", // the id of the pane just made
+	}}
+	if err := Up(ws, r, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"tmux new-session -d -s s -n demo -c /base",
+		"tmux send-keys -t %0 left Enter",
+		"tmux send-keys -t %1 right Enter", // the pane id split-window printed
+		"tmux select-layout -t =s:demo even-horizontal",
+		"tmux new-window -d -t =s: -n stacked -c /base",
+		"tmux send-keys -t %0 top Enter",
+		"tmux send-keys -t %1 bottom Enter",
+		"tmux select-layout -t =s:stacked even-vertical",
+		"tmux new-window -d -t =s: -n withrun -c /base",
+		"tmux send-keys -t =s:withrun first Enter", // the window's own run is pane 0
+		"tmux send-keys -t %1 second Enter",
+	}
+	if strings.Join(r.did, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("commands:\n%s\nwant:\n%s", strings.Join(r.did, "\n"), strings.Join(want, "\n"))
+	}
+}
+
+func TestPaneValidation(t *testing.T) {
+	for src, want := range map[string]string{
+		`(workspace (out ..) (tmux (session s (window a (split sideways) (pane)))))`:  "split must be horizontal (side by side) or vertical (stacked)",
+		`(workspace (out ..) (tmux (session s (window a (split horizntal) (pane)))))`: "(did you mean horizontal?)",
+		`(workspace (out ..) (tmux (session s (window a (pane (worktree nope))))))`:   `no worktree named "nope"`,
+		`(workspace (out ..) (tmux (session s (window a (pane (runn "x"))))))`:        "(did you mean run?)",
+	} {
+		if _, err := parseWS(t, src); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+	// A window without panes is unchanged.
+	ws, err := parseWS(t, `(workspace (out ..) (tmux (session s (window a (dir .) (run "x")))))`)
+	if err != nil || len(ws.Windows[0].Panes) != 0 || ws.Windows[0].Run != "x" {
+		t.Fatalf("a plain window should not gain panes: %+v, %v", ws.Windows, err)
+	}
+}
+
+// TestPanesWithRealTmux: the commands are right, and so is the result.
+func TestPanesWithRealTmux(t *testing.T) {
+	for _, tool := range []string{"tmux"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			t.Skip(tool + " not installed")
+		}
+	}
+	sock, err := os.MkdirTemp("/tmp", "tg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { exec.Command("tmux", "kill-server").Run(); os.RemoveAll(sock) })
+	t.Setenv("TMUX_TMPDIR", sock)
+	t.Setenv("TMUX", "")
+
+	root := canonical(t.TempDir())
+	n, _ := Parse("ws.sexp", `(workspace (out .)
+	  (tmux (session tgpanes (window split (dir .) (split vertical)
+	    (pane (run "echo ONE")) (pane (run "echo TWO")) (pane (run "echo THREE"))))))`)
+	ws, err := ParseWorkspace(n[0], root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Up(ws, execRunner{log: io.Discard}, io.Discard, true); err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("tmux", "list-panes", "-t", "=tgpanes:split", "-F", "#{pane_index}").Output()
+	if err != nil || len(strings.Fields(string(out))) != 3 {
+		t.Fatalf("want three panes, got %q, %v", out, err)
+	}
+	ids, _ := exec.Command("tmux", "list-panes", "-t", "=tgpanes:split", "-F", "#{pane_id}").Output()
+	for i, id := range strings.Fields(string(ids)) {
+		want := []string{"ONE", "TWO", "THREE"}[i]
+		b, _ := exec.Command("tmux", "capture-pane", "-p", "-t", id).Output()
+		if !strings.Contains(string(b), want) {
+			t.Errorf("pane %d (%s) should have run %s:\n%s", i, id, want, b)
+		}
+	}
+}

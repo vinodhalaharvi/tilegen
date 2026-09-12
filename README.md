@@ -251,6 +251,21 @@ tilegen status spec/      # per checkout: changes, open holes, branch
 tilegen down spec/        # close the session; -prune also removes clean worktrees
 ```
 
+A window can be split into panes, which is how you show a project rather
+than work in it: everything visible at once, no switching.
+
+```lisp
+(window demo (dir .)
+  (split horizontal)                      ; horizontal (side by side) | vertical (stacked)
+  (pane (run "tilegen explain spec/"))
+  (pane (run "watch -n 2 tree -L 5")))
+```
+
+A pane takes the same `(dir ...)`, `(worktree ...)` and `(run ...)` as a
+window. Windows suit development, where you want one thing at a time;
+panes suit a demo, where you want to watch a project appear as you
+generate it.
+
 Each worktree is a full checkout on its own branch, so separate agents can
 fill different packages' holes in parallel without touching each other's
 files. `up` is safe to re-run: it reuses existing worktrees, recreates
