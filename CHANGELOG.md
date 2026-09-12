@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Prompts carry the API surface of the packages a task touches: exported
+  declarations with doc comments, signatures only, from `go/types`. Scoped
+  to the packages the task's files import plus any named in its intent
+  (resolved through go.mod), never the standard library, capped and
+  budgeted, cached under `<out>/.tilegen/api`. `tilegen api IMPORT-PATH`
+  shows what a package contributes. So an LLM writes against pgx's real
+  API instead of its memory of it.
 - `tilegen import [DIR]` lifts an existing Go module into a spec: module,
   requires, structs with field types and tags, interfaces with their full
   method sets, enums (defined string types with typed constants), and

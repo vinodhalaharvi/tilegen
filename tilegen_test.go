@@ -2391,3 +2391,127 @@ func TestImportSelfRoundTrip(t *testing.T) {
 		t.Fatalf("the twice-round-tripped project must build: %v\n%s", err, b)
 	}
 }
+
+// ---- API surface ----
+
+func TestAPISurfaceInPrompts(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	// A memory store imports nothing outside the standard library.
+	pr, err := promptOut(t, filepath.Join(p.dir, "spec.sexp"), p.out, "notes.MemoryNoteStore.Get")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(pr, "## API surface") {
+		t.Errorf("no third-party imports, so no API section:\n%s", pr)
+	}
+}
+
+func TestAPISurfaceExtraction(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod": "module example.com/api\n\ngo 1.22\n",
+		"lib/lib.go": `// Package lib is a dependency.
+package lib
+
+import "context"
+
+// Client talks to the service.
+type Client struct {
+	Addr    string
+	Timeout int
+	secret  string
+}
+
+// Do sends a request.
+func (c *Client) Do(ctx context.Context, path string) (string, error) { return "", nil }
+
+func (c *Client) helper() {}
+
+// Store persists things.
+type Store interface {
+	Get(ctx context.Context, id int64) (string, error)
+	Put(ctx context.Context, id int64, v string) error
+}
+
+// ErrMissing is returned when nothing is there.
+var ErrMissing = context.Canceled
+
+// Mode is how the client behaves.
+type Mode string
+
+const ModeFast Mode = "fast"
+
+func New(addr string) *Client { return nil }
+
+func unexported() {}
+`,
+	})
+	text, err := loadPackageAPI(dir, "example.com/api/lib")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"package lib // example.com/api/lib",
+		"// Client talks to the service.",
+		"type Client struct {\n\tAddr string\n\tTimeout int\n}", // exported fields only
+		"func (*Client) Do(ctx context.Context, path string) (string, error)",
+		"type Store interface {\n\tGet(ctx context.Context, id int64) (string, error)",
+		"// ErrMissing is returned when nothing is there.",
+		"type Mode string",
+		"func New(addr string) *Client",
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("API surface missing %q:\n%s", want, text)
+		}
+	}
+	for _, unwanted := range []string{"secret", "helper", "unexported", "return nil"} { // no unexported, no bodies
+		if strings.Contains(text, unwanted) {
+			t.Errorf("API surface should not contain %q:\n%s", unwanted, text)
+		}
+	}
+}
+
+func TestAPISurfaceScopeAndCache(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod":     "module example.com/api\n\ngo 1.22\n",
+		"lib/lib.go": "package lib\n\n// Thing is a thing.\ntype Thing struct{ ID int64 }\n",
+		"app/app.go": "package app\n\nimport (\n\t\"context\"\n\t\"example.com/api/lib\"\n)\n\nvar _ = context.Background\nvar _ lib.Thing\n",
+	})
+	r := &Report{out: dir, staged: map[string][]byte{}, unlinked: map[string]bool{}}
+	// The standard library is never included; the project's own packages
+	// are already context files.
+	if got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/api"); got != "" {
+		t.Errorf("own and standard packages should be skipped:\n%s", got)
+	}
+	got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/other")
+	if !strings.Contains(got, "### example.com/api/lib") || !strings.Contains(got, "type Thing struct {\n\tID int64\n}") {
+		t.Errorf("a third-party package should be included:\n%s", got)
+	}
+	cache := filepath.Join(dir, apiCacheDir)
+	entries, err := os.ReadDir(cache)
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("want one cache entry, got %v %v", entries, err)
+	}
+	// A second call reads the cache: corrupt it and the change shows.
+	os.WriteFile(filepath.Join(cache, entries[0].Name()), []byte("FROM CACHE"), 0o644)
+	if got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/other"); !strings.Contains(got, "FROM CACHE") {
+		t.Errorf("the second call should hit the cache:\n%s", got)
+	}
+}
+
+func TestAPISurfaceIncludesPackagesTheIntentNames(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod":     "module example.com/api\n\ngo 1.22\n\nrequire example.com/dep v1.0.0\n",
+		"app/app.go": "package app\n",
+	})
+	// A package named in prose but not yet imported is resolved through go.mod.
+	if got := mentionedPackages([]string{"Map dep.ErrNoRows to ErrNotFound."}, nil, dir); len(got) != 1 || got[0] != "example.com/dep" {
+		t.Errorf("want example.com/dep, got %v", got)
+	}
+	if got := mentionedPackages([]string{"Return time.Now() and errors.Join(...)"}, nil, dir); len(got) != 0 {
+		t.Errorf("the standard library is never included: %v", got)
+	}
+	if got := mentionedPackages([]string{"Map dep.ErrNoRows"}, []string{"example.com/dep"}, dir); len(got) != 0 {
+		t.Errorf("already imported, so not added twice: %v", got)
+	}
+}
