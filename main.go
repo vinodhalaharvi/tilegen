@@ -171,6 +171,9 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 	if err != nil {
 		return nil, err
 	}
+	if linked.Project == nil {
+		return nil, fmt.Errorf("%s has no (project NAME ...) form, so there is nothing to generate%s", o.Spec, workspaceHint(linked))
+	}
 	project, inlineCfg := linked.Project, linked.Config
 	var ws *Workspace
 	if linked.Workspace != nil {
@@ -346,6 +349,9 @@ func run(o Options, log io.Writer) error {
 	fmt.Fprintf(log, "%d open LLM task(s), %d hole(s) already filled -> %s\n",
 		rep.Tasks, rep.Done, filepath.Join(o.Out, "tilegen.tasks.json"))
 
+	if cp.ws != nil && cp.ws.Session != "" {
+		fmt.Fprintf(log, "run `tilegen up %s` to open the %s session (%d window(s))\n", o.Spec, cp.ws.Session, len(cp.ws.Windows))
+	}
 	switch {
 	case o.Git:
 		return gitFinish(o.Out, mode, gitRepo, c, o.Runner, log)
@@ -526,4 +532,13 @@ func parseAnywhere(fs *flag.FlagSet, args []string) []string {
 		pos = append(pos, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
+}
+
+// workspaceHint points at the commands that work without a project, when
+// the spec has a workspace but nothing to generate yet.
+func workspaceHint(l *Linked) string {
+	if l.Workspace == nil {
+		return ""
+	}
+	return " (the workspace is there, so `tilegen up` still works)"
 }
