@@ -233,6 +233,7 @@ func planCmd(args []string, stdout, log io.Writer) error {
 	fs.StringVar(&o.Out, "out", "", "the generated project (default: the workspace's (out ...), else ./out)")
 	fs.StringVar(&o.PolicyFile, "policy", "", "policy .sexp file")
 	dot := fs.Bool("dot", false, "print graphviz DOT instead of levels")
+	asJSON := fs.Bool("json", false, "print the levels as JSON")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen plan [-dot] [SPEC]\n\nWhat the plan makes, in dependency order. Writes nothing.\n\n")
 		fs.PrintDefaults()
@@ -255,7 +256,14 @@ func planCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprint(stdout, g.Dot())
 		return nil
 	}
-	levels, err := g.Levels()
+	levels, cycleErr := g.Levels()
+	if *asJSON {
+		if err := writeJSON(stdout, planJSON(g, levels, cycleErr)); err != nil {
+			return err
+		}
+		return cycleErr
+	}
+	err = cycleErr
 	for i, level := range levels {
 		fmt.Fprintf(stdout, "level %d\n", i)
 		for _, id := range level {

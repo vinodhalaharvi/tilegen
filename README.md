@@ -382,6 +382,42 @@ Give it to your LLM together with the listed files. Then:
 3. Re-run tilegen at any time. Holes are found by parsing the real files, so
    filled ones drop off the list and line numbers stay current.
 
+## For agents: -json
+
+The read-only commands print structured output with `-json`, so a program
+does not have to parse tables meant for people:
+
+```sh
+tilegen explain -json spec/   # every need: chosen tile, score, candidates, rejections
+tilegen plan -json spec/      # the levels, with each node's dependencies
+tilegen tiles -json           # the registry: capabilities, offers, costs, legality
+tilegen check -json spec/     # what would change, and whether that is a failure
+```
+
+```json
+{
+  "need": "orders.OrderStore",
+  "capability": "store",
+  "requirements": ["durable"],
+  "chosen": "postgres-sqlc",
+  "score": 29,
+  "chosen_by": "auto",
+  "candidates": [
+    {"tile": "postgres-sqlc", "score": 29, "own": 22,
+     "chain": [{"rule": "row-mapper", "score": 7, "detail": "1 entity"}]},
+    {"tile": "postgres-pgx", "score": 45, "own": 45}
+  ],
+  "illegal": [{"tile": "memory", "reason": "an in-memory map loses its data on restart"}],
+  "position": "spec/10-orders.sexp:12:7"
+}
+```
+
+An agent can then ask the compiler what it would do, and why, rather than
+deciding architecture itself or guessing at reasons. Both renderings come
+from one computation, so they cannot disagree; a test checks that they
+report the same problems. `check -json` still exits non-zero on failure, so
+it works in CI either way.
+
 ## The plan graph
 
 `tilegen plan` shows what a run makes and in what order, inferred from the

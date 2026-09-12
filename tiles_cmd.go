@@ -21,6 +21,7 @@ func tilesCmd(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("tilegen tiles", flag.ExitOnError)
 	asSexp := fs.Bool("sexp", false, "print the registry as S-expressions")
 	verbose := fs.Bool("v", false, "do not trim the table to the terminal width")
+	asJSON := fs.Bool("json", false, "print the registry as JSON")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen tiles [-sexp] [-v] [FILTER]\n\n")
 		fs.PrintDefaults()
@@ -31,6 +32,9 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		if len(pos) == 0 || strings.Contains(t.Name+" "+t.Pass+" "+t.Produces, pos[0]) {
 			rows = append(rows, t)
 		}
+	}
+	if *asJSON {
+		return writeJSON(stdout, tilesJSON(rows))
 	}
 	if *asSexp {
 		for _, t := range rows {

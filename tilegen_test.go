@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
@@ -2945,5 +2947,150 @@ func TestPlanGraphIsDeterministicAndWritesNothing(t *testing.T) {
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
 		t.Error("tilegen plan must write nothing")
+	}
+}
+
+// ---- -json on the read-only commands ----
+
+func jsonOf[T any](t *testing.T, run func(w io.Writer) error) T {
+	t.Helper()
+	var buf bytes.Buffer
+	err := run(&buf)
+	var out T
+	if jsonErr := json.Unmarshal(buf.Bytes(), &out); jsonErr != nil {
+		t.Fatalf("not valid JSON (%v): %v\n%s", err, jsonErr, buf.String())
+	}
+	return out
+}
+
+func TestExplainJSON(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, autoSpec("auto"), "")
+	got := jsonOf[ExplainJSON](t, func(w io.Writer) error {
+		return explainCmd([]string{"-json", sp}, w, io.Discard)
+	})
+	if got.Policy.Weights["llm-work"] != 4 {
+		t.Errorf("the policy should be reported: %+v", got.Policy)
+	}
+	var orders *CoverageJSON
+	for i := range got.Coverage {
+		if got.Coverage[i].Need == "orders.OrderStore" {
+			orders = &got.Coverage[i]
+		}
+	}
+	if orders == nil {
+		t.Fatalf("every need should appear: %+v", got.Coverage)
+	}
+	if orders.Chosen != "postgres-sqlc" || orders.Capability != "store" || orders.ChosenBy != "auto" ||
+		len(orders.Requirements) != 1 || orders.Requirements[0] != "durable" {
+		t.Errorf("coverage: %+v", orders)
+	}
+	if len(orders.Illegal) != 1 || orders.Illegal[0].Tile != "memory" || orders.Illegal[0].Reason == "" {
+		t.Errorf("rejections should carry their reasons: %+v", orders.Illegal)
+	}
+	var sqlc *CandidateJSON
+	for i := range orders.Candidates {
+		if orders.Candidates[i].Tile == "postgres-sqlc" {
+			sqlc = &orders.Candidates[i]
+		}
+	}
+	if sqlc == nil || sqlc.Own != 22 || len(sqlc.Chain) != 1 || sqlc.Chain[0].Rule != "row-mapper" {
+		t.Errorf("the chain should be broken out: %+v", sqlc)
+	}
+	if !strings.Contains(orders.Position, "spec.sexp:") {
+		t.Errorf("the need should carry its position: %q", orders.Position)
+	}
+}
+
+// TestJSONAgreesWithText: both renderings come from one computation, so a
+// disagreement means the two have drifted.
+func TestJSONAgreesWithText(t *testing.T) {
+	p := newRC(t)
+	p.gen("get save", "yes", "memory")
+	sp := filepath.Join(p.dir, "spec.sexp")
+	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get save count", "yes", "memory"), "") // now out of date
+
+	res := jsonOf[CheckJSON](t, func(w io.Writer) error {
+		saved := os.Stdout
+		r, wr, _ := os.Pipe()
+		os.Stdout = wr
+		err := run(Options{Spec: sp, Out: p.out, Check: true, AllowHoles: true, JSON: true}, io.Discard)
+		wr.Close()
+		os.Stdout = saved
+		io.Copy(w, r)
+		return err
+	})
+	text, textErr := checkRun(t, sp, p.out, true)
+
+	if res.OK {
+		t.Fatal("a changed spec should not be ok")
+	}
+	for _, f := range res.Stale {
+		if !strings.Contains(text, "stale    "+f) {
+			t.Errorf("JSON reports %s stale, the text report does not:\n%s", f, text)
+		}
+	}
+	if len(res.Stubs) == 0 || !strings.Contains(res.Stubs[0], "Count") {
+		t.Errorf("the appended stub should be listed: %v", res.Stubs)
+	}
+	if got := strings.Count(text, "stale    "); got != len(res.Stale) {
+		t.Errorf("text has %d stale lines, JSON has %d", got, len(res.Stale))
+	}
+	if textErr == nil || !strings.Contains(textErr.Error(), strings.Join(res.Problems, ", ")) {
+		t.Errorf("both should report the same problems: JSON %v, text %v", res.Problems, textErr)
+	}
+}
+
+func TestPlanAndTilesJSON(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package orders (entity Order (field ID int64) (store get (durable)))))`, "")
+	plan := jsonOf[PlanJSON](t, func(w io.Writer) error {
+		return planCmd([]string{"-json", "-out", filepath.Join(dir, "out"), sp}, w, io.Discard)
+	})
+	if len(plan.Levels) < 3 || len(plan.Cycle) != 0 {
+		t.Fatalf("want several levels and no cycle: %d levels, cycle %v", len(plan.Levels), plan.Cycle)
+	}
+	kinds := map[string]bool{}
+	var sqlcLevel, taskLevel = -1, -1
+	for i, level := range plan.Levels {
+		for _, n := range level {
+			kinds[n.Kind] = true
+			if n.ID == toolNode("sqlc generate") {
+				sqlcLevel = i
+			}
+			if n.ID == taskNode("orders.PostgresOrderStore.Get") {
+				taskLevel = i
+			}
+		}
+	}
+	for _, k := range []string{"file", "tool", "task", "need", "tile"} {
+		if !kinds[k] {
+			t.Errorf("no %s node in the plan", k)
+		}
+	}
+	if sqlcLevel < 0 || taskLevel <= sqlcLevel {
+		t.Errorf("the postgres task must come after sqlc: sqlc %d, task %d", sqlcLevel, taskLevel)
+	}
+
+	tiles := jsonOf[TilesJSON](t, func(w io.Writer) error { return tilesCmd([]string{"-json"}, w) })
+	if len(tiles.Tiles) < 20 {
+		t.Errorf("want the whole registry, got %d tiles", len(tiles.Tiles))
+	}
+	var store *CapabilityJSON
+	for i := range tiles.Capabilities {
+		if tiles.Capabilities[i].Name == "store" {
+			store = &tiles.Capabilities[i]
+		}
+	}
+	if store == nil || len(store.OfferedBy) != 3 || len(store.Requirements) != 1 {
+		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
+	}
+	for _, tl := range tiles.Tiles {
+		if tl.Name == "memory" {
+			if tl.Cost["llm-work"] != 2 || tl.IllegalWhen["durable"] == "" {
+				t.Errorf("the memory tile should carry its cost and legality: %+v", tl)
+			}
+		}
 	}
 }
