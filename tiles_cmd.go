@@ -65,7 +65,14 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		}
 		fmt.Fprintln(stdout, strings.TrimRight(line, " "))
 	}
-	fmt.Fprintf(stdout, "\n%d tile(s). Storage backends: %s. With (storage auto) each store gets the cheapest legal one; see tilegen explain.\n",
-		len(rows), strings.Join(backendNames(), ", "))
+	fmt.Fprintf(stdout, "\n%d tile(s).\n", len(rows))
+	for _, name := range capabilityNames() {
+		var tiles []string
+		for _, o := range offersOf(name) {
+			tiles = append(tiles, o.Tile)
+		}
+		fmt.Fprintf(stdout, "capability %-10s offered by %s\n", name, strings.Join(tiles, ", "))
+	}
+	fmt.Fprintf(stdout, "Each need gets the cheapest legal tile; see tilegen explain.\n")
 	return nil
 }

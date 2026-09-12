@@ -53,8 +53,8 @@ func expandEntity(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			impl.List = append(impl.List, op)
 			continue
 		}
-		if op.IsList && contains(knownNeeds, op.Head()) { // a need, like (durable)
-			impl.List = append(impl.List, L(Sym("needs"), Sym(op.Head())))
+		if op.IsList && len(op.List) == 1 && contains(knownRequirements(), op.Head()) {
+			impl.List = append(impl.List, L(Sym("requires"), Sym(op.Head())))
 			continue
 		}
 		meth, err := storeMethod(op, name, fields)

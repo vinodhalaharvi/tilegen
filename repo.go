@@ -206,8 +206,13 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 	name := project.List[1].Atom
 	info := parseRepo(repo, name)
 	topics := []string{"go", "golang", "tilegen"}
-	for _, be := range c.Used {
+	for _, be := range usedBackends(c) {
 		topics = append(topics, be.Topics...)
+	}
+	for _, o := range c.Used {
+		if tr, ok := o.Impl.(*BusTransport); ok {
+			topics = append(topics, tr.Topics...)
+		}
 	}
 	seen := map[string]bool{}
 	gr := L(Sym("git/repo"), L(Sym("name"), Str(info.Name)), L(Sym("visibility"), Sym(info.Visibility)))
@@ -255,7 +260,7 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 	fmt.Fprintf(&b, "Module: `%s`\n\n", c.Module)
 	b.WriteString("Scaffolded by tilegen. Files marked `DO NOT EDIT` are regenerated from the spec;\n")
 	b.WriteString("everything else, including this README, is yours.\n\n## Develop\n\n```sh\n")
-	for _, be := range c.Used {
+	for _, be := range usedBackends(c) {
 		if be.Generate != "" {
 			fmt.Fprintf(&b, "make %-8s # %s\n", generateTarget(be), be.GenerateDoc)
 		}
@@ -267,7 +272,7 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 func makefile(c *Ctx) string {
 	var b strings.Builder
 	var gen []*Backend
-	for _, be := range c.Used {
+	for _, be := range usedBackends(c) {
 		if be.Generate != "" {
 			gen = append(gen, be)
 		}
@@ -396,7 +401,7 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 		topics = append(topics, t.List[1].Atom)
 	}
 	if mode == "new" {
-		for _, be := range c.Used {
+		for _, be := range usedBackends(c) {
 			if be.Generate == "" {
 				continue
 			}

@@ -4,7 +4,7 @@ import "fmt"
 
 // The memory backend: a map guarded by a mutex. Useful for tests and fakes.
 func init() {
-	RegisterBackend(&Backend{
+	registerStoreBackend(&Backend{
 		Name:        "memory",
 		Tile:        "memory",
 		Doc:         "in-memory store: a map guarded by a mutex",

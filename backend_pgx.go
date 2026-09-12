@@ -10,7 +10,7 @@ import (
 // pgxpool.Pool, with the query tilegen would have given sqlc as a hint.
 // More LLM work and more to maintain than sqlc, but no generate step.
 func init() {
-	RegisterBackend(&Backend{
+	registerStoreBackend(&Backend{
 		Name:    "pgx",
 		Tile:    "postgres-pgx",
 		Doc:     "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",

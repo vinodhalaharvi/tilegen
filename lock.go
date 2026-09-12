@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -15,8 +14,8 @@ import (
 // It lives in the generated project, committed like go.sum:
 //
 //	(lock
-//	  (store orders.OrderStore (backend postgres))
-//	  (store sessions.SessionStore (backend memory)))
+//	  (tile orders.OrderStore postgres-sqlc)
+//	  (tile sharing.Bus local-bus))
 //
 // With (storage auto) a pinned choice sticks while it stays legal; explain
 // shows when auto would now choose differently. A pin that became illegal
@@ -25,10 +24,10 @@ import (
 
 const lockFile = "tilegen.lock"
 
-// LockEntry is one pinned choice.
+// LockEntry is one pinned choice: the tile that covered a need.
 type LockEntry struct {
-	Backend string
-	Pos     Pos
+	Tile string
+	Pos  Pos
 }
 
 // loadLock reads the project's tilegen.lock; a missing file is empty.
@@ -53,47 +52,27 @@ func loadLock(out string) (map[string]LockEntry, error) {
 	var errs []error
 	for _, e := range b.Rest("entries") {
 		eb := Bindings{}
-		if !Match(Pat("(store ?name (backend ?backend))"), e, eb) || eb.One("name").IsList || eb.One("backend").IsList {
-			errs = append(errs, fmt.Errorf("%s: expected (store pkg.NameStore (backend NAME)), got %s", e.Pos, short(e)))
+		if !Match(Pat("(tile ?need ?tile)"), e, eb) || eb.One("need").IsList || eb.One("tile").IsList {
+			errs = append(errs, fmt.Errorf("%s: expected (tile NEED TILE), got %s", e.Pos, short(e)))
 			continue
 		}
-		lock[eb.Atom("name")] = LockEntry{Backend: eb.Atom("backend"), Pos: e.Pos}
+		lock[eb.Atom("need")] = LockEntry{Tile: eb.Atom("tile"), Pos: e.Pos}
 	}
 	return lock, errors.Join(errs...)
 }
 
-// lockText renders the choices as a lock file, sorted by store.
-func lockText(choices map[string]*Choice) []byte {
-	names := make([]string, 0, len(choices))
-	for n := range choices {
-		names = append(names, n)
-	}
-	sort.Strings(names)
+// lockText renders the coverings as a lock file, sorted by need.
+func lockText(cover map[string]*Covering) []byte {
 	var b strings.Builder
-	b.WriteString("; tilegen.lock: the backend each store got, pinned. Commit this file.\n")
+	b.WriteString("; tilegen.lock: the tile each need got, pinned. Commit this file.\n")
 	b.WriteString("; To choose again, delete a line or run tilegen with -reselect.\n")
 	b.WriteString("(lock")
-	for _, n := range names {
-		fmt.Fprintf(&b, "\n  (store %s (backend %s))", n, choices[n].Chosen.Name)
+	for _, id := range sortedKeys(cover) {
+		fmt.Fprintf(&b, "\n  (tile %s %s)", id, cover[id].Offer.Tile)
+		for _, k := range cover[id].Children {
+			fmt.Fprintf(&b, "\n  (tile %s %s)", k.Need.ID, k.Offer.Tile)
+		}
 	}
 	b.WriteString(")\n")
 	return []byte(b.String())
-}
-
-// pinned applies a lock entry to a choice under (storage auto). It returns
-// false, with a warning, when the pin can no longer be honoured.
-func pinned(ch *Choice, e LockEntry, c *Ctx) bool {
-	b := lookupBackend(e.Backend)
-	if b == nil {
-		c.warn(e.Pos, "%s: backend %q is not registered any more; re-selected%s", lockFile, e.Backend, didYouMean(e.Backend, backendNames()))
-		return false
-	}
-	for _, r := range ch.Illegal {
-		if r.B == b {
-			c.warn(e.Pos, "%s: %s is now illegal for %s (%s); re-selected", lockFile, b.Tile, ch.Store, r.Reason)
-			return false
-		}
-	}
-	ch.Chosen, ch.By = b, "lock"
-	return true
 }

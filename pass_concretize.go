@@ -90,12 +90,17 @@ func concretizeImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if n.Find("backend") != nil {
 		return nil, fmt.Errorf("impl already has a backend")
 	}
-	ch := m.C.Choices[m.C.curPkg+"."+b.Atom("iface")]
-	if ch == nil {
-		return nil, fmt.Errorf("no backend was chosen for %s.%s", m.C.curPkg, b.Atom("iface"))
+	id := m.C.curPkg + "." + b.Atom("iface")
+	cov := m.C.Cover[id]
+	if cov == nil {
+		return nil, fmt.Errorf("no tile was chosen for %s", id)
+	}
+	be, ok := cov.Offer.Impl.(*Backend)
+	if !ok {
+		return nil, fmt.Errorf("the tile chosen for %s does not implement stores", id)
 	}
 	out := L(append([]*Node{Sym("impl"), b.One("iface")}, b.Rest("parts")...)...)
-	out.List = append(out.List, L(Sym("backend"), Sym(ch.Chosen.Name)))
-	out.List = append(out.List, choiceNodes(ch)...) // visible in -dump
+	out.List = append(out.List, L(Sym("backend"), Sym(be.Name)))
+	out.List = append(out.List, coverNodes(cov)...) // visible in -dump
 	return []*Node{out}, nil
 }

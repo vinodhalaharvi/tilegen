@@ -65,6 +65,8 @@ Run fill for real, and let measured numbers replace declared costs.
 
 ## v0.5.0 - Intent
 
+- [x] **Capability-driven selection**: Done when any capability's tiles compete through one bottom-up solver, with totality, determinism, legality and optimality each tested.
+
 - [x] **API surface in prompts**: Done when a task's prompt carries the exported API of the packages it touches, extracted with go/types.
 
 - [x] **Import existing projects**: Done when `tilegen import` lifts a Go module into a spec using only what the type checker can prove, and says what it could not.

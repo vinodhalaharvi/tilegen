@@ -94,8 +94,8 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 			return nil, err
 		}
 	}
-	if len(c.Choices) > 0 {
-		r.stage(lockFile, lockText(c.Choices))
+	if len(c.Cover) > 0 {
+		r.stage(lockFile, lockText(c.Cover))
 	}
 	r.Produced["tilegen.tasks.json"] = true
 	sweep(out, r)

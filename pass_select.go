@@ -168,12 +168,17 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		c.Local[p.List[1].Atom] = c.Module + "/" + p.Text("dir")
 		c.PkgDirs[p.List[1].Atom] = p.Text("dir")
 	}
-	for _, be := range c.Used {
+	for _, be := range usedBackends(c) {
 		for name, dir := range be.Packages {
 			c.Local[name] = c.Module + "/" + dir
 		}
 		for q, imp := range be.Imports {
 			c.Requires[q] = imp
+		}
+	}
+	for _, o := range c.Used {
+		if tr, ok := o.Impl.(*BusTransport); ok && tr.Import[0] != "" {
+			c.Requires[tr.Import[0]] = tr.Import[1]
 		}
 	}
 
@@ -183,7 +188,7 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return nil, err
 	}
 	out = append(out, res...)
-	for _, be := range c.Used {
+	for _, be := range usedBackends(c) {
 		if be.ProjectForms != nil {
 			out = append(out, be.ProjectForms(c)...)
 		}
