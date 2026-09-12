@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Every spec shown anywhere on the site is a complete spec with a policy
+  in it, including the editor's starting spec. Each of the three
+  walkthroughs prints its whole spec twice — the same file with one
+  decision changed — beside what tilegen decided and the real output of
+  both. No fragments, no policy floating apart from the spec it belongs
+  to. Tests enforce all of it.
 - Every walkthrough now ends by changing a decision that comes from
   outside the code, and shows what that changes: a team policy moving a
   task list from sqlite to postgres, a client policy moving an orders API
