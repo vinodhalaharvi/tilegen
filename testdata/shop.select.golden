@@ -177,6 +177,79 @@
   (constraint "Save must be idempotent for the same ID.")
   (constraint "Never log CustomerEmail."))
 
+(go/file "orders/http_gen.go"
+  (mode generated)
+  (package orders)
+  (import uuid "github.com/google/uuid")
+  (go/struct Handler
+    (doc "Handler serves the orders HTTP API over its stores.")
+    (field orders OrderStore))
+  (go/func NewHandler
+    (doc "NewHandler returns a Handler over the given stores.")
+    (params (orders OrderStore))
+    (returns *Handler)
+    (body "return &Handler{orders: orders}"))
+  (go/func Routes
+    (doc "Routes returns a mux serving every route of this API.\nnet/http answers 404 for an unknown path and 405 for a known path\nwith the wrong method, so neither is handled here.")
+    (recv h *Handler)
+    (params)
+    (returns "*http.ServeMux")
+    (body "mux := http.NewServeMux()\n\tmux.HandleFunc(\"GET /orders/{id}\", h.GetOrder)\n\tmux.HandleFunc(\"GET /orders\", h.ListOrders)\n\tmux.HandleFunc(\"POST /orders\", h.SaveOrder)\nreturn mux"))
+  (go/func GetOrder
+    (doc "GetOrder serves GET /orders/{id}.")
+    (recv h *Handler)
+    (params (w "http.ResponseWriter") (r "*http.Request"))
+    (returns)
+    (uses uuid.UUID Order)
+    (body "id, err := uuid.Parse(r.PathValue(\"id\"))\nif err != nil {\n\thttpError(w, http.StatusBadRequest, err)\n\treturn\n}\nv, err := h.orders.Get(r.Context(), id)\nif err != nil {\n\thttpError(w, h.statusForOrder(err), err)\n\treturn\n}\nwriteJSON(w, http.StatusOK, v)"))
+  (go/func ListOrders
+    (doc "ListOrders serves GET /orders.")
+    (recv h *Handler)
+    (params (w "http.ResponseWriter") (r "*http.Request"))
+    (returns)
+    (uses string Order)
+    (body "vs, err := h.orders.List(r.Context())\nif err != nil {\n\thttpError(w, h.statusForOrder(err), err)\n\treturn\n}\nwriteJSON(w, http.StatusOK, vs)"))
+  (go/func SaveOrder
+    (doc "SaveOrder serves POST /orders.")
+    (recv h *Handler)
+    (params (w "http.ResponseWriter") (r "*http.Request"))
+    (returns)
+    (uses string Order)
+    (body "var v Order\nif err := readJSON(r, &v); err != nil {\n\thttpError(w, http.StatusBadRequest, err)\n\treturn\n}\nif err := h.validateOrder(&v); err != nil {\n\thttpError(w, http.StatusBadRequest, err)\n\treturn\n}\nif err := h.orders.Save(r.Context(), &v); err != nil {\n\thttpError(w, h.statusForOrder(err), err)\n\treturn\n}\nwriteJSON(w, http.StatusOK, &v)"))
+  (go/raw "// writeJSON sends v as JSON with the given status.\nfunc writeJSON(w http.ResponseWriter, status int, v any) {\n\tw.Header().Set(\"Content-Type\", \"application/json\")\n\tw.WriteHeader(status)\n\tif err := json.NewEncoder(w).Encode(v); err != nil {\n\t\t// The status is already written, so the client sees a truncated\n\t\t// body; there is nothing better to do than stop.\n\t\treturn\n\t}\n}\n\n// readJSON decodes a request body, rejecting unknown fields so a typo in\n// a client's payload is an error rather than a silently ignored field.\nfunc readJSON(r *http.Request, v any) error {\n\tdec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 1<<20))\n\tdec.DisallowUnknownFields()\n\treturn dec.Decode(v)\n}\n\n// httpError sends an error as JSON. The message is the error's text, so\n// statusFor... should return 500 for anything it does not recognise.\nfunc httpError(w http.ResponseWriter, status int, err error) {\n\twriteJSON(w, status, map[string]string{\"error\": err.Error()})\n}"))
+
+(go/file "orders/http.go"
+  (mode keep)
+  (package orders)
+  (go/func validateOrder
+    (recv h *Handler)
+    (params (order *Order))
+    (returns error)
+    (body "panic(\"tilegen:hole orders.Handler.validateOrder\")"))
+  (go/func statusForOrder
+    (recv h *Handler)
+    (params (err error))
+    (returns int)
+    (body "panic(\"tilegen:hole orders.Handler.statusForOrder\")")))
+
+(llm/task
+  (id "orders.Handler.validateOrder")
+  (file "orders/http.go")
+  (symbol "(*Handler).validateOrder")
+  (contract "validateOrder(order *Order) error")
+  (intent "Report what makes this Order unacceptable, before it reaches the store. Return nil when it is fine; the error's text is sent to the client with 400.")
+  (context-file "orders/orders_gen.go")
+  (context-file "orders/http_gen.go"))
+
+(llm/task
+  (id "orders.Handler.statusForOrder")
+  (file "orders/http.go")
+  (symbol "(*Handler).statusForOrder")
+  (contract "statusForOrder(err error) int")
+  (intent "Map an error from OrderStore to an HTTP status: ErrNotFound to 404, a conflict to 409, anything else to 500. Do not leak internal detail to the client.")
+  (context-file "orders/orders_gen.go")
+  (context-file "orders/http_gen.go"))
+
 (go/file "orders/events_gen.go"
   (mode generated)
   (package orders)
