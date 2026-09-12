@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Every walkthrough now ends by changing a decision that comes from
+  outside the code, and shows what that changes: a team policy moving a
+  task list from sqlite to postgres, a client policy moving an orders API
+  the other way, and events that must leave the process. A test fails if
+  a walkthrough stops short of showing generated code.
+- One type family and four sizes across the page, so nothing jumps.
 - The documentation is three walkthroughs, each carried from the spec to
   the generated code and then through one change to the spec: a task list
   gaining `(durable)`, an orders API meeting a client policy, and a

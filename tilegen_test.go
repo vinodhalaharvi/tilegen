@@ -4037,3 +4037,40 @@ func TestDocsStayUserFacing(t *testing.T) {
 		}
 	}
 }
+
+// TestEveryWalkthroughChangesSomething: a walkthrough that only shows a
+// spec and its output undersells what tilegen does. Each one must carry a
+// change through to the generated code, and the docs must show what a
+// policy does, since that is the part a reader cannot guess.
+func TestEveryWalkthroughChangesSomething(t *testing.T) {
+	sections := strings.Split(docsHTML, `<h2 id=`)
+	var walkthroughs []string
+	for _, s := range sections {
+		if strings.HasPrefix(s, `"one"`) || strings.HasPrefix(s, `"two"`) || strings.HasPrefix(s, `"three"`) {
+			walkthroughs = append(walkthroughs, s)
+		}
+	}
+	if len(walkthroughs) != 3 {
+		t.Fatalf("expected three walkthroughs, found %d", len(walkthroughs))
+	}
+	for i, w := range walkthroughs {
+		name := fmt.Sprintf("walkthrough %d", i+1)
+		if !strings.Contains(w, "Change one thing") && !strings.Contains(w, "Change one more thing") {
+			t.Errorf("%s never changes the spec", name)
+		}
+		if !strings.Contains(w, "(policy") && !strings.Contains(w, "cross-process") {
+			t.Errorf("%s never shows a decision that comes from outside the code", name)
+		}
+		if !strings.Contains(w, "What would it do?") {
+			t.Errorf("%s never shows what tilegen decided", name)
+		}
+		if !strings.Contains(w, `data-lang="go"`) && !strings.Contains(w, `data-lang="sql"`) {
+			t.Errorf("%s never shows generated code", name)
+		}
+	}
+	// Two of the three show a policy form outright.
+	policies := strings.Count(docsHTML, "(policy\n")
+	if policies < 2 {
+		t.Errorf("only %d walkthrough(s) show a (policy ...) form", policies)
+	}
+}
