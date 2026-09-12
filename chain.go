@@ -30,11 +30,30 @@ type Chain struct {
 type EntityShape struct {
 	Name   string
 	Fields []FieldShape
+
+	// The dialect of the candidate being priced. A mapper's work depends
+	// on it: postgres hands back a uuid.UUID, sqlite hands back the TEXT
+	// it stored, which the mapper must parse.
+	Dialect *Dialect
 }
 
 type FieldShape struct {
 	Name, Type            string
 	Enum, Nullable, JSONB bool
+}
+
+// parsed reports whether this field arrives as a string the mapper has to
+// convert: an enum always does, and under a dialect with no type of its
+// own, so do uuids and times.
+func (f FieldShape) parsed(d *Dialect) bool {
+	if f.Enum {
+		return true
+	}
+	if d == nil {
+		return false
+	}
+	base := strings.TrimPrefix(f.Type, "*")
+	return (base == "uuid.UUID" || base == "time.Time") && d.Types[base] == "TEXT"
 }
 
 var chains []*Chain
@@ -114,17 +133,17 @@ func init() {
 	RegisterChain(&Chain{
 		Name: "row-mapper", From: "db-rows", To: domainForm,
 		Doc:      "converts sqlc's row types to domain types, by hand",
-		CostRule: "1 per entity, +1 per enum field (ParseX), +1 per nullable field (pgtype), +2 per JSONB field",
+		CostRule: "1 per entity, +1 per field the dialect stores as text (an enum always; uuid and time under sqlite), +1 per nullable field, +2 per JSON field",
 		Cost: func(e EntityShape) (Cost, string) {
-			units, enums, nulls, jsonb := 1, 0, 0, 0
+			units, parsed, nulls, jsonb := 1, 0, 0, 0
 			for _, f := range e.Fields {
 				switch {
 				case f.JSONB:
 					jsonb++
 					units += 2
 				default:
-					if f.Enum {
-						enums++
+					if f.parsed(e.Dialect) {
+						parsed++
 						units++
 					}
 					if f.Nullable {
@@ -137,7 +156,7 @@ func init() {
 			for _, p := range []struct {
 				n    int
 				what string
-			}{{enums, "enum"}, {nulls, "nullable"}, {jsonb, "JSONB"}} {
+			}{{parsed, "parsed"}, {nulls, "nullable"}, {jsonb, "JSONB"}} {
 				if p.n > 0 {
 					parts = append(parts, fmt.Sprintf("%d %s field%s", p.n, p.what, map[bool]string{true: "s"}[p.n > 1]))
 				}

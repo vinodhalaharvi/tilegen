@@ -1814,14 +1814,14 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 	if err := run(Options{Spec: sp, Out: out, Dump: true}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	read(t, out, "orders/postgres_order_store.go")   // durable: memory is illegal
+	read(t, out, "orders/sqlite_order_store.go")     // durable: memory is illegal
 	read(t, out, "sessions/memory_session_store.go") // no needs: memory is cheapest
 	read(t, out, "sqlc.yaml")
 	if schema := read(t, out, "db/schema.sql"); strings.Contains(schema, "sessions") {
 		t.Error("memory stores must not get tables")
 	}
 	dump := dumpForms(t, read(t, out, ".tilegen/03-concretize.sexp"))
-	for _, want := range []string{`(chosen postgres-sqlc (score 29) (own 22) (via row-mapper 7 "1 entity") (by auto))`, "(considered postgres-pgx (score 45))",
+	for _, want := range []string{`(chosen sqlite-sqlc (score 27) (own 20) (via row-mapper 7 "1 entity") (by auto))`, `(considered postgres-sqlc (score 29) (own 22) (via row-mapper 7 "1 entity"))`,
 		`(illegal memory "an in-memory map loses its data on restart")`, "(chosen memory (score 12) (by auto))"} {
 		if !dump[want] {
 			t.Errorf("the dump should record %s", want)
@@ -1833,7 +1833,7 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres-sqlc (score 29), postgres-pgx (score 45), or use auto") {
+	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), postgres-sqlc (score 29), postgres-pgx (score 45), or use auto") {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
@@ -1871,7 +1871,7 @@ func TestExplainCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"weights: llm-work 4, maintenance 3", "orders.OrderStore   (store)   needs: durable   chosen by: auto",
-		"chosen  postgres-sqlc   score 29   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 = 22", "+ row-mapper 7 (1 entity)",
+		"chosen  sqlite-sqlc     score 27   llm 3·4 + maint 2·3 + dep 1·1 + run 1·1 = 20", "+ row-mapper 7 (1 entity)",
 		"illegal memory          an in-memory map loses its data on restart", "sessions.SessionStore   (store)   needs: none"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("explain missing %q:\n%s", want, out.String())
@@ -1918,9 +1918,9 @@ func TestChainTipsTheChoice(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"orders.OrderStore   (store)   needs: durable   chosen by: auto\n  chosen  postgres-sqlc   score 29",
+		"orders.OrderStore   (store)   needs: durable   chosen by: auto\n  chosen  sqlite-sqlc     score 27",
 		"profiles.ProfileStore   (store)   needs: durable   chosen by: auto\n  chosen  postgres-pgx    score 45",
-		"postgres-sqlc   score 51", "+ row-mapper 29 (1 entity, 1 enum field, 3 nullable fields)",
+		"postgres-sqlc   score 51", "+ row-mapper 29 (1 entity, 1 parsed field, 3 nullable fields)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("explain missing %q:\n%s", want, got)
@@ -1929,7 +1929,7 @@ func TestChainTipsTheChoice(t *testing.T) {
 	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	read(t, filepath.Join(dir, "out"), "orders/postgres_order_store.go")
+	read(t, filepath.Join(dir, "out"), "orders/sqlite_order_store.go")
 	read(t, filepath.Join(dir, "out"), "profiles/pgx_profile_store.go")
 }
 
@@ -1940,7 +1940,7 @@ func TestChainCostsAndPaths(t *testing.T) {
 		t.Fatalf("path: %v %v", steps, ok)
 	}
 	// units = 1 entity + 1 enum + 1 nullable + 2 JSONB = 5: llm 5*4 + maint 3*3 = 29
-	if s != 29 || steps[0].Detail != "1 entity, 1 enum field, 1 nullable field, 1 JSONB field" {
+	if s != 29 || steps[0].Detail != "1 entity, 1 parsed field, 1 nullable field, 1 JSONB field" {
 		t.Errorf("cost %d, detail %q", s, steps[0].Detail)
 	}
 	if _, s, ok := convert(domainForm, domainForm, e, DefaultPolicy()); !ok || s != 0 {
@@ -2021,14 +2021,14 @@ func TestLockPinsAChoiceAgainstDrift(t *testing.T) {
 	lockRun(t, dir, "", "", false)
 	out := filepath.Join(dir, "out")
 	lock := read(t, out, "tilegen.lock")
-	if !strings.Contains(lock, "(tile orders.OrderStore postgres-sqlc)") || !strings.Contains(lock, "(tile sessions.SessionStore memory)") {
+	if !strings.Contains(lock, "(tile orders.OrderStore sqlite-sqlc)") || !strings.Contains(lock, "(tile sessions.SessionStore memory)") {
 		t.Fatalf("lock:\n%s", lock)
 	}
 	// New enum and nullable fields make sqlc's mapper expensive: auto would move to pgx.
 	heavy := "(field S Status) (field A *string) (field B *string) (field C *time.Time)"
 	lockRun(t, dir, heavy, "", false)
 	if _, err := os.Stat(filepath.Join(out, "orders", "pgx_order_store.go")); err == nil {
-		t.Fatal("the lock should keep OrderStore on postgres")
+		t.Fatal("the lock should keep OrderStore where it was")
 	}
 	var ex strings.Builder
 	explainCmd([]string{"-out", out, filepath.Join(dir, "spec.sexp"), "orders.OrderStore"}, &ex, io.Discard)
@@ -2049,7 +2049,7 @@ func TestLockReselectsAnIllegalPin(t *testing.T) {
 	if !strings.Contains(log, "tilegen.lock:5:3: tilegen.lock: memory is now illegal for sessions.SessionStore") {
 		t.Errorf("want a positioned warning:\n%s", log)
 	}
-	if !strings.Contains(read(t, filepath.Join(dir, "out"), "tilegen.lock"), "(tile sessions.SessionStore postgres-sqlc)") {
+	if !strings.Contains(read(t, filepath.Join(dir, "out"), "tilegen.lock"), "(tile sessions.SessionStore sqlite-sqlc)") {
 		t.Error("the illegal pin should be re-selected")
 	}
 }
@@ -2128,7 +2128,7 @@ func TestPolicyChangesTheArchitecture(t *testing.T) {
 
 func TestPolicyAffectsChainCosts(t *testing.T) {
 	got := policyExplain(t, `(policy (weights (llm-work 1) (maintenance 1)))`)
-	if !strings.Contains(got, "+ row-mapper 8 (1 entity, 1 enum field, 3 nullable fields)") {
+	if !strings.Contains(got, "+ row-mapper 8 (1 entity, 1 parsed field, 3 nullable fields)") {
 		t.Errorf("the chain must be priced by the policy too:\n%s", got)
 	}
 }
@@ -2168,7 +2168,7 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
-	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx))`), 0o644)
+	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc))`), 0o644)
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
 		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
@@ -2859,23 +2859,23 @@ func TestPlanGraphOrdersGeneratedWork(t *testing.T) {
 
 	sqlc := levelOf(levels, toolNode("sqlc generate"))
 	dbPkg := levelOf(levels, "dir:internal/db")
-	pgTask := levelOf(levels, taskNode("orders.PostgresOrderStore.Get"))
+	pgTask := levelOf(levels, taskNode("orders.SqliteOrderStore.Get"))
 	memTask := levelOf(levels, taskNode("sessions.MemorySessionStore.Get"))
 	schema := levelOf(levels, fileNode("db/schema.sql"))
-	for name, lvl := range map[string]int{"sqlc": sqlc, "internal/db": dbPkg, "postgres task": pgTask, "memory task": memTask, "schema": schema} {
+	for name, lvl := range map[string]int{"sqlc": sqlc, "internal/db": dbPkg, "the SQL store's task": pgTask, "memory task": memTask, "schema": schema} {
 		if lvl < 0 {
 			t.Fatalf("%s is missing from the plan", name)
 		}
 	}
 	if !(schema < sqlc && sqlc < dbPkg && dbPkg < pgTask) {
-		t.Errorf("want schema < sqlc < internal/db < postgres task, got %d %d %d %d", schema, sqlc, dbPkg, pgTask)
+		t.Errorf("want schema < sqlc < internal/db < the SQL store's task, got %d %d %d %d", schema, sqlc, dbPkg, pgTask)
 	}
 	if memTask > sqlc || memTask >= dbPkg {
 		t.Errorf("a memory store's task needs nothing generated, so it must not wait for sqlc's output: task %d, sqlc %d, internal/db %d", memTask, sqlc, dbPkg)
 	}
 	// Files are credited to the tile responsible for them.
-	if n := g.Nodes[fileNode("db/schema.sql")]; n == nil || n.By != "postgres-sqlc" {
-		t.Errorf("schema.sql should be credited to postgres-sqlc, got %+v", n)
+	if n := g.Nodes[fileNode("db/schema.sql")]; n == nil || n.By != "sqlite-sqlc" {
+		t.Errorf("schema.sql should be credited to the SQL tile, got %+v", n)
 	}
 	if n := g.Nodes[fileNode("sessions/memory_session_store.go")]; n == nil || n.By != "memory" {
 		t.Errorf("the memory store file should be credited to memory, got %+v", n)
@@ -2980,7 +2980,7 @@ func TestExplainJSON(t *testing.T) {
 	if orders == nil {
 		t.Fatalf("every need should appear: %+v", got.Coverage)
 	}
-	if orders.Chosen != "postgres-sqlc" || orders.Capability != "store" || orders.ChosenBy != "auto" ||
+	if orders.Chosen != "sqlite-sqlc" || orders.Capability != "store" || orders.ChosenBy != "auto" ||
 		len(orders.Requirements) != 1 || orders.Requirements[0] != "durable" {
 		t.Errorf("coverage: %+v", orders)
 	}
@@ -2989,11 +2989,11 @@ func TestExplainJSON(t *testing.T) {
 	}
 	var sqlc *CandidateJSON
 	for i := range orders.Candidates {
-		if orders.Candidates[i].Tile == "postgres-sqlc" {
+		if orders.Candidates[i].Tile == "sqlite-sqlc" {
 			sqlc = &orders.Candidates[i]
 		}
 	}
-	if sqlc == nil || sqlc.Own != 22 || len(sqlc.Chain) != 1 || sqlc.Chain[0].Rule != "row-mapper" {
+	if sqlc == nil || sqlc.Own != 20 || len(sqlc.Chain) != 1 || sqlc.Chain[0].Rule != "row-mapper" {
 		t.Errorf("the chain should be broken out: %+v", sqlc)
 	}
 	if !strings.Contains(orders.Position, "spec.sexp:") {
@@ -3058,7 +3058,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			if n.ID == toolNode("sqlc generate") {
 				sqlcLevel = i
 			}
-			if n.ID == taskNode("orders.PostgresOrderStore.Get") {
+			if strings.HasSuffix(n.ID, "OrderStore.Get") {
 				taskLevel = i
 			}
 		}
@@ -3069,7 +3069,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 		}
 	}
 	if sqlcLevel < 0 || taskLevel <= sqlcLevel {
-		t.Errorf("the postgres task must come after sqlc: sqlc %d, task %d", sqlcLevel, taskLevel)
+		t.Errorf("the store's task must come after sqlc: sqlc %d, task %d", sqlcLevel, taskLevel)
 	}
 
 	tiles := jsonOf[TilesJSON](t, func(w io.Writer) error { return tilesCmd([]string{"-json"}, w) })
@@ -3082,7 +3082,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			store = &tiles.Capabilities[i]
 		}
 	}
-	if store == nil || len(store.OfferedBy) != 3 || len(store.Requirements) != 1 {
+	if store == nil || len(store.OfferedBy) != 4 || len(store.Requirements) != 1 {
 		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
 	}
 	for _, tl := range tiles.Tiles {
@@ -3641,5 +3641,128 @@ func TestPromptNamesAvailableModules(t *testing.T) {
 	}
 	if strings.Contains(pr, "pgconn") {
 		t.Errorf("a validate hole should not carry the driver's API:\n%s", pr)
+	}
+}
+
+// ---- the sqlite backend ----
+
+// TestSQLiteDialect: the SQL a backend writes is its own dialect's, and
+// the generated queries really run on that database.
+func TestSQLiteDialect(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package notes
+    (enum Status draft published)
+    (entity Note (field ID int64) (field Title string) (field Status Status) (field Body *string)
+      (store get list save delete (durable)))))
+(policy (prefer sqlite-sqlc (strength required) (source client "one file, no server")))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	schema := read(t, out, "db/schema.sql")
+	for _, want := range []string{
+		"id INTEGER PRIMARY KEY",                               // not BIGSERIAL or UUID
+		"status TEXT CHECK (status IN ('draft', 'published'))", // the enum still becomes a constraint
+		"body TEXT", // nullable stays nullable
+	} {
+		if !strings.Contains(schema, want) {
+			t.Errorf("schema missing %q:\n%s", want, schema)
+		}
+	}
+	if strings.Contains(schema, "TIMESTAMPTZ") || strings.Contains(schema, "BYTEA") || strings.Contains(schema, "JSONB") {
+		t.Errorf("postgres types leaked into a sqlite schema:\n%s", schema)
+	}
+	queries := read(t, out, "db/query.sql")
+	if !strings.Contains(queries, "VALUES (?1, ?2, ?3, ?4)") || strings.Contains(queries, "$1") {
+		t.Errorf("sqlite uses ?N placeholders:\n%s", queries)
+	}
+	yaml := read(t, out, "sqlc.yaml")
+	if !strings.Contains(yaml, `engine: "sqlite"`) || !strings.Contains(yaml, `sql_package: "database/sql"`) {
+		t.Errorf("sqlc.yaml should target sqlite:\n%s", yaml)
+	}
+	if strings.Contains(yaml, "overrides") {
+		t.Errorf("sqlite stores everything as TEXT, so it needs no overrides:\n%s", yaml)
+	}
+	read(t, out, "notes/sqlite_note_store.go")
+
+	// The hints say what sqlite makes the mapper do.
+	tasks := read(t, out, "tilegen.tasks.json")
+	if !strings.Contains(tasks, "sqlite stores these as TEXT") || !strings.Contains(tasks, "Status with ParseStatus") {
+		t.Errorf("a sqlite mapper must be told to parse:\n%s", tasks)
+	}
+}
+
+// TestSQLiteCostsMoreToMap: the same entity costs more under sqlite when
+// its fields are types sqlite has no column for, because the mapper parses
+// them. A cost model that ignored the dialect would call them equal.
+func TestSQLiteCostsMoreToMap(t *testing.T) {
+	plain := EntityShape{Fields: []FieldShape{{Name: "ID", Type: "int64"}, {Name: "Title", Type: "string"}}}
+	rich := EntityShape{Fields: []FieldShape{{Name: "ID", Type: "uuid.UUID"}, {Name: "At", Type: "time.Time"}}}
+	for _, c := range []struct {
+		name    string
+		shape   EntityShape
+		dialect *Dialect
+		want    int
+	}{
+		{"plain on postgres", plain, Postgres, 7},
+		{"plain on sqlite", plain, SQLite, 7},   // nothing to parse either way
+		{"rich on postgres", rich, Postgres, 7}, // pgx hands back uuid.UUID and time.Time
+		{"rich on sqlite", rich, SQLite, 18},    // both arrive as TEXT
+	} {
+		s := c.shape
+		s.Dialect = c.dialect
+		_, got, ok := convert("db-rows", domainForm, s, DefaultPolicy())
+		if !ok || got != c.want {
+			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// TestSQLiteGeneratedSQLIsValid runs every generated statement against a
+// real sqlite database, so the dialect is checked by sqlite itself.
+func TestSQLiteGeneratedSQLIsValid(t *testing.T) {
+	if _, err := exec.LookPath("python3"); err != nil {
+		t.Skip("python3 (with sqlite3) not available")
+	}
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (package notes
+    (enum Status draft published)
+    (entity Note (field ID int64) (field Title string) (field Status Status)
+      (store get list save delete count (list-by Status) (exists-by Title) (durable)))))
+(policy (prefer sqlite-sqlc (strength required)))`, "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	script := `
+import sqlite3, re, sys
+db = sqlite3.connect(':memory:')
+db.executescript(open(sys.argv[1]).read())
+vals = {"1": 1, "2": "t", "3": "draft"}
+n = 0
+for name, body in re.findall(r'-- name: (\w+) :\w+\n(.*?;)', open(sys.argv[2]).read(), re.S):
+    params = {k: vals.get(k, "draft") for k in sorted(set(re.findall(r'\?(\d+)', body)))}
+    try:
+        db.execute(body, params)
+        n += 1
+    except sqlite3.Error as e:
+        print("INVALID", name, e); sys.exit(1)
+db.execute("INSERT INTO notes (id,title,status) VALUES (9,'a','draft')")
+try:
+    db.execute("INSERT INTO notes (id,title,status) VALUES (10,'b','bogus')")
+    print("CHECK not enforced"); sys.exit(1)
+except sqlite3.IntegrityError:
+    pass
+print(n)
+`
+	cmd := exec.Command("python3", "-c", script, filepath.Join(out, "db", "schema.sql"), filepath.Join(out, "db", "query.sql"))
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("sqlite rejected tilegen's SQL: %v\n%s", err, b)
+	}
+	if n := strings.TrimSpace(string(b)); n != "7" {
+		t.Errorf("want 7 valid queries, got %q", n)
 	}
 }
