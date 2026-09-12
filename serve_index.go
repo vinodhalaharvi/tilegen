@@ -59,8 +59,8 @@ const indexHTML = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>tilegen — scaffold a Go project from a spec</title>
 <style>
-  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --dim:#666; --line:#ddd; --accent:#2a6; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --dim:#999; --line:#333; } }
+  :root { color-scheme: light dark; --bg:#fff; --fg:#111; --dim:#666; --line:#ddd; --accent:#2a6; --soft:#f6f6f6; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#151515; --fg:#eee; --dim:#999; --line:#333; --soft:#1e1e1e; } }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
          font:14px/1.5 ui-sans-serif, system-ui, -apple-system, sans-serif; }
@@ -82,17 +82,44 @@ const indexHTML = `<!doctype html>
   button.primary { background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600; }
   button:disabled { opacity:.5; cursor:default; }
   footer { padding:10px 20px; border-top:1px solid var(--line); color:var(--dim); }
+  nav { display:flex; gap:4px; }
+  nav button { font:inherit; padding:5px 14px; border:1px solid transparent; border-radius:6px;
+               background:transparent; color:var(--dim); cursor:pointer; }
+  nav button[aria-selected=true] { background:var(--soft); color:var(--fg); border-color:var(--line); font-weight:600; }
+  header a.gh { margin-left:auto; }
+  article { max-width:52rem; margin:0 auto; padding:28px 22px 80px; }
+  article h2 { font-size:20px; margin:2.2em 0 .5em; padding-top:.5em; border-top:1px solid var(--line); }
+  article h2:first-of-type { border:0; margin-top:.4em; }
+  article h3 { font-size:15px; margin:1.8em 0 .4em; }
+  article pre { background:var(--soft); padding:12px 14px; border-radius:8px; overflow:auto;
+                font:13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  article code { background:var(--soft); padding:1px 5px; border-radius:4px;
+                 font:12.5px ui-monospace, SFMono-Regular, Menlo, monospace; }
+  article pre code { background:none; padding:0; font-size:13px; }
+  article table { border-collapse:collapse; width:100%; margin:1em 0; }
+  article th, article td { text-align:left; padding:7px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  article th { color:var(--dim); font-weight:600; }
+  .toc { background:var(--soft); padding:14px 18px; border-radius:8px; columns:2; }
+  @media (max-width:600px) { .toc { columns:1; } }
+  .toc a { display:block; color:inherit; text-decoration:none; padding:2px 0; }
+  .toc a:hover { color:var(--accent); }
+  .note { border-left:3px solid var(--accent); padding:2px 0 2px 14px; color:var(--dim); }
+  button.try { font:inherit; padding:3px 10px; border:1px solid var(--line); border-radius:6px;
+               background:transparent; color:var(--dim); cursor:pointer; font-size:12px; }
   code { color:var(--accent); }
   .err { color:#c33; }
 </style>
 
 <header>
   <h1>tilegen</h1>
-  <p>A spec in, a scaffolded Go project out. Everything it cannot know is left as a typed hole.</p>
-  <a href="https://github.com/vinodhalaharvi/tilegen">github</a>
+  <nav>
+    <button id="tab-try" aria-selected="true">Try it</button>
+    <button id="tab-docs" aria-selected="false">Docs</button>
+  </nav>
+  <a class="gh" href="https://github.com/vinodhalaharvi/tilegen">github</a>
 </header>
 
-<main>
+<main id="try">
   <section>
     <div class="bar">
       <strong>spec</strong>
@@ -103,15 +130,45 @@ const indexHTML = `<!doctype html>
   </section>
   <section>
     <div class="bar"><strong id="title">choices</strong></div>
-    <pre id="out">Press “what would it do?” to see which tile covers each need, what it costs, and why the others were rejected.</pre>
+    <pre id="out">Press “what would it do?” to see which implementation it picks for each store,
+or “download project” to get the whole thing as a zip.
+
+New here? Open the Docs tab.</pre>
   </section>
 </main>
+
+<div id="docs" hidden><article>` + docsHTML + `</article></div>
 
 <footer>tilegen __VERSION__ · executes nothing: no git, no sqlc, no build · <code>tilegen serve</code></footer>
 
 <script>
 const $ = id => document.getElementById(id);
 const out = $("out"), title = $("title");
+
+function tab(name) {
+  const isTry = name === "try";
+  $("try").hidden = !isTry;
+  $("docs").hidden = isTry;
+  $("tab-try").setAttribute("aria-selected", isTry);
+  $("tab-docs").setAttribute("aria-selected", !isTry);
+  if (!isTry) location.hash = "#docs"; else history.replaceState(null, "", location.pathname);
+  window.scrollTo(0, 0);
+}
+$("tab-try").onclick = () => tab("try");
+$("tab-docs").onclick = () => tab("docs");
+if (location.hash.startsWith("#docs")) tab("docs");
+
+// "try this" in the docs loads that example into the editor and runs it
+document.querySelectorAll("button.try").forEach(b => {
+  b.onclick = () => {
+    let pre = b.closest("p").previousElementSibling;
+    while (pre && pre.tagName !== "PRE") pre = pre.previousElementSibling;
+    if (!pre) return;
+    $("spec").value = pre.innerText.trim() + "\n";
+    tab("try");
+    $("explain").click();
+  };
+});
 
 function show(text, isErr) {
   out.textContent = text;
@@ -152,30 +209,32 @@ $("download").onclick = async () => {
     a.click();
     URL.revokeObjectURL(a.href);
     show("downloaded " + a.download + "\n\n" + (res.headers.get("X-Tilegen-Holes") || "0") +
-         " open hole(s): see tilegen.tasks.json inside.");
+         " method(s) are left for you to write; they are listed in tilegen.tasks.json.\n\n" +
+         "unzip " + a.download + " && cd " + a.download.replace(/\.zip$/, "") + "\n" +
+         "sqlc generate     # only if the project has a db/ folder\n" +
+         "go mod tidy\n" +
+         "go build ./...");
   } catch (e) { show(String(e), true); }
 };
 
-// The explain payload, as a person reads it.
+// What tilegen decided, as a person reads it.
 function render(b) {
-  let s = "weights: " + Object.entries(b.policy.weights).map(([k,v]) => k+" "+v).join(", ") + "\n";
+  let s = "";
   for (const c of b.coverage) {
-    s += "\n" + c.need + "   (" + c.capability + ")";
-    if (c.requirements && c.requirements.length) s += "   needs: " + c.requirements.join(", ");
-    s += "   chosen by: " + c.chosen_by + "\n";
-    for (const cand of c.candidates) {
-      const mark = cand.tile === c.chosen ? "chosen  " : "        ";
-      s += "  " + mark + cand.tile.padEnd(15) + " score " + String(cand.score).padEnd(4) + " " + (cand.terms || "");
-      if (cand.chain && cand.chain.length) {
-        s += " = " + cand.own;
-        for (const st of cand.chain) s += "\n" + " ".repeat(36) + "+ " + st.rule + " " + st.score + " (" + st.detail + ")";
-      }
-      s += "\n";
+    s += c.need + "\n";
+    if (c.requirements && c.requirements.length) {
+      s += "  you asked for:  " + c.requirements.join(", ") + "\n";
     }
-    for (const bad of (c.illegal || [])) s += "  illegal " + bad.tile.padEnd(15) + " " + bad.reason + "\n";
-    if (c.why) s += "  policy: " + c.why + "\n";
+    for (const cand of c.candidates) {
+      s += (cand.tile === c.chosen ? "  chosen:         " : "  also possible:  ") + cand.tile + "\n";
+    }
+    for (const bad of (c.illegal || [])) {
+      s += "  ruled out:      " + bad.tile + " — " + bad.reason + "\n";
+    }
+    if (c.why) s += "  note:           " + c.why + "\n";
+    s += "\n";
   }
-  return s;
+  return s || "This spec has no stores, so there is nothing to choose.\n\nAdd (store get save) to an entity and try again.";
 }
 </script>
 </html>`
