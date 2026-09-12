@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `up`, `status` and `down` need only a `(workspace ...)` form, so a spec
+  folder with no project yet can open its session and watch the project
+  appear. Opening a session no longer needs a git repository either; only
+  worktrees do.
+- Generation says nothing is there to generate, and points at `tilegen up`
+  when the workspace declares a session; after generating it names the
+  session to open.
 - `-json` on the read-only commands: `explain` (coverings, scores,
   candidates, rejections, chains, positions), `plan` (levels with each
   node's dependencies), `tiles` (capabilities, offers, costs, legality) and
