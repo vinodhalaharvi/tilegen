@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- A SQL backend declares a `Dialect`: column types, placeholders, upsert,
+  enum constraint and sqlc overrides. `sql.go` no longer assumes postgres,
+  and sqlc.yaml takes its engine and driver from the dialect.
+- `sqlite-sqlc`: sqlite through sqlc, durable but illegal for
+  `(cross-process)`. Cheaper on dependencies, so it wins for a simple
+  entity; its mapper parses `uuid.UUID` and `time.Time` from TEXT, so
+  postgres wins for entities that use them. Every generated statement is
+  tested against a real sqlite database.
+- The row-mapper's cost depends on the candidate's dialect, so the same
+  entity is priced differently per backend.
 - Prompts name the project's direct modules with versions and say to import
   nothing else, so a filler works from what the spec declares rather than
   from a remembered import path.

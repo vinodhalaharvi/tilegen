@@ -191,7 +191,11 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, reason})
 			continue
 		}
-		via, chainCost, ok := convert(offerForm(o), want, shape(n), c.Policy)
+		es := shape(n)
+		if b, isBackend := o.Impl.(*Backend); isBackend {
+			es.Dialect = b.Dialect
+		}
+		via, chainCost, ok := convert(offerForm(o), want, es, c.Policy)
 		if !ok {
 			cov.Illegal = append(cov.Illegal, Rejected{o.Tile,
 				fmt.Sprintf("it produces %s, and no chain converts that to %s", offerForm(o), want)})

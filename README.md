@@ -694,6 +694,47 @@ Four properties hold, and each has a test:
 | Legality before cost | an illegal tile is never scored, however cheap; legality depends only on the spec |
 | Optimality | among legal coverings, the chosen one is cheapest under the policy's weights, checked against brute-force enumeration |
 
+### Adding a database
+
+A SQL backend is a `Dialect` plus a registered tile. The query shapes are
+shared, so a database says only how it spells things:
+
+```go
+var SQLite = &Dialect{
+	Name: "sqlite", SQLPackage: "database/sql",
+	Types: map[string]string{"int64": "INTEGER", "uuid.UUID": "TEXT", "time.Time": "TEXT", ...},
+	Placeholder: func(i int) string { return fmt.Sprintf("?%d", i+1) },
+	Upsert: ..., Enum: ..., Overrides: ...,
+}
+```
+
+`sqlite-sqlc` is that: the same shape as `postgres-sqlc`, writing
+`INTEGER PRIMARY KEY` and `?1` placeholders, with `engine: "sqlite"` in
+sqlc.yaml. It is durable, since the database is a file, and illegal for
+`(cross-process)`.
+
+The cost model follows the dialect too, which is the part that makes the
+comparison honest. sqlite has fewer dependencies, so it wins for a simple
+entity, but it stores `uuid.UUID` and `time.Time` as TEXT, so its mapper
+parses more and postgres wins for a uuid-keyed one:
+
+```
+orders.OrderStore   (store)   needs: durable
+  chosen  sqlite-sqlc     score 27   ... = 20  + row-mapper 7  (1 entity)
+          postgres-sqlc   score 29   ... = 22  + row-mapper 7  (1 entity)
+
+profiles.ProfileStore   (store)   needs: durable
+  chosen  postgres-sqlc   score 51   ... = 22  + row-mapper 29 (1 entity, 1 parsed field, 3 nullable fields)
+          sqlite-sqlc     score 60   ... = 20  + row-mapper 40 (1 entity, 3 parsed fields, 3 nullable fields)
+```
+
+Switching a project needs no spec change, only a policy:
+
+```lisp
+(policy
+  (prefer sqlite-sqlc (strength required) (source client "one file, no server")))
+```
+
 ### Chain rules
 
 A backend's output has a *form*. memory and pgx hand back your domain types
