@@ -9,7 +9,7 @@ import (
 // compiles them into typed Go in internal/db, and the LLM maps rows to
 // domain types.
 func init() {
-	RegisterBackend(&Backend{
+	registerStoreBackend(&Backend{
 		Name:         "postgres",
 		Tile:         "postgres-sqlc",
 		Form:         "db-rows", // sqlc's own row types: a row-mapper converts them

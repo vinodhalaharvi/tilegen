@@ -148,6 +148,9 @@ type compiled struct {
 
 // compile runs parse, merge, validation and every pass. It writes nothing.
 func compile(o Options, log io.Writer) (*compiled, error) {
+	if err := checkRegistry(); err != nil {
+		return nil, fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
+	}
 	if o.Runner == nil {
 		o.Runner = execRunner{log: log, dry: o.DryRun}
 	}
@@ -214,7 +217,7 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 		return nil, err
 	}
 	c.Reselect = o.Reselect
-	if err := errors.Join(chooseAll(project, c), checkReserved(project, c)); err != nil {
+	if err := errors.Join(coverAll(project, c), checkReserved(project, c)); err != nil {
 		return nil, err
 	}
 	for _, p := range Pipeline {

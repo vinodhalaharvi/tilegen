@@ -89,8 +89,25 @@ type StoreParts struct {
 
 var backends = map[string]*Backend{}
 
-// RegisterBackend adds a storage tile to the registry. Backends call it
-// from init, like database/sql drivers.
+// registerStoreBackend adds a storage tile: it registers the backend and,
+// through it, an offer of the "store" capability, so storage competes by
+// the same rules as everything else.
+func registerStoreBackend(b *Backend) {
+	RegisterBackend(b)
+	registerAlias(b.Tile, b.Name)
+	RegisterOffer(&Offer{
+		Tile:       b.Tile,
+		Capability: "store",
+		Doc:        b.Doc,
+		Form:       b.Form,
+		Cost:       b.Cost,
+		Requires:   b.Requires,
+		IllegalFor: b.IllegalWhen,
+		Impl:       b,
+	})
+}
+
+// RegisterBackend records a storage backend so the store tile can find it.
 func RegisterBackend(b *Backend) {
 	if _, dup := backends[b.Name]; dup {
 		panic("tilegen: backend registered twice: " + b.Name)
@@ -138,10 +155,15 @@ func Registry() []TileInfo {
 				Produces: r.Produces, Doc: r.Doc, Cost: r.Cost})
 		}
 	}
-	for _, name := range backendNames() {
-		b := backends[name]
-		out = append(out, TileInfo{Name: b.Tile, Pass: "select", Covers: []*Node{Pat("(impl ?iface ?parts...)"), L(Sym("backend"), Sym(b.Name))},
-			Produces: "store", Doc: b.Doc, Requires: b.Requires, Cost: b.Cost, IllegalWhen: b.IllegalWhen, Form: b.form()})
+	for _, capability := range capabilityNames() {
+		for _, o := range offersOf(capability) {
+			var covers []*Node
+			if a := aliasOf(o.Tile); a != "" {
+				covers = append(covers, L(Sym("alias"), Sym(a)))
+			}
+			out = append(out, TileInfo{Name: o.Tile, Pass: "select", Covers: covers, Produces: capability,
+				Doc: o.Doc, Requires: o.Requires, Cost: o.Cost, IllegalWhen: o.IllegalFor, Form: offerForm(o)})
+		}
 	}
 	for _, ch := range chains {
 		out = append(out, TileInfo{Name: ch.Name, Pass: "select", Covers: []*Node{L(Sym("convert"), Sym(ch.From), Sym(ch.To))},
@@ -157,9 +179,15 @@ func tileSexp(t TileInfo) *Node {
 	if t.Doc != "" {
 		n.List = append(n.List, L(Sym("doc"), Str(t.Doc)))
 	}
-	n.List = append(n.List, L(append([]*Node{Sym("covers")}, t.Covers...)...))
+	if len(t.Covers) > 0 {
+		n.List = append(n.List, L(append([]*Node{Sym("covers")}, t.Covers...)...))
+	}
 	if t.Produces != "" {
-		prod := L(Sym("produces"))
+		head := "produces"
+		if _, isCapability := capabilities[t.Produces]; isCapability {
+			head = "offers"
+		}
+		prod := L(Sym(head))
 		for _, p := range strings.Split(t.Produces, ", ") {
 			prod.List = append(prod.List, Sym(p))
 		}
@@ -174,8 +202,8 @@ func tileSexp(t TileInfo) *Node {
 	if t.CostRule != "" {
 		n.List = append(n.List, L(Sym("cost-rule"), Str(t.CostRule)))
 	}
-	for _, need := range sortedKeys(t.IllegalWhen) {
-		n.List = append(n.List, L(Sym("illegal-when"), L(Sym("store"), Sym(need)), Str(t.IllegalWhen[need])))
+	for _, req := range sortedKeys(t.IllegalWhen) {
+		n.List = append(n.List, L(Sym("illegal-when"), L(Sym(req)), Str(t.IllegalWhen[req])))
 	}
 	if len(t.Requires) > 0 {
 		req := L(Sym("requires"))

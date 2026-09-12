@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Selection is one general mechanism. Nodes declare needs, tiles register
+  offers of a capability, and one bottom-up solver finds the cheapest legal
+  covering: a tile's own cost, plus its children's coverings, plus any
+  chain. Storage backends and event-bus transports are both offers now, and
+  a new capability costs no new machinery. Four properties are tested:
+  totality, determinism, legality before cost, and optimality against
+  brute-force enumeration.
+- Requirements are a shared vocabulary: `(durable)` means the same on a
+  store and on an events form, and a capability declares which it accepts.
+- Event buses compete. `local-bus` (in-process, complete code, no holes) is
+  illegal for `(durable)` or `(cross-process)`; `nats-bus` serves those,
+  scaffolding an implementation with one hole per method and NATS-specific
+  hints. `(events nats)` in the config names one explicitly.
+- `tilegen.lock` is uniform: `(tile NEED TILE)` for every capability.
+- `tilegen tiles` lists capabilities and who offers them; `-sexp` shows
+  `(offers ...)`, `(alias ...)` and `(illegal-when (durable) "...")`.
 - Prompts carry the API surface of the packages a task touches: exported
   declarations with doc comments, signatures only, from `go/types`. Scoped
   to the packages the task's files import plus any named in its intent

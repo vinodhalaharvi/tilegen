@@ -1604,7 +1604,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "Storage backends: memory, pgx, postgres."} {
+		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by memory, postgres-pgx, postgres-sqlc"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1624,7 +1624,7 @@ func TestRegistrySexpIsData(t *testing.T) {
 		t.Fatalf("got %d forms for %d tiles", len(forms), len(Registry()))
 	}
 	for _, f := range forms {
-		if f.Head() != "tile" || f.Find("pass") == nil || f.Find("covers") == nil {
+		if f.Head() != "tile" || f.Find("pass") == nil || (f.Find("covers") == nil && f.Find("offers") == nil) {
 			t.Errorf("malformed tile: %s", short(f))
 		}
 	}
@@ -1634,8 +1634,8 @@ func TestRegistrySexpIsData(t *testing.T) {
 			pg = f
 		}
 	}
-	if pg == nil || pg.Find("form").Flat() != "(form db-rows)" || pg.Find("covers").Flat() != "(covers (impl ?iface ?parts...) (backend postgres))" ||
-		pg.Find("requires").Flat() != "(requires (tool sqlc))" {
+	if pg == nil || pg.Find("form").Flat() != "(form db-rows)" || pg.Find("covers").Flat() != "(covers (alias postgres))" ||
+		pg.Find("offers").Flat() != "(offers store)" || pg.Find("requires").Flat() != "(requires (tool sqlc))" {
 		t.Errorf("postgres tile: %s", pg.Flat())
 	}
 }
@@ -1643,11 +1643,21 @@ func TestRegistrySexpIsData(t *testing.T) {
 // TestBackendsComeFromTheRegistry: config, validation and the store tile all
 // ask the registry, so a new backend needs no change in the core.
 func TestBackendsComeFromTheRegistry(t *testing.T) {
-	RegisterBackend(&Backend{Name: "fake", Tile: "fake-store", Packages: map[string]string{"fakedb": "internal/fakedb"},
+	registerStoreBackend(&Backend{Name: "fake", Tile: "fake-store", Cost: Cost{{"llm-work", 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{Params: L(Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*Node) string { return "fake" }}, nil
 		}})
-	defer delete(backends, "fake")
+	defer func() {
+		delete(backends, "fake")
+		delete(tileAliases, "fake-store")
+		var keep []*Offer
+		for _, o := range offers["store"] {
+			if o.Tile != "fake-store" {
+				keep = append(keep, o)
+			}
+		}
+		offers["store"] = keep
+	}()
 
 	cfg, _ := Parse("c.sexp", "(config (storage fake))")
 	if c, err := ParseConfig(cfg[0]); err != nil || c.Storage != "fake" {
@@ -1669,7 +1679,7 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
   (package a (entity E (field ID int64) (store get))))
 (config (storage fake))`, "")
 	if err := run(Options{Spec: sp2, Out: filepath.Join(dir, "out2")}, io.Discard); err == nil ||
-		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store backend puts its code in internal/fakedb`) {
+		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store tile puts its code in internal/fakedb`) {
 		t.Errorf("a backend's packages should be reserved: %v", err)
 	}
 	bad, _ := Parse("c.sexp", "(config (storage fak))")
@@ -1810,7 +1820,7 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 		t.Error("memory stores must not get tables")
 	}
 	dump := dumpForms(t, read(t, out, ".tilegen/03-concretize.sexp"))
-	for _, want := range []string{`(chosen postgres-sqlc (score 29) (base 22) (via row-mapper 7 "1 entity") (by auto))`, "(considered postgres-pgx (score 45) (by auto))",
+	for _, want := range []string{`(chosen postgres-sqlc (score 29) (own 22) (via row-mapper 7 "1 entity") (by auto))`, "(considered postgres-pgx (score 45))",
 		`(illegal memory "an in-memory map loses its data on restart")`, "(chosen memory (score 12) (by auto))"} {
 		if !dump[want] {
 			t.Errorf("the dump should record %s", want)
@@ -1822,7 +1832,7 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "(storage memory) is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres (score 29), pgx (score 45), or use (storage auto)") {
+	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: postgres-sqlc (score 29), postgres-pgx (score 45), or use auto") {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
@@ -1859,9 +1869,9 @@ func TestExplainCommand(t *testing.T) {
 	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"weights: llm-work 4, maintenance 3", "orders.OrderStore   needs: durable   chosen by: auto",
+	for _, want := range []string{"weights: llm-work 4, maintenance 3", "orders.OrderStore   (store)   needs: durable   chosen by: auto",
 		"chosen  postgres-sqlc   score 29   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 = 22", "+ row-mapper 7 (1 entity)",
-		"illegal memory          an in-memory map loses its data on restart", "sessions.SessionStore   needs: none"} {
+		"illegal memory          an in-memory map loses its data on restart", "sessions.SessionStore   (store)   needs: none"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("explain missing %q:\n%s", want, out.String())
 		}
@@ -1883,7 +1893,7 @@ func TestNeedsValidation(t *testing.T) {
 	}
 	var out strings.Builder
 	tilesCmd([]string{"-sexp", "memory"}, &out)
-	if !strings.Contains(out.String(), `(illegal-when (store durable) "an in-memory map loses its data on restart")`) {
+	if !strings.Contains(out.String(), `(illegal-when (durable) "an in-memory map loses its data on restart")`) {
 		t.Errorf("the registry should show legality:\n%s", out.String())
 	}
 }
@@ -1907,8 +1917,8 @@ func TestChainTipsTheChoice(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"orders.OrderStore   needs: durable   chosen by: auto\n  chosen  postgres-sqlc   score 29",
-		"profiles.ProfileStore   needs: durable   chosen by: auto\n  chosen  postgres-pgx    score 45",
+		"orders.OrderStore   (store)   needs: durable   chosen by: auto\n  chosen  postgres-sqlc   score 29",
+		"profiles.ProfileStore   (store)   needs: durable   chosen by: auto\n  chosen  postgres-pgx    score 45",
 		"postgres-sqlc   score 51", "+ row-mapper 29 (1 entity, 1 enum field, 3 nullable fields)",
 	} {
 		if !strings.Contains(got, want) {
@@ -1941,9 +1951,19 @@ func TestChainCostsAndPaths(t *testing.T) {
 }
 
 func TestBackendWithoutAChainIsIllegal(t *testing.T) {
-	RegisterBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{"llm-work", 0}},
+	registerStoreBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{"llm-work", 0}},
 		Implement: func(StoreInput) (StoreParts, error) { return StoreParts{}, nil }})
-	defer delete(backends, "xmlstore")
+	defer func() {
+		delete(backends, "xmlstore")
+		delete(tileAliases, "xml-store")
+		var keep []*Offer
+		for _, o := range offers["store"] {
+			if o.Tile != "xml-store" {
+				keep = append(keep, o)
+			}
+		}
+		offers["store"] = keep
+	}()
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (entity E (field ID int64) (store get))))`, "")
 	var out strings.Builder
@@ -2000,7 +2020,7 @@ func TestLockPinsAChoiceAgainstDrift(t *testing.T) {
 	lockRun(t, dir, "", "", false)
 	out := filepath.Join(dir, "out")
 	lock := read(t, out, "tilegen.lock")
-	if !strings.Contains(lock, "(store orders.OrderStore (backend postgres))") || !strings.Contains(lock, "(store sessions.SessionStore (backend memory))") {
+	if !strings.Contains(lock, "(tile orders.OrderStore postgres-sqlc)") || !strings.Contains(lock, "(tile sessions.SessionStore memory)") {
 		t.Fatalf("lock:\n%s", lock)
 	}
 	// New enum and nullable fields make sqlc's mapper expensive: auto would move to pgx.
@@ -2016,7 +2036,7 @@ func TestLockPinsAChoiceAgainstDrift(t *testing.T) {
 	}
 	lockRun(t, dir, heavy, "", true) // -reselect
 	read(t, out, "orders/pgx_order_store.go")
-	if !strings.Contains(read(t, out, "tilegen.lock"), "(store orders.OrderStore (backend pgx))") {
+	if !strings.Contains(read(t, out, "tilegen.lock"), "(tile orders.OrderStore postgres-pgx)") {
 		t.Error("-reselect should update the lock")
 	}
 }
@@ -2028,7 +2048,7 @@ func TestLockReselectsAnIllegalPin(t *testing.T) {
 	if !strings.Contains(log, "tilegen.lock:5:3: tilegen.lock: memory is now illegal for sessions.SessionStore") {
 		t.Errorf("want a positioned warning:\n%s", log)
 	}
-	if !strings.Contains(read(t, filepath.Join(dir, "out"), "tilegen.lock"), "(store sessions.SessionStore (backend postgres))") {
+	if !strings.Contains(read(t, filepath.Join(dir, "out"), "tilegen.lock"), "(tile sessions.SessionStore postgres-sqlc)") {
 		t.Error("the illegal pin should be re-selected")
 	}
 }
@@ -2037,13 +2057,13 @@ func TestLockUnknownBackendAndBadFile(t *testing.T) {
 	dir := t.TempDir()
 	lockRun(t, dir, "", "", false)
 	out := filepath.Join(dir, "out")
-	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (store sessions.SessionStore (backend memroy)))\n"), 0o644)
-	if log := lockRun(t, dir, "", "", false); !strings.Contains(log, `backend "memroy" is not registered any more; re-selected (did you mean memory?)`) {
+	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (tile sessions.SessionStore memroy))\n"), 0o644)
+	if log := lockRun(t, dir, "", "", false); !strings.Contains(log, `tile "memroy" offers no store any more; re-selected (did you mean memory?)`) {
 		t.Errorf("unknown backend in the lock:\n%s", log)
 	}
-	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (store x))\n"), 0o644)
+	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (tile x))\n"), 0o644)
 	sp := filepath.Join(dir, "spec.sexp")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err == nil || !strings.Contains(err.Error(), "tilegen.lock:1:7: expected (store pkg.NameStore (backend NAME))") {
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err == nil || !strings.Contains(err.Error(), "tilegen.lock:1:7: expected (tile NEED TILE)") {
 		t.Errorf("a malformed lock must be a positioned error, got %v", err)
 	}
 }
@@ -2149,7 +2169,8 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	pf := filepath.Join(dir, "policy.sexp")
 	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx))`), 0o644)
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "no storage backend is legal for orders.OrderStore") {
+	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
+		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
 		t.Fatalf("want a clear error, got %v", err)
 	}
 }
@@ -2513,5 +2534,283 @@ func TestAPISurfaceIncludesPackagesTheIntentNames(t *testing.T) {
 	}
 	if got := mentionedPackages([]string{"Map dep.ErrNoRows"}, []string{"example.com/dep"}, dir); len(got) != 0 {
 		t.Errorf("already imported, so not added twice: %v", got)
+	}
+}
+
+// ---- the solver's guarantees ----
+//
+// Four properties, each checked against a registry of synthetic
+// capabilities and offers, so the tests do not depend on which real tiles
+// happen to exist.
+
+// withTestRegistry installs capabilities and offers for one test and
+// restores the real registry afterwards.
+func withTestRegistry(t *testing.T, caps []*Capability, os []*Offer) {
+	t.Helper()
+	savedCaps, savedOffers := capabilities, offers
+	capabilities, offers = map[string]*Capability{}, map[string][]*Offer{}
+	t.Cleanup(func() { capabilities, offers = savedCaps, savedOffers })
+	for _, c := range caps {
+		RegisterCapability(c)
+	}
+	for _, o := range os {
+		RegisterOffer(o)
+	}
+}
+
+func testNeed(id, capability string, reqs ...string) *Need {
+	return &Need{ID: id, Capability: capability, Requirements: reqs}
+}
+
+func noShape(*Need) EntityShape { return EntityShape{} }
+
+func testCtx() *Ctx {
+	return &Ctx{Cfg: DefaultConfig(), Policy: DefaultPolicy(), Lock: map[string]LockEntry{}}
+}
+
+// brute enumerates every legal covering of a need and returns the lowest
+// total cost, independently of solve.
+func brute(t *testing.T, n *Need, c *Ctx) (int, bool) {
+	t.Helper()
+	best, found := 1<<30, false
+	for _, o := range offersOf(n.Capability) {
+		if offerIllegalFor(o, n.Requirements) != "" {
+			continue
+		}
+		if _, avoided := c.Policy.Avoid[o.Tile]; avoided {
+			continue
+		}
+		want := n.Want
+		if want == "" {
+			want = domainForm
+		}
+		_, chain, ok := convert(offerForm(o), want, EntityShape{}, c.Policy)
+		if !ok {
+			continue
+		}
+		own, _ := c.Policy.score(o.Cost)
+		total, legal := own+chain, true
+		if o.Children != nil {
+			for _, kid := range o.Children(n) {
+				kidCost, kidOK := brute(t, kid, c)
+				if !kidOK {
+					legal = false
+					break
+				}
+				total += kidCost
+			}
+		}
+		if legal && total < best {
+			best, found = total, true
+		}
+	}
+	return best, found
+}
+
+// TestSolverOptimality: over a registry with nested needs, solve's answer
+// equals the true minimum found by enumerating every legal covering. This
+// is what makes "cheapest legal covering" a claim rather than a hope.
+func TestSolverOptimality(t *testing.T) {
+	// A "service" needs a store and a cache; each has several offers with
+	// different costs, so the cheapest service depends on its children.
+	withTestRegistry(t,
+		[]*Capability{
+			{Name: "service", Requirements: []string{"durable"}},
+			{Name: "store", Requirements: []string{"durable"}},
+			{Name: "cache"},
+		},
+		[]*Offer{
+			// Two services: "thin" is cheap itself but needs an expensive
+			// store; "fat" costs more but needs only a cache. Greedy on own
+			// cost would pick thin; the total says otherwise.
+			{Tile: "thin-service", Capability: "service", Cost: Cost{{"llm-work", 1}},
+				Children: func(n *Need) []*Need {
+					return []*Need{testNeed(n.ID+".store", "store", n.Requirements...)}
+				}},
+			{Tile: "fat-service", Capability: "service", Cost: Cost{{"llm-work", 3}},
+				Children: func(n *Need) []*Need { return []*Need{testNeed(n.ID+".cache", "cache")} }},
+			{Tile: "cheap-store", Capability: "store", Cost: Cost{{"llm-work", 2}},
+				IllegalFor: map[string]string{"durable": "in memory"}},
+			{Tile: "durable-store", Capability: "store", Cost: Cost{{"llm-work", 20}}},
+			{Tile: "small-cache", Capability: "cache", Cost: Cost{{"llm-work", 1}}},
+		})
+	c := testCtx()
+
+	// Without (durable): thin 1*4 + cheap-store 2*4 = 12 beats fat 3*4 + cache 1*4 = 16.
+	cov, err := solve(testNeed("a.Svc", "service"), c, noShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Offer.Tile != "thin-service" || cov.Score != 12 {
+		t.Errorf("want thin-service at 12, got %s at %d", cov.Offer.Tile, cov.Score)
+	}
+	// With (durable): thin must use durable-store, 4 + 80 = 84, so fat (16) wins.
+	cov, err = solve(testNeed("a.Svc", "service", "durable"), c, noShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Offer.Tile != "fat-service" || cov.Score != 16 {
+		t.Errorf("a child's cost must decide the parent: got %s at %d", cov.Offer.Tile, cov.Score)
+	}
+	if len(cov.Children) != 1 || cov.Children[0].Offer.Tile != "small-cache" {
+		t.Errorf("the covering should include its children: %+v", cov.Children)
+	}
+	// And in general, solve equals brute force.
+	for _, reqs := range [][]string{nil, {"durable"}} {
+		n := testNeed("a.Svc", "service", reqs...)
+		cov, err := solve(n, c, noShape)
+		want, ok := brute(t, n, c)
+		if err != nil || !ok {
+			t.Fatalf("reqs %v: %v", reqs, err)
+		}
+		if cov.Score != want {
+			t.Errorf("reqs %v: solve gave %d, the cheapest legal covering is %d", reqs, cov.Score, want)
+		}
+	}
+}
+
+// TestSolverDeterminism: the same inputs always give the same covering,
+// whatever order maps happen to iterate in.
+func TestSolverDeterminism(t *testing.T) {
+	withTestRegistry(t,
+		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*Offer{
+			{Tile: "b-tile", Capability: "thing", Cost: Cost{{"llm-work", 2}}},
+			{Tile: "a-tile", Capability: "thing", Cost: Cost{{"llm-work", 2}}}, // a tie, on purpose
+			{Tile: "c-tile", Capability: "thing", Cost: Cost{{"llm-work", 5}}},
+		})
+	c := testCtx()
+	first := ""
+	for i := 0; i < 50; i++ {
+		cov, err := solve(testNeed("p.T", "thing"), c, noShape)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := cov.Offer.Tile + " " + strings.Join(tileNamesOf(cov), ",")
+		if i == 0 {
+			first = got
+		} else if got != first {
+			t.Fatalf("run %d differs: %q vs %q", i, got, first)
+		}
+	}
+	if !strings.HasPrefix(first, "a-tile ") {
+		t.Errorf("ties must break by tile name, got %q", first)
+	}
+}
+
+// TestSolverLegalityBeforeCost: an illegal offer is never scored, however
+// cheap it is, and the reason is reported.
+func TestSolverLegalityBeforeCost(t *testing.T) {
+	withTestRegistry(t,
+		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*Offer{
+			{Tile: "free-but-illegal", Capability: "thing", Cost: Cost{{"llm-work", 0}},
+				IllegalFor: map[string]string{"durable": "it forgets"}},
+			{Tile: "costly-but-legal", Capability: "thing", Cost: Cost{{"llm-work", 9}}},
+		})
+	c := testCtx()
+	cov, err := solve(testNeed("p.T", "thing", "durable"), c, noShape)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cov.Offer.Tile != "costly-but-legal" {
+		t.Errorf("a cheaper illegal tile must not win: %s", cov.Offer.Tile)
+	}
+	if len(cov.Ranked) != 1 || len(cov.Illegal) != 1 || cov.Illegal[0].Reason != "it forgets" {
+		t.Errorf("the illegal tile should be reported with its reason: %+v", cov.Illegal)
+	}
+	// Nothing legal at all is an error naming every rejection.
+	withTestRegistry(t,
+		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*Offer{{Tile: "only", Capability: "thing", Cost: Cost{{"llm-work", 0}},
+			IllegalFor: map[string]string{"durable": "it forgets"}}})
+	if _, err := solve(testNeed("p.T", "thing", "durable"), c, noShape); err == nil ||
+		!strings.Contains(err.Error(), "no tile can cover p.T (thing)") || !strings.Contains(err.Error(), "only: it forgets") {
+		t.Errorf("want an error naming the rejection, got %v", err)
+	}
+}
+
+// TestSolverTotality: the real registry always has an offer for every
+// capability, so no spec can ask for something nothing provides.
+func TestSolverTotality(t *testing.T) {
+	if err := checkRegistry(); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range capabilityNames() {
+		if len(offersOf(name)) == 0 {
+			t.Errorf("capability %q has no offers", name)
+		}
+	}
+	for _, c := range capabilities {
+		for _, r := range c.Requirements {
+			if !contains(knownRequirements(), r) {
+				t.Errorf("requirement %q of %q is not in the shared vocabulary", r, c.Name)
+			}
+		}
+	}
+}
+
+// ---- event-bus transports compete ----
+
+func TestEventBusTransportsCompete(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
+  (require (nats github.com/nats-io/nats.go v1.37.0))
+  (package local (events (event Ping (field ID int64))))
+  (package fleet (events (cross-process) (event JobStarted (field JobID int64)))))`, "")
+	var out strings.Builder
+	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"fleet.Bus   (event-bus)   needs: cross-process   chosen by: auto\n  chosen  nats-bus",
+		"illegal local-bus       an in-process bus only reaches handlers in this program",
+		"local.Bus   (event-bus)   needs: none   chosen by: auto\n  chosen  local-bus       score 1",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("explain missing %q:\n%s", want, out.String())
+		}
+	}
+	o := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: o}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	// local-bus generates complete code; nats-bus scaffolds holes.
+	if gen := read(t, o, "local/events_gen.go"); !strings.Contains(gen, "type LocalBus struct") || strings.Contains(gen, holePrefix) {
+		t.Errorf("local-bus should generate complete code:\n%s", gen)
+	}
+	if _, err := os.Stat(filepath.Join(o, "local", "local_bus.go")); err == nil {
+		t.Error("a complete transport needs no scaffolded file")
+	}
+	impl := read(t, o, "fleet/nats_bus.go")
+	for _, want := range []string{"type NatsBus struct {\n\tconn    *nats.Conn", "func NewNatsBus(conn *nats.Conn, subject string) *NatsBus",
+		`panic("tilegen:hole fleet.NatsBus.PublishJobStarted")`} {
+		if !strings.Contains(impl, want) {
+			t.Errorf("nats_bus.go missing %q:\n%s", want, impl)
+		}
+	}
+	if gen := read(t, o, "fleet/events_gen.go"); !strings.Contains(gen, "var _ Bus = (*NatsBus)(nil)") {
+		t.Error("the generated file should assert the transport satisfies Bus")
+	}
+	if tasks := read(t, o, "tilegen.tasks.json"); !strings.Contains(tasks, `publish it on s.subject+\".JobStarted\"`) {
+		t.Errorf("nats tasks should carry its hints:\n%s", tasks)
+	}
+	if mod := read(t, o, "go.mod"); !strings.Contains(mod, "github.com/nats-io/nats.go v1.37.0") {
+		t.Error("the transport's module should be required")
+	}
+	if lock := read(t, o, "tilegen.lock"); !strings.Contains(lock, "(tile fleet.Bus nats-bus)") || !strings.Contains(lock, "(tile local.Bus local-bus)") {
+		t.Errorf("both buses should be pinned:\n%s", lock)
+	}
+}
+
+func TestEventBusRequirementValidation(t *testing.T) {
+	for form, want := range map[string]string{
+		`(events (durabel) (event E))`:  "(did you mean durable?)",
+		`(events (nonsense) (event E))`: "event-bus does not take the requirement (nonsense)",
+	} {
+		err := validateSrc(t, okPrefix+form+`))`, false)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", form, want, err)
+		}
 	}
 }

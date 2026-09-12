@@ -33,8 +33,8 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(cp.c.Choices))
-	for n := range cp.c.Choices {
+	names := make([]string, 0, len(cp.c.Cover))
+	for n := range cp.c.Cover {
 		names = append(names, n)
 	}
 	sort.Strings(names)
@@ -44,7 +44,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		if len(pos) > 0 && !matchesAny(n, pos) {
 			continue
 		}
-		fmt.Fprintln(stdout, explain(cp.c.Choices[n]))
+		fmt.Fprintln(stdout, explainCovering(cp.c.Cover[n]))
 		shown++
 	}
 	if shown == 0 {
