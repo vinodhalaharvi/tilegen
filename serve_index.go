@@ -71,8 +71,10 @@ const indexHTML = `<!doctype html>
   * { box-sizing:border-box; }
   html { scroll-behavior:smooth; }
   @media (prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.7 Monaco, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace; }
+  /* One family, one scale: 12px labels, 13px body and code, 15px headings,
+     22px for the one title. Nothing else. */
+  body { margin:0; background:var(--bg); color:var(--fg); font-size:13px; line-height:1.7;
+         font-family:Monaco, Menlo, ui-monospace, SFMono-Regular, Consolas, monospace; }
   a { color:var(--kw); }
   :focus-visible { outline:2px solid var(--kw); outline-offset:2px; }
 
@@ -94,7 +96,7 @@ const indexHTML = `<!doctype html>
   .bar strong { color:var(--fg); font-weight:600; }
   .bar .fill { margin-left:auto; }
   #spec, #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
-        color:var(--fg); font:13px/1.6 inherit; tab-size:2; }
+        color:var(--fg); font:inherit; line-height:1.65; tab-size:2; }
   #spec { resize:none; outline:none; }
   #out { white-space:pre-wrap; }
   @media (max-width:900px) {
@@ -110,29 +112,29 @@ const indexHTML = `<!doctype html>
   #docs { padding:0 22px 90px; }
   .doc { max-width:74rem; margin:0 auto; }
   .lede { margin:40px 0 4px; max-width:46rem; }
-  .lede h1 { font-size:24px; line-height:1.4; margin:0 0 14px; font-weight:700; color:var(--hi);
+  .lede h1 { font-size:22px; line-height:1.4; margin:0 0 14px; font-weight:700; color:var(--hi);
              letter-spacing:-.4px; }
-  .lede p { color:var(--dim); margin:0 0 10px; font-size:13.5px; }
-  .doc h2 { font-size:17px; font-weight:700; color:var(--hi); margin:52px 0 4px;
+  .lede p { color:var(--dim); margin:0 0 10px; font-size:13px; }
+  .doc h2 { font-size:15px; font-weight:700; color:var(--hi); margin:52px 0 4px;
             padding-top:16px; border-top:1px solid var(--rule); }
   .doc h2 .n { color:var(--dim); font-weight:400; margin-right:10px; }
-  .doc h3 { font-size:14px; font-weight:700; color:var(--hi); margin:30px 0 4px; }
-  .doc p, .doc li { max-width:46rem; color:var(--fg); font-size:13.5px; }
+  .doc h3 { font-size:13px; font-weight:700; color:var(--hi); margin:30px 0 4px; }
+  .doc p, .doc li { max-width:46rem; color:var(--fg); font-size:13px; }
   .doc p { margin:10px 0; }
   .doc ul { max-width:46rem; padding-left:20px; }
   .doc .dim { color:var(--dim); }
 
-  code { font:inherit; font-size:12.5px; color:var(--hi); }
+  code { font:inherit; color:var(--hi); }
   pre { margin:0; padding:13px 15px; background:var(--panel); border:1px solid var(--rule);
         border-radius:5px; overflow-x:auto; }
-  pre code { display:block; font-size:12.5px; line-height:1.65; color:var(--fg); white-space:pre; }
-  p code, li code, td code { background:var(--panel); padding:1px 5px; border-radius:3px; font-size:12.5px; }
+  pre code { display:block; line-height:1.65; color:var(--fg); white-space:pre; }
+  p code, li code, td code { background:var(--panel); padding:1px 5px; border-radius:3px; }
 
   .pair { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:12px; margin:14px 0; }
   @media (max-width:900px) { .pair { grid-template-columns:1fr; } }
   .pair > figure, .single { margin:0; min-width:0; }
   .single { margin:14px 0; }
-  figcaption { font-size:11.5px; color:var(--dim); margin:0 0 5px; }
+  figcaption { font-size:12px; color:var(--dim); margin:0 0 5px; }
   figcaption b { color:var(--mark); font-weight:600; }
 
   .steps { counter-reset:step; }
@@ -145,14 +147,14 @@ const indexHTML = `<!doctype html>
   th { color:var(--dim); font-weight:600; font-size:12px; }
   .aside { border-left:2px solid var(--rule); padding:2px 0 2px 14px; color:var(--dim);
            max-width:46rem; margin:16px 0; font-size:13px; }
-  .try { font:inherit; font-size:12.5px; padding:5px 12px; border:1px solid var(--rule);
+  .try { font:inherit; font-size:13px; padding:5px 12px; border:1px solid var(--rule);
          border-radius:4px; background:none; color:var(--dim); cursor:pointer; margin:4px 0 0; }
   .try:hover { border-color:var(--kw); color:var(--kw); }
 
   .c { color:var(--com); } .s { color:var(--str); } .k { color:var(--kw); }
   .l { color:var(--lit); } .h { color:var(--mark); font-weight:700; }
   .foot { border-top:1px solid var(--rule); margin-top:50px; padding:14px 22px;
-          color:var(--dim); font-size:12.5px; }
+          color:var(--dim); font-size:13px; }
 </style>
 
 <div class="top">

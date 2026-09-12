@@ -44,7 +44,7 @@ tasks/tasks_gen.go
 tasks/memory_task_store.go
 tilegen.lock
 tilegen.tasks.json</code></pre>
-    <p class="dim" style="font-size:12.5px;margin-top:10px">No database: nothing here
+    <p class="dim" style="margin-top:10px">No database: nothing here
     has to survive a restart yet, so the store is a map behind a mutex.</p>
   </figure>
 </div>
@@ -142,6 +142,63 @@ tilegen.tasks.json</code></pre>
 </div>
 <p>One word changed the storage, the schema, the queries and what each unwritten
 method is being asked to do.</p>
+</div>
+
+<div class="step"><h4>Change one more thing: the team already runs postgres</h4>
+<p>Left alone, tilegen kept this in sqlite: one file, nothing to run. But your team
+has a postgres everything else already uses, and that is not a fact about this
+service — it is a fact about your team. It goes in a policy, with who decided it.</p>
+<div class="single">
+  <figcaption>added to the end of the spec</figcaption>
+  <pre><code data-lang="sexp">(policy
+  (prefer postgres-sqlc
+    (strength required)
+    (source team "we run one postgres for everything")))</code></pre>
+</div>
+<div class="pair">
+  <figure>
+    <figcaption>before: db/schema.sql and db/query.sql</figcaption>
+    <pre><code data-lang="sql">CREATE TABLE tasks (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL
+);
+
+-- name: SaveTask :exec
+INSERT INTO tasks (id, title, done)
+VALUES (?1, ?2, ?3)
+ON CONFLICT (id) DO UPDATE SET
+  title = EXCLUDED.title, done = EXCLUDED.done;</code></pre>
+  </figure>
+  <figure>
+    <figcaption>after</figcaption>
+    <pre><code data-lang="sql">CREATE TABLE tasks (
+  id BIGINT PRIMARY KEY,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL
+);
+
+-- name: SaveTask :exec
+INSERT INTO tasks (id, title, done)
+VALUES ($1, $2, $3)
+ON CONFLICT (id) DO UPDATE SET
+  title = EXCLUDED.title, done = EXCLUDED.done;</code></pre>
+  </figure>
+</div>
+<div class="single">
+  <figcaption>What would it do?</figcaption>
+  <pre><code data-lang="sh">tasks.TaskStore
+  you asked for   durable
+  kept in         postgres-sqlc
+  ruled out       memory         — an in-memory map loses its data on restart
+  ruled out       sqlite-sqlc    — the policy requires postgres-sqlc
+                                   (source: team, we run one postgres for everything)
+  ruled out       postgres-pgx   — the policy requires postgres-sqlc
+                                   (source: team, we run one postgres for everything)</code></pre>
+</div>
+<p><code>sqlite_task_store.go</code> becomes <code>postgres_task_store.go</code>, the
+column type and the placeholders change, and the reason is recorded where anyone
+will find it. Your entity, your store operations and the interface did not move.</p>
 </div>
 
 </div>
@@ -273,7 +330,7 @@ func (h *Handler) validateOrder(order *Order) error {
 func (h *Handler) statusForOrder(err error) int {
 	panic("tilegen:hole orders.Handler.statusForOrder")
 }</code></pre>
-    <p class="dim" style="font-size:12.5px;margin-top:10px">Two decisions per entity,
+    <p class="dim" style="margin-top:10px">Two decisions per entity,
     not two per route. Unknown paths answer 404 and wrong methods answer 405 without
     anyone writing that.</p>
   </figure>
@@ -465,9 +522,70 @@ var _ Assigner = (*RoundRobinAssigner)(nil)</code></pre>
 escalating means, so it carries your words and leaves the body.</p>
 </div>
 
-<div class="step"><h4>Change one thing: keep agents in memory</h4>
-<p>Agents come from the identity provider at boot, so they need not be stored.
-Remove <code>(durable)</code> from that one store.</p>
+<div class="step"><h4>Change one thing: these events must leave the process</h4>
+<p>Tickets are solved in this service, but the reporting service needs to hear about
+it. That is a fact about your architecture, so it goes in the spec: add
+<code>(cross-process)</code> to the events.</p>
+<div class="pair">
+  <figure>
+    <figcaption>the only edit</figcaption>
+    <pre><code data-lang="sexp">  (events
+    (cross-process)
+    (event TicketOpened
+      (field TicketID uuid.UUID))
+    (event TicketSolved
+      (field TicketID uuid.UUID)))</code></pre>
+  </figure>
+  <figure>
+    <figcaption>What would it do?</figcaption>
+    <pre><code data-lang="sh">tickets.Bus
+  you asked for   cross-process
+  kept in         nats-bus
+  ruled out       local-bus  — an in-process bus only reaches
+                               handlers in this program</code></pre>
+  </figure>
+</div>
+<div class="pair">
+  <figure>
+    <figcaption>tickets/nats_bus.go — <b>yours</b></figcaption>
+    <pre><code data-lang="go">type NatsBus struct {
+	conn    *nats.Conn
+	subject string
+}
+
+func NewNatsBus(conn *nats.Conn, subject string) *NatsBus {
+	return &NatsBus{conn: conn, subject: subject}
+}
+
+func (h *NatsBus) PublishTicketOpened(ctx context.Context, e TicketOpened) error {
+	panic("tilegen:hole tickets.NatsBus.PublishTicketOpened")
+}</code></pre>
+  </figure>
+  <figure>
+    <figcaption>tilegen.tasks.json</figcaption>
+    <pre><code data-lang="json">{
+  "id": "tickets.NatsBus.PublishTicketOpened",
+  "contract": "PublishTicketOpened(ctx context.Context,
+                e TicketOpened) error",
+  "intent": "Encode e as JSON and publish it on
+             s.subject+\".TicketOpened\" with s.conn.
+             Return the publish error."
+}</code></pre>
+    <p class="dim" style="margin-top:10px">The event types and the <code>Bus</code>
+    interface are unchanged. Only the way they travel is different, so only the
+    implementation moved.</p>
+  </figure>
+</div>
+<p>The in-process bus arrived finished; this one cannot, because how you name
+subjects and encode payloads is yours to decide. So tilegen writes the type, the
+constructor and the interface check, and leaves one method per event with the job
+spelled out.</p>
+</div>
+
+<div class="step"><h4>And one that is not in the spec at all</h4>
+<p>Agents come from your identity provider at boot, so that store need not be
+durable — remove <code>(durable)</code> and it is kept in memory. Two stores in one
+project, kept two different ways, decided one at a time.</p>
 <div class="single">
   <figcaption>What would it do?</figcaption>
   <pre><code data-lang="sh">agents.AgentStore
@@ -480,8 +598,7 @@ tickets.TicketStore
   kept in         postgres-sqlc
   ruled out       memory  — an in-memory map loses its data on restart</code></pre>
 </div>
-<p>Two stores in one project, kept two different ways, decided one at a time. The
-database schema now has one table instead of two, and
+<p>The database schema now has one table instead of two, and
 <code>postgres_agent_store.go</code> becomes <code>memory_agent_store.go</code>.</p>
 </div>
 
