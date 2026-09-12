@@ -11,7 +11,7 @@ func init() {
 		Tile:       "nats-bus",
 		Capability: "event-bus",
 		Doc:        "NATS bus: events cross processes and survive a restart (JetStream)",
-		Cost:       Cost{{"llm-work", 5}, {"maintenance", 3}, {"dependency", 4}, {"runtime", 2}},
+		Cost:       Cost{{Dim: "llm-work", Value: 5}, {Dim: "maintenance", Value: 3}, {Dim: "dependency", Value: 4}, {Dim: "runtime", Value: 2}},
 		Impl: &BusTransport{
 			Suffix: "NatsBus",
 			Emit:   emitNatsBus,

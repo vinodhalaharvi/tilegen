@@ -34,7 +34,7 @@ func init() {
 		Tile:       "local-bus",
 		Capability: "event-bus",
 		Doc:        "in-process bus: synchronous delivery, ordered, errors joined",
-		Cost:       Cost{{"llm-work", 0}, {"maintenance", 0}, {"dependency", 0}, {"runtime", 1}},
+		Cost:       Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalFor: map[string]string{
 			"durable":       "an in-process bus loses undelivered events on restart",
 			"cross-process": "an in-process bus only reaches handlers in this program",
@@ -48,7 +48,7 @@ func init() {
 		Pass: Select,
 		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEvents,
 			Produces: "event-bus", Doc: "event structs, a typed Bus interface, and an in-process LocalBus",
-			Cost: Cost{{"llm-work", 0}, {"maintenance", 0}, {"dependency", 0}}},
+			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateEvents,
 	})
 }

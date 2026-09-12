@@ -40,6 +40,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	}
 	sort.Strings(names)
 	if *asJSON {
+		jsonWeights = cp.c.Policy.Weights
 		out := ExplainJSON{Policy: policyJSON(cp.c.Policy)}
 		for _, n := range names {
 			if len(pos) == 0 || matchesAny(n, pos) {

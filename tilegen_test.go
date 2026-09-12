@@ -1645,7 +1645,7 @@ func TestRegistrySexpIsData(t *testing.T) {
 // TestBackendsComeFromTheRegistry: config, validation and the store tile all
 // ask the registry, so a new backend needs no change in the core.
 func TestBackendsComeFromTheRegistry(t *testing.T) {
-	registerStoreBackend(&Backend{Name: "fake", Tile: "fake-store", Cost: Cost{{"llm-work", 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
+	registerStoreBackend(&Backend{Name: "fake", Tile: "fake-store", Cost: Cost{{Dim: "llm-work", Value: 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{Params: L(Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*Node) string { return "fake" }}, nil
 		}})
@@ -1953,7 +1953,7 @@ func TestChainCostsAndPaths(t *testing.T) {
 }
 
 func TestBackendWithoutAChainIsIllegal(t *testing.T) {
-	registerStoreBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{"llm-work", 0}},
+	registerStoreBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{Dim: "llm-work", Value: 0}},
 		Implement: func(StoreInput) (StoreParts, error) { return StoreParts{}, nil }})
 	defer func() {
 		delete(backends, "xmlstore")
@@ -2625,16 +2625,16 @@ func TestSolverOptimality(t *testing.T) {
 			// Two services: "thin" is cheap itself but needs an expensive
 			// store; "fat" costs more but needs only a cache. Greedy on own
 			// cost would pick thin; the total says otherwise.
-			{Tile: "thin-service", Capability: "service", Cost: Cost{{"llm-work", 1}},
+			{Tile: "thin-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 1}},
 				Children: func(n *Need) []*Need {
 					return []*Need{testNeed(n.ID+".store", "store", n.Requirements...)}
 				}},
-			{Tile: "fat-service", Capability: "service", Cost: Cost{{"llm-work", 3}},
+			{Tile: "fat-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 3}},
 				Children: func(n *Need) []*Need { return []*Need{testNeed(n.ID+".cache", "cache")} }},
-			{Tile: "cheap-store", Capability: "store", Cost: Cost{{"llm-work", 2}},
+			{Tile: "cheap-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 2}},
 				IllegalFor: map[string]string{"durable": "in memory"}},
-			{Tile: "durable-store", Capability: "store", Cost: Cost{{"llm-work", 20}}},
-			{Tile: "small-cache", Capability: "cache", Cost: Cost{{"llm-work", 1}}},
+			{Tile: "durable-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 20}}},
+			{Tile: "small-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 1}}},
 		})
 	c := testCtx()
 
@@ -2677,9 +2677,9 @@ func TestSolverDeterminism(t *testing.T) {
 	withTestRegistry(t,
 		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
 		[]*Offer{
-			{Tile: "b-tile", Capability: "thing", Cost: Cost{{"llm-work", 2}}},
-			{Tile: "a-tile", Capability: "thing", Cost: Cost{{"llm-work", 2}}}, // a tie, on purpose
-			{Tile: "c-tile", Capability: "thing", Cost: Cost{{"llm-work", 5}}},
+			{Tile: "b-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 2}}},
+			{Tile: "a-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 2}}}, // a tie, on purpose
+			{Tile: "c-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 5}}},
 		})
 	c := testCtx()
 	first := ""
@@ -2706,9 +2706,9 @@ func TestSolverLegalityBeforeCost(t *testing.T) {
 	withTestRegistry(t,
 		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
 		[]*Offer{
-			{Tile: "free-but-illegal", Capability: "thing", Cost: Cost{{"llm-work", 0}},
+			{Tile: "free-but-illegal", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 0}},
 				IllegalFor: map[string]string{"durable": "it forgets"}},
-			{Tile: "costly-but-legal", Capability: "thing", Cost: Cost{{"llm-work", 9}}},
+			{Tile: "costly-but-legal", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 9}}},
 		})
 	c := testCtx()
 	cov, err := solve(testNeed("p.T", "thing", "durable"), c, noShape)
@@ -2724,7 +2724,7 @@ func TestSolverLegalityBeforeCost(t *testing.T) {
 	// Nothing legal at all is an error naming every rejection.
 	withTestRegistry(t,
 		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
-		[]*Offer{{Tile: "only", Capability: "thing", Cost: Cost{{"llm-work", 0}},
+		[]*Offer{{Tile: "only", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 0}},
 			IllegalFor: map[string]string{"durable": "it forgets"}}})
 	if _, err := solve(testNeed("p.T", "thing", "durable"), c, noShape); err == nil ||
 		!strings.Contains(err.Error(), "no tile can cover p.T (thing)") || !strings.Contains(err.Error(), "only: it forgets") {
@@ -3092,5 +3092,104 @@ func TestPlanAndTilesJSON(t *testing.T) {
 				t.Errorf("the memory tile should carry its cost and legality: %+v", tl)
 			}
 		}
+	}
+}
+
+// ---- preferences: strength and provenance ----
+
+func TestPreferenceStrengths(t *testing.T) {
+	// weak: wins ties and anything within the margin, as before.
+	weak := policyExplain(t, `(policy (prefer postgres-sqlc (strength weak)) (margin 20))`)
+	if !strings.Contains(weak, "chosen  postgres-sqlc") || !strings.Contains(weak, "preferred, and within the margin of postgres-pgx") {
+		t.Errorf("weak:\n%s", weak)
+	}
+	// strong: wins however much cheaper the alternative is, and says so.
+	strong := policyExplain(t, `(policy (prefer postgres-sqlc (strength strong) (source team "we know sqlc")))`)
+	if !strings.Contains(strong, "chosen  postgres-sqlc") ||
+		!strings.Contains(strong, "strongly preferred; cost alone would have picked postgres-pgx") ||
+		!strings.Contains(strong, "[source: team, we know sqlc]") {
+		t.Errorf("strong:\n%s", strong)
+	}
+	// required: a constraint, so everything else is illegal with the source
+	// as the reason. Cost never enters into it.
+	req := policyExplain(t, `(policy (prefer postgres-sqlc (strength required) (source client "contract §4")))`)
+	if !strings.Contains(req, "chosen  postgres-sqlc") ||
+		!strings.Contains(req, "illegal postgres-pgx    the policy requires postgres-sqlc (source: client, contract §4)") ||
+		!strings.Contains(req, "illegal memory          the policy requires postgres-sqlc") {
+		t.Errorf("required:\n%s", req)
+	}
+	// (prefer X) with no strength still means weak.
+	if got := policyExplain(t, `(policy (prefer postgres-sqlc) (margin 20))`); !strings.Contains(got, "chosen  postgres-sqlc") {
+		t.Errorf("a bare prefer should still be weak:\n%s", got)
+	}
+}
+
+func TestRequiredPreferenceCanBeImpossible(t *testing.T) {
+	// Requiring a tile that is illegal for this need fails, rather than
+	// silently falling back: the client asked for something impossible.
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, polSpec, "")
+	pf := filepath.Join(dir, "policy.sexp")
+	os.WriteFile(pf, []byte(`(policy (prefer memory (strength required) (source client "no databases")))`), 0o644)
+	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore") ||
+		!strings.Contains(err.Error(), "an in-memory map loses its data on restart") {
+		t.Fatalf("want a clear failure naming both reasons, got %v", err)
+	}
+}
+
+func TestPreferenceValidation(t *testing.T) {
+	for src, want := range map[string]string{
+		`(policy (prefer x (strength maybe)))`: "strength must be one of required, strong, weak",
+		`(policy (prefer x (strength strng)))`: "(did you mean strong?)",
+		`(policy (prefer x (surce client)))`:   "(did you mean source?)",
+		`(policy (prefer (strength strong)))`:  "prefer needs at least one tile name",
+	} {
+		n, _ := Parse("policy.sexp", src)
+		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: want %q, got %v", src, want, err)
+		}
+	}
+	n, _ := Parse("policy.sexp", `(policy (prefer a b (strength strong) (source client "why")))`)
+	p, err := ParsePolicy(n[0])
+	if err != nil || len(p.Prefer) != 2 || p.Prefer["a"].Strength != "strong" || p.Prefer["b"].Source != "client" || p.Prefer["a"].Why != "why" {
+		t.Fatalf("several tiles should share one preference: %+v, %v", p.Prefer, err)
+	}
+}
+
+// TestCostProvenance: a number a tile declares says where it came from, and
+// explain and -json both report it, so an estimate is not mistaken for a
+// measurement.
+func TestCostProvenance(t *testing.T) {
+	got := policyExplain(t, "")
+	if !strings.Contains(got, "cost    postgres-pgx llm-work: 7 (derived: the LLM writes every query and scan by hand)") {
+		t.Errorf("explain should show provenance:\n%s", got)
+	}
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, polSpec, "")
+	out := jsonOf[ExplainJSON](t, func(w io.Writer) error {
+		return explainCmd([]string{"-json", sp}, w, io.Discard)
+	})
+	var found bool
+	for _, cov := range out.Coverage {
+		for _, cand := range cov.Candidates {
+			for _, term := range cand.Cost {
+				if cand.Tile == "postgres-pgx" && term.Dimension == "llm-work" {
+					found = true
+					if term.Value != 7 || term.Weight != 4 || term.Source != "derived" || term.Note == "" {
+						t.Errorf("the JSON term should carry value, weight and provenance: %+v", term)
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("costs should appear in the JSON")
+	}
+	// A registry entry shows it too.
+	var tiles strings.Builder
+	tilesCmd([]string{"-sexp", "postgres-pgx"}, &tiles)
+	if !strings.Contains(tiles.String(), `(llm-work 7 (source derived "the LLM writes every query and scan by hand"))`) {
+		t.Errorf("the registry should carry provenance:\n%s", tiles.String())
 	}
 }

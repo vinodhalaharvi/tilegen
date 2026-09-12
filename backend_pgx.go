@@ -11,10 +11,15 @@ import (
 // More LLM work and more to maintain than sqlc, but no generate step.
 func init() {
 	registerStoreBackend(&Backend{
-		Name:    "pgx",
-		Tile:    "postgres-pgx",
-		Doc:     "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
-		Cost:    Cost{{"llm-work", 7}, {"maintenance", 5}, {"dependency", 1}, {"runtime", 1}},
+		Name: "pgx",
+		Tile: "postgres-pgx",
+		Doc:  "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
+		Cost: Cost{
+			{Dim: "llm-work", Value: 7, Source: "derived", Note: "the LLM writes every query and scan by hand"},
+			{Dim: "maintenance", Value: 5, Source: "derived", Note: "hand-written SQL drifts from the schema silently"},
+			{Dim: "dependency", Value: 1, Source: "derived", Note: "pgx only, and no build-time tool"},
+			{Dim: "runtime", Value: 1},
+		},
 		Topics:  []string{"postgres", "pgx"},
 		Imports: map[string]string{"pgxpool": "github.com/jackc/pgx/v5/pgxpool"},
 		Implement: func(in StoreInput) (StoreParts, error) {
