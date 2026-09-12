@@ -65,6 +65,8 @@ Run fill for real, and let measured numbers replace declared costs.
 
 ## v0.5.0 - Intent
 
+- [x] **Import existing projects**: Done when `tilegen import` lifts a Go module into a spec using only what the type checker can prove, and says what it could not.
+
 Describe what you want; tiling chooses how.
 
 - [ ] **Tiles as data**: Done when tiles can be written in `.sexp` tile files and loaded as packs, not only in Go.
