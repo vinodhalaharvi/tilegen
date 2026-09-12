@@ -44,6 +44,12 @@ type Options struct {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "plan":
+			if err := planCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "api":
 			if err := apiCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -114,6 +120,7 @@ func main() {
 			"       tilegen explain [SPEC]       why each store got its backend: needs, scores, legality\n"+
 			"       tilegen import [DIR]         lift an existing Go module into a spec\n"+
 			"       tilegen api IMPORT-PATH      the API surface a prompt carries for a package\n"+
+			"       tilegen plan [-dot] [SPEC]   what the plan makes, in dependency order\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -214,7 +221,11 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 		return nil, err
 	}
 	if c.Lock, err = loadLock(o.Out); err != nil {
-		return nil, err
+		var stale staleLock
+		if !errors.As(err, &stale) {
+			return nil, err
+		}
+		c.warn(Pos{}, "%v", err)
 	}
 	c.Reselect = o.Reselect
 	if err := errors.Join(coverAll(project, c), checkReserved(project, c)); err != nil {
