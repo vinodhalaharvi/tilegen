@@ -37,6 +37,7 @@ type Options struct {
 
 	Reselect   bool // ignore tilegen.lock and choose every backend again
 	Check      bool // plan only, and fail if the output differs or holes remain
+	JSON       bool // print structured output instead of a report
 	AllowHoles bool // with Check: open holes are not a failure
 	Runner     Runner
 }
@@ -262,6 +263,9 @@ func run(o Options, log io.Writer) error {
 		if err != nil {
 			return err
 		}
+		if o.JSON {
+			return checkJSON(rep, c, o, log)
+		}
 		return checkReport(rep, c, o, log)
 	}
 
@@ -393,6 +397,7 @@ func checkCmd(args []string, log io.Writer) error {
 	fs.StringVar(&o.Name, "name", "", "project name, as given to generation")
 	fs.BoolVar(&o.AllowHoles, "allow-holes", false, "do not fail on open holes, only on out-of-date files and drift")
 	fs.BoolVar(&o.Strict, "strict", false, "fail on spec forms no tile covers")
+	fs.BoolVar(&o.JSON, "json", false, "print what would change as JSON")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen check [flags] [SPEC]\n\nExit status 1 if generating would change any file, if a method you wrote\nhas drifted from the spec, or (without -allow-holes) if holes remain.\n\n")
 		fs.PrintDefaults()
@@ -406,74 +411,105 @@ func checkCmd(args []string, log io.Writer) error {
 	return run(o, log)
 }
 
+// checkResult is what generating would change, computed once and rendered
+// either as a report or as JSON.
+func checkResult(rep *Report, o Options) CheckJSON {
+	updated := map[string]bool{}
+	for _, f := range rep.Updated {
+		updated[f] = true
+	}
+	out := CheckJSON{Missing: rep.New, OpenHoles: rep.Tasks, UpToDate: rep.Unchanged}
+	for _, f := range rep.Changed {
+		if !updated[f] {
+			out.Stale = append(out.Stale, f)
+		}
+	}
+	out.Remove = append(append([]string{}, rep.Removed...), rep.RemovedScaffold...)
+	for _, a := range rep.Added {
+		out.Stubs = append(out.Stubs, a+": new in the spec")
+	}
+	for _, a := range rep.Restubbed {
+		out.Stubs = append(out.Stubs, a+": signature changed in the spec")
+	}
+	for _, a := range rep.Dropped {
+		out.Stubs = append(out.Stubs, a+": no longer in the spec")
+	}
+	for _, nt := range rep.Notes {
+		n := NoteJSON{File: nt.File, Symbol: nt.Symbol, Detail: nt.Detail}
+		if nt.Kind == "drift" {
+			out.Drift = append(out.Drift, n)
+		} else {
+			out.Orphans = append(out.Orphans, n)
+		}
+	}
+	if stale := len(out.Missing) + len(out.Stale) + len(out.Remove); stale > 0 {
+		out.Problems = append(out.Problems, fmt.Sprintf("%d file(s) out of date", stale))
+	}
+	if len(out.Drift) > 0 {
+		out.Problems = append(out.Problems, fmt.Sprintf("%d drifted method(s)", len(out.Drift)))
+	}
+	if rep.Tasks > 0 && !o.AllowHoles {
+		out.Problems = append(out.Problems, fmt.Sprintf("%d open hole(s)", rep.Tasks))
+	}
+	out.OK = len(out.Problems) == 0
+	return out
+}
+
+func checkFailure(res CheckJSON, o Options) error {
+	if res.OK {
+		return nil
+	}
+	return fmt.Errorf("check failed: %s. Run `tilegen %s` to update, then fill the holes", strings.Join(res.Problems, ", "), o.Spec)
+}
+
+// checkJSON prints the same result as structured data.
+func checkJSON(rep *Report, c *Ctx, o Options, log io.Writer) error {
+	res := checkResult(rep, o)
+	if err := writeJSON(os.Stdout, res); err != nil {
+		return err
+	}
+	return checkFailure(res, o)
+}
+
 // checkReport prints what generation would change and decides pass/fail.
 func checkReport(rep *Report, c *Ctx, o Options, log io.Writer) error {
 	for _, w := range c.Warnings {
 		fmt.Fprintln(log, "warning:", w)
 	}
-	updated := map[string]bool{}
-	for _, f := range rep.Updated {
-		updated[f] = true
-	}
-	stale := 0
-	for _, f := range rep.New {
+	res := checkResult(rep, o)
+	for _, f := range res.Missing {
 		fmt.Fprintf(log, "  missing  %s\n", f)
-		stale++
 	}
-	for _, f := range rep.Changed {
-		if !updated[f] {
-			fmt.Fprintf(log, "  stale    %s: differs from what the spec generates\n", f)
-		}
-		stale++
+	for _, f := range res.Stale {
+		fmt.Fprintf(log, "  stale    %s: differs from what the spec generates\n", f)
 	}
-	for _, a := range rep.Added {
-		fmt.Fprintf(log, "  stub     %s: new in the spec\n", a)
+	for _, s := range res.Stubs {
+		fmt.Fprintf(log, "  stub     %s\n", s)
 	}
-	for _, a := range rep.Restubbed {
-		fmt.Fprintf(log, "  stub     %s: signature changed in the spec\n", a)
-	}
-	for _, a := range rep.Dropped {
-		fmt.Fprintf(log, "  stub     %s: no longer in the spec\n", a)
-	}
-	for _, f := range append(append([]string{}, rep.Removed...), rep.RemovedScaffold...) {
+	for _, f := range res.Remove {
 		fmt.Fprintf(log, "  remove   %s: no longer in the spec\n", f)
-		stale++
 	}
-	drift := 0
-	for _, nt := range rep.Notes {
-		what := nt.File
-		if nt.Symbol != "" {
-			what = nt.Symbol + " in " + nt.File
+	for _, d := range res.Drift {
+		fmt.Fprintf(log, "  drift    %s in %s: %s\n", d.Symbol, d.File, d.Detail)
+	}
+	for _, orph := range res.Orphans {
+		what := orph.File
+		if orph.Symbol != "" {
+			what = orph.Symbol + " in " + orph.File
 		}
-		if nt.Kind == "drift" {
-			drift++
-			fmt.Fprintf(log, "  drift    %s: %s\n", what, nt.Detail)
-		} else {
-			fmt.Fprintf(log, "  orphan   %s: %s (warning)\n", what, nt.Detail)
-		}
+		fmt.Fprintf(log, "  orphan   %s: %s (warning)\n", what, orph.Detail)
 	}
-	if rep.Tasks > 0 {
-		fmt.Fprintf(log, "  holes    %d open (listed in tilegen.tasks.json)\n", rep.Tasks)
+	if res.OpenHoles > 0 {
+		fmt.Fprintf(log, "  holes    %d open (listed in tilegen.tasks.json)\n", res.OpenHoles)
 	}
-
-	var problems []string
-	if stale > 0 {
-		problems = append(problems, fmt.Sprintf("%d file(s) out of date", stale))
-	}
-	if drift > 0 {
-		problems = append(problems, fmt.Sprintf("%d drifted method(s)", drift))
-	}
-	if rep.Tasks > 0 && !o.AllowHoles {
-		problems = append(problems, fmt.Sprintf("%d open hole(s)", rep.Tasks))
-	}
-	if len(problems) > 0 {
-		return fmt.Errorf("check failed: %s. Run `tilegen %s` to update, then fill the holes", strings.Join(problems, ", "), o.Spec)
+	if err := checkFailure(res, o); err != nil {
+		return err
 	}
 	holes := "no open holes"
-	if rep.Tasks > 0 {
-		holes = fmt.Sprintf("%d open hole(s) allowed", rep.Tasks)
+	if res.OpenHoles > 0 {
+		holes = fmt.Sprintf("%d open hole(s) allowed", res.OpenHoles)
 	}
-	fmt.Fprintf(log, "ok: %d generated file(s) match the spec; %s\n", rep.Unchanged, holes)
+	fmt.Fprintf(log, "ok: %d generated file(s) match the spec; %s\n", res.UpToDate, holes)
 	return nil
 }
 

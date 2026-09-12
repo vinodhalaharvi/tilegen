@@ -65,6 +65,9 @@ Run fill for real, and let measured numbers replace declared costs.
 
 ## v0.5.0 - Intent
 
+- [x] **Structured output for agents**: Done when the read-only commands print JSON, from the same computation as the text.
+- [ ] **MCP server**: Done when a thin adapter exposes the same queries over MCP, once the JSON shapes have proved themselves.
+
 - [x] **Plan graph**: Done when `tilegen plan` shows the plan in dependency order, inferred rather than declared, with cycle detection and DOT output.
 - [ ] **Parallel and incremental work on the graph**: Done when independent holes fill concurrently, a spec change invalidates only what depends on it, and expensive fills are cached by input hash.
 
