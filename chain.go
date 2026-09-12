@@ -142,7 +142,7 @@ func init() {
 					parts = append(parts, fmt.Sprintf("%d %s field%s", p.n, p.what, map[bool]string{true: "s"}[p.n > 1]))
 				}
 			}
-			return Cost{{"llm-work", units}, {"maintenance", (units + 1) / 2}}, strings.Join(parts, ", ")
+			return Cost{{Dim: "llm-work", Value: units}, {Dim: "maintenance", Value: (units + 1) / 2}}, strings.Join(parts, ", ")
 		},
 	})
 }

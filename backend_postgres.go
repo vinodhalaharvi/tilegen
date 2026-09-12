@@ -10,12 +10,17 @@ import (
 // domain types.
 func init() {
 	registerStoreBackend(&Backend{
-		Name:         "postgres",
-		Tile:         "postgres-sqlc",
-		Form:         "db-rows", // sqlc's own row types: a row-mapper converts them
-		Doc:          "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
-		Requires:     []string{"sqlc"},
-		Cost:         Cost{{"llm-work", 3}, {"maintenance", 2}, {"dependency", 3}, {"runtime", 1}},
+		Name:     "postgres",
+		Tile:     "postgres-sqlc",
+		Form:     "db-rows", // sqlc's own row types: a row-mapper converts them
+		Doc:      "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
+		Requires: []string{"sqlc"},
+		Cost: Cost{
+			{Dim: "llm-work", Value: 3, Source: "derived", Note: "the LLM writes only row-to-domain mapping; sqlc writes the queries"},
+			{Dim: "maintenance", Value: 2},
+			{Dim: "dependency", Value: 3, Source: "derived", Note: "pgx, plus sqlc as a build-time tool"},
+			{Dim: "runtime", Value: 1},
+		},
 		Topics:       []string{"postgres", "sqlc"},
 		Packages:     map[string]string{"db": "internal/db"},
 		Generate:     "sqlc generate",

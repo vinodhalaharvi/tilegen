@@ -549,6 +549,58 @@ the SQL). A config may name one for a capability, `(storage postgres)` or
 `(events nats)`, and then it decides, but naming one that is illegal for
 some node is an error at that node.
 
+### The policy: what your team values
+
+Tiles declare what they cost; a policy prices them and says what people
+want. It lives beside the spec (any `.sexp` file in the folder) or in
+`-policy FILE`:
+
+```lisp
+(policy
+  (weights (llm-work 4) (maintenance 3) (dependency 1) (runtime 1) (uncertainty 5))
+
+  (prefer postgres-gorm
+    (strength required)                      ; required | strong | weak
+    (source client "approved-library list, contract §4"))
+
+  (margin 8)                                 ; how far behind a weak preference may be
+  (avoid pgx "we standardised on sqlc"))     ; never choose it
+```
+
+Weights price every tile and chain rule, so the same spec gives different
+teams different architectures with no tile edited.
+
+Costs say what a tile is worth technically. Preferences say what people
+want, and they are not the same thing: a tile that loses on every
+engineering measure can still be right because a client requires it or a
+team knows it. So preferences live in the policy, with **who holds them**
+and **how strongly**, while tiles declare only technical costs, since a tile
+cannot know your team.
+
+| Strength | What it does |
+|---|---|
+| `required` | a constraint, not a cost: every other tile becomes illegal, with the source as the reason |
+| `strong` | wins over any legal candidate, however much cheaper it is |
+| `weak` | wins ties and anything within `(margin N)`; what a bare `(prefer X)` means |
+
+`explain` then reads like an architecture decision record: the technical
+ranking, what overturned it, who asked for that, and where each number came
+from.
+
+```
+        postgres-sqlc   score 29   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 = 22
+                                  + row-mapper 7 (1 entity)
+chosen  postgres-pgx    score 45   llm 7·4 + maint 5·3 + dep 1·1 + run 1·1
+  cost    postgres-pgx llm-work: 7 (derived: the LLM writes every query and scan by hand)
+  policy: strongly preferred; cost alone would have picked postgres-sqlc (29 vs 45)
+          [source: team, 9 of 11 engineers know pgx; nobody has used sqlc]
+```
+
+Cost numbers carry provenance, so an author's estimate is not mistaken for a
+measurement: `(source derived "...")`, `measured`, `user`, or nothing for a
+built-in default. A tile is never pruned from the registry, only for one
+run: another team's policy can make it the winner again.
+
 ### How the covering is found
 
 The cheapest covering is computed bottom-up, the way a compiler's
