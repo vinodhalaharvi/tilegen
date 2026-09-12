@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `tilegen import [DIR]` lifts an existing Go module into a spec: module,
+  requires, structs with field types and tags, interfaces with their full
+  method sets, enums (defined string types with typed constants), and
+  implementations found with `types.Implements`. Everything comes from the
+  type checker, so the project must type-check first (`-force` imports the
+  packages that do). What cannot be proved is listed in `NOTES.md` with a
+  reason; store ops, needs and events are never guessed from names.
 - Policy file: `(policy (weights ...) (prefer ...) (margin N) (avoid TILE
   "why"))`, beside the spec or in `-policy FILE`, sets what a team values.
   Weights price every tile and chain rule, `prefer` with `margin` breaks

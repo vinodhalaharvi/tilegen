@@ -2153,3 +2153,241 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 		t.Fatalf("want a clear error, got %v", err)
 	}
 }
+
+// ---- tilegen import ----
+
+// writeModule writes a Go module: files maps path -> source.
+func writeModule(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := t.TempDir()
+	for p, src := range files {
+		full := filepath.Join(dir, p)
+		os.MkdirAll(filepath.Dir(full), 0o755)
+		if err := os.WriteFile(full, []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return dir
+}
+
+const legacyMod = "module example.com/legacy\n\ngo 1.22\n"
+
+const legacyCatalog = `package catalog
+
+import "context"
+
+type Status string
+
+const (
+	StatusDraft     Status = "draft"
+	StatusPublished Status = "published"
+	statusHidden    Status = "hidden"
+)
+
+type Product struct {
+	ID     int64
+	SKU    string ` + "`json:\"sku\"`" + `
+	Status Status
+	Tags   []string
+	Meta   map[string]any
+	Gone   *string
+	secret string
+}
+
+type Repo interface {
+	Find(ctx context.Context, id int64) (*Product, error)
+	Upsert(ctx context.Context, p *Product) error
+}
+
+type Logger interface {
+	Printf(format string, args ...any)
+}
+
+type PGRepo struct {
+	conn   string
+	logger Logger
+}
+
+func (r *PGRepo) Find(ctx context.Context, id int64) (*Product, error) { return nil, nil }
+func (r *PGRepo) Upsert(ctx context.Context, p *Product) error        { return nil }
+
+type Cache[K comparable, V any] struct{ m map[K]V }
+type Handler func() error
+type Alias = Product
+`
+
+func importSpec(t *testing.T, dir string, force bool) (map[string]string, string) {
+	t.Helper()
+	var out, log strings.Builder
+	args := []string{dir}
+	if force {
+		args = append([]string{"-force"}, args...)
+	}
+	if err := importCmd(args, &out, &log); err != nil {
+		t.Fatalf("import: %v", err)
+	}
+	files := map[string]string{}
+	entries, _ := os.ReadDir(filepath.Join(dir, "spec"))
+	for _, e := range entries {
+		b, _ := os.ReadFile(filepath.Join(dir, "spec", e.Name()))
+		files[e.Name()] = string(b)
+	}
+	return files, out.String() + log.String()
+}
+
+// TestImportLiftsWhatTheTypeCheckerProves: every form comes from go/types.
+func TestImportLifts(t *testing.T) {
+	dir := writeModule(t, map[string]string{"go.mod": legacyMod, "catalog/catalog.go": legacyCatalog})
+	files, out := importSpec(t, dir, false)
+	spec := files["10-catalog.sexp"]
+	for _, want := range []string{
+		"(enum Status draft published)",                 // typed constants, in declaration order; the unexported one is left out
+		"(field SKU string (tag \"json:\\\"sku\\\"\"))", // the tag as written
+		"(field Tags []string)", "(field Meta map[string]any)", "(field Gone *string)",
+		"(method Printf\n      (params (format string) (args ...any)))",                    // variadic
+		"(implement Repo (as PGRepo)\n    (field conn string)\n    (field logger Logger))", // types.Implements
+	} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("spec missing %q:\n%s", want, spec)
+		}
+	}
+	for _, unwanted := range []string{"hidden", "secret", "(struct PGRepo", "Cache", "Handler", "Alias"} {
+		if strings.Contains(spec, unwanted) {
+			t.Errorf("spec should not contain %q:\n%s", unwanted, spec)
+		}
+	}
+	if !strings.Contains(files["00-project.sexp"], "(module example.com/legacy)") || !strings.Contains(files["00-project.sexp"], "(go 1.22)") {
+		t.Errorf("project form:\n%s", files["00-project.sexp"])
+	}
+	notes := files["NOTES.md"]
+	for _, want := range []string{"catalog.Cache: it is generic", "catalog.Handler: its underlying type is func() error",
+		"catalog.Alias: it is a type alias", `catalog.Product: unexported field "secret"`} {
+		if !strings.Contains(notes, want) {
+			t.Errorf("NOTES.md missing %q:\n%s", want, notes)
+		}
+	}
+	if !strings.Contains(out, "imported 5 of 8 exported type(s)") {
+		t.Errorf("summary: %s", out)
+	}
+}
+
+// TestImportRoundTrips: the imported spec generates a project that builds.
+func TestImportRoundTrips(t *testing.T) {
+	dir := writeModule(t, map[string]string{"go.mod": legacyMod, "catalog/catalog.go": legacyCatalog})
+	importSpec(t, dir, false)
+	out := filepath.Join(t.TempDir(), "regen")
+	if err := run(Options{Spec: filepath.Join(dir, "spec"), Out: out}, io.Discard); err != nil {
+		t.Fatalf("the imported spec must generate: %v", err)
+	}
+	for _, cmd := range [][]string{{"go", "mod", "tidy"}, {"go", "build", "./..."}, {"go", "vet", "./..."}} {
+		c := exec.Command(cmd[0], cmd[1:]...)
+		c.Dir = out
+		if b, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("%v in the regenerated project: %v\n%s", cmd, err, b)
+		}
+	}
+	gen := read(t, out, "catalog/catalog_gen.go")
+	for _, want := range []string{"type Status string", "StatusPublished Status = \"published\"", "type Product struct",
+		"Find(ctx context.Context, id int64) (*Product, error)", "var _ Repo = (*PGRepo)(nil)"} {
+		if !strings.Contains(gen, want) {
+			t.Errorf("regenerated file missing %q", want)
+		}
+	}
+}
+
+func TestImportRefusesCodeThatDoesNotTypeCheck(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod":             legacyMod,
+		"catalog/catalog.go": legacyCatalog,
+		"bad/bad.go":         "package bad\n\nfunc F() int { return undefinedThing }\n",
+	})
+	var out, log strings.Builder
+	err := importCmd([]string{dir}, &out, &log)
+	if err == nil || !strings.Contains(err.Error(), "does not type-check") || !strings.Contains(err.Error(), "undefined: undefinedThing") {
+		t.Fatalf("want a refusal naming the error, got %v", err)
+	}
+	if strings.Count(err.Error(), "undefined: undefinedThing") != 1 {
+		t.Errorf("each error should be reported once:\n%v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "spec")); !os.IsNotExist(statErr) {
+		t.Error("a refused import must write nothing")
+	}
+	// -force imports the packages that do check, and says so.
+	files, out2 := importSpec(t, dir, true)
+	if !strings.Contains(out2, "warning: 1 type error(s)") {
+		t.Errorf("-force should warn: %s", out2)
+	}
+	if _, ok := files["10-catalog.sexp"]; !ok || len(files) < 2 { // numbering is by files written, so catalog is first
+		t.Errorf("-force should still import catalog: %v", sortedKeys(files))
+	}
+}
+
+func TestImportSkipsGeneratedAndNeedsAModule(t *testing.T) {
+	dir := writeModule(t, map[string]string{
+		"go.mod":       legacyMod,
+		"gen/gen.go":   "// " + generatedMarker + "\n\npackage gen\n\ntype Row struct{ ID int64 }\n",
+		"real/real.go": "package real\n\ntype Thing struct{ ID int64 }\n",
+	})
+	files, _ := importSpec(t, dir, false)
+	for name := range files {
+		if strings.Contains(name, "gen") && name != "00-project.sexp" {
+			t.Errorf("generated packages must not be imported: %s", name)
+		}
+	}
+	if len(files) != 2 {
+		t.Errorf("want the project form and real: %v", sortedKeys(files))
+	}
+	var out, log strings.Builder
+	if err := importCmd([]string{t.TempDir()}, &out, &log); err == nil || !strings.Contains(err.Error(), "no go.mod") {
+		t.Errorf("want a clear error outside a module, got %v", err)
+	}
+}
+
+// TestImportSelfRoundTrip: importing a project tilegen generated recovers
+// every type, and regenerating from that spec builds.
+func TestImportSelfRoundTrip(t *testing.T) {
+	first := t.TempDir()
+	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: first}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	os.RemoveAll(filepath.Join(first, ".tilegen"))
+	tidy1 := exec.Command("go", "mod", "tidy") // import type-checks, so dependencies must be fetched
+	tidy1.Dir = first
+	if b, err := tidy1.CombinedOutput(); err != nil {
+		t.Skipf("go mod tidy needs the module proxy: %v\n%s", err, b)
+	}
+	var out, log strings.Builder
+	if err := importCmd([]string{first}, &out, &log); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "imported 9 of 9 exported type(s)") {
+		t.Errorf("a generated project should import completely: %s", out.String())
+	}
+	if notes := read(t, first, "spec/NOTES.md"); !strings.Contains(notes, "look like tilegen's event bus") {
+		t.Errorf("the event bus should be reported, not lifted as plain structs:\n%s", notes)
+	}
+	spec := read(t, first, "spec/20-orders.sexp") // packages are sorted by import path
+	for _, want := range []string{"(enum Status pending paid shipped cancelled)", "(implement OrderStore (as MemoryOrderStore)",
+		"(interface Pricer", "(struct Order"} {
+		if !strings.Contains(spec, want) {
+			t.Errorf("missing %q:\n%s", want, spec)
+		}
+	}
+	for _, unwanted := range []string{"(interface Bus", "LocalBus", "OrderPlaced"} {
+		if strings.Contains(spec, unwanted) {
+			t.Errorf("the events tile owns %s; it must not be lifted:\n%s", unwanted, spec)
+		}
+	}
+	second := t.TempDir()
+	if err := run(Options{Spec: filepath.Join(first, "spec"), Out: second}, io.Discard); err != nil {
+		t.Fatalf("regenerating from the imported spec: %v", err)
+	}
+	tidy := exec.Command("go", "mod", "tidy")
+	tidy.Dir = second
+	tidy.Run()
+	build := exec.Command("go", "build", "./...")
+	build.Dir = second
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("the twice-round-tripped project must build: %v\n%s", err, b)
+	}
+}
