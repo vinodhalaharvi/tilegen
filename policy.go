@@ -157,24 +157,6 @@ func (p *Policy) score(c Cost) (int, string) {
 	return total, strings.Join(terms, " + ")
 }
 
-// pick chooses among legal, ranked candidates: the cheapest, unless a
-// preferred tile is within the margin of it.
-func (p *Policy) pick(ranked []Scored) (*Backend, string) {
-	if len(ranked) == 0 {
-		return nil, ""
-	}
-	best := ranked[0]
-	for _, s := range ranked[1:] {
-		if p.Prefer[s.B.Tile] && !p.Prefer[best.B.Tile] && s.Score <= best.Score+p.Margin {
-			return s.B, fmt.Sprintf("preferred, and within the margin of %s (%d vs %d, margin %d)", best.B.Tile, s.Score, best.Score, p.Margin)
-		}
-	}
-	if p.Prefer[best.B.Tile] {
-		return best.B, "cheapest, and preferred"
-	}
-	return best.B, ""
-}
-
 // describe summarizes a policy for explain.
 func (p *Policy) describe() string {
 	var w []string

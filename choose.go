@@ -7,158 +7,121 @@ import (
 	"strings"
 )
 
-// Selection: for every store, the backends whose declared illegal-when
-// needs it does not have are legal; with (storage auto) the cheapest legal
-// one wins, by declared cost times the weights below. An explicit
-// (storage NAME) still decides, but choosing an illegal backend is an
-// error at the spec. Legality depends only on the spec, never on which
-// tools happen to be installed, so every machine makes the same choice.
+// Turning a spec into needs, and coverings back into what the passes and
+// reports use. All the deciding happens in solve.go; this file builds
+// needs, applies the lock and the config, and renders what was chosen.
 
-// knownNeeds are the needs a store can declare, like (durable).
-var knownNeeds = []string{"durable"}
-
-// defaultWeights turn a cost into a score. A policy file will set these.
+// defaultWeights turn a cost into a score; a policy replaces them.
 var defaultWeights = map[string]int{"llm-work": 4, "maintenance": 3, "dependency": 1, "runtime": 1, "uncertainty": 5}
 
 var weightOrder = []string{"llm-work", "maintenance", "dependency", "runtime", "uncertainty"}
 
-// Choice is the backend chosen for one store, and why.
-type Choice struct {
-	Why     string // why the policy picked it, when not simply cheapest
-	Store   string // orders.OrderStore
-	Needs   []string
-	By      string // "auto" or "config"
-	Chosen  *Backend
-	Ranked  []Scored // legal backends, cheapest first
-	Illegal []Rejected
-	Pos     Pos
-}
+func score(c Cost) (int, string) { return DefaultPolicy().score(c) }
 
-type Scored struct {
-	B     *Backend
-	Score int    // Base plus every step of Via
-	Base  int    // the backend's own cost
-	Terms string // llm 3·4 + maint 2·3 + ...
-	Via   []Step // converters from the backend's form to domain
-}
-
-type Rejected struct {
-	B      *Backend
-	Reason string
-}
-
-func score(c Cost) (int, string) {
-	total := 0
-	var terms []string
-	short := strings.Split(Cost(c).Short(), ", ")
-	for i, t := range c {
-		w := defaultWeights[t.Dim]
-		total += t.Value * w
-		terms = append(terms, fmt.Sprintf("%s·%d", short[i], w))
-	}
-	return total, strings.Join(terms, " + ")
-}
-
-// chooseAll picks a backend for every store in the project and records the
-// set of backends in use.
-func chooseAll(project *Node, c *Ctx) error {
-	c.Choices = map[string]*Choice{}
-	used := map[string]*Backend{}
-	var errs []error
-	enums := map[string]bool{} // "pkg.Type", for chain costs
+// coverAll builds a need for every node that has one, and covers it.
+func coverAll(project *Node, c *Ctx) error {
+	c.Cover = map[string]*Covering{}
+	c.Used = nil
+	enums := map[string]bool{}
 	for _, pkg := range project.FindAll("package") {
 		for _, e := range pkg.FindAll("enum") {
 			enums[pkg.List[1].Atom+"."+e.List[1].Atom] = true
 		}
 	}
+	shapes := map[string]EntityShape{}
+	var needs []*Need
 	for _, pkg := range project.FindAll("package") {
-		for _, e := range pkg.FindAll("entity") {
-			store := e.Find("store")
-			if store == nil {
-				continue
+		name := pkg.List[1].Atom
+		for _, n := range needsOf(pkg, name) {
+			needs = append(needs, n)
+			if e, ok := n.Data.(*Node); ok && e != nil {
+				shapes[n.ID] = entityShape(e, name, enums)
 			}
-			ch := &Choice{Store: pkg.List[1].Atom + "." + e.List[1].Atom + "Store", Pos: store.Pos, By: "auto"}
-			for _, op := range store.Args() {
-				if op.IsList && len(op.List) == 1 && contains(knownNeeds, op.Head()) {
-					ch.Needs = append(ch.Needs, op.Head())
-				}
-			}
-			shape := entityShape(e, pkg.List[1].Atom, enums)
-			for _, name := range backendNames() {
-				b := backends[name]
-				if reason := illegalFor(b, ch.Needs); reason != "" {
-					ch.Illegal = append(ch.Illegal, Rejected{b, reason})
-					continue
-				}
-				via, extra, ok := convert(b.form(), domainForm, shape, c.Policy)
-				if !ok {
-					ch.Illegal = append(ch.Illegal, Rejected{b, fmt.Sprintf("it produces %s, and no chain converts that to %s", b.form(), domainForm)})
-					continue
-				}
-				if len(b.Cost) == 0 {
-					continue // no declared cost: explicit use only
-				}
-				if why, avoided := c.Policy.Avoid[b.Tile]; avoided {
-					reason := "avoided by the policy"
-					if why != "" {
-						reason += ": " + why
-					}
-					ch.Illegal = append(ch.Illegal, Rejected{b, reason})
-					continue
-				}
-				base, terms := c.Policy.score(b.Cost)
-				ch.Ranked = append(ch.Ranked, Scored{B: b, Score: base + extra, Base: base, Terms: terms, Via: via})
-			}
-			sort.SliceStable(ch.Ranked, func(i, j int) bool { return ch.Ranked[i].Score < ch.Ranked[j].Score })
-
-			if want := c.Cfg.Storage; want != "auto" {
-				ch.By = "config"
-				b := lookupBackend(want)
-				reason := ""
-				for _, r := range ch.Illegal { // a need it cannot serve, or no chain to domain
-					if r.B == b {
-						reason = r.Reason
-					}
-				}
-				if reason != "" {
-					errs = append(errs, fmt.Errorf("%s: (storage %s) is illegal for %s: %s; legal: %s, or use (storage auto)",
-						store.Pos, want, ch.Store, reason, legalList(ch)))
-					continue
-				}
-				ch.Chosen = b
-			} else if e, ok := c.Lock[ch.Store]; ok && !c.Reselect && pinned(ch, e, c) {
-				// the pinned choice stands, even if auto would now pick another
-			} else if len(ch.Ranked) > 0 {
-				ch.Chosen, ch.Why = c.Policy.pick(ch.Ranked)
-				ch.By = "auto"
-			} else {
-				errs = append(errs, fmt.Errorf("%s: no storage backend is legal for %s (needs: %s)", store.Pos, ch.Store, strings.Join(ch.Needs, ", ")))
-				continue
-			}
-			c.Choices[ch.Store] = ch
-			used[ch.Chosen.Name] = ch.Chosen
 		}
 	}
-	c.Used = nil
-	for _, name := range sortedKeys(used) {
-		c.Used = append(c.Used, used[name])
+	shape := func(n *Need) EntityShape { return shapes[n.ID] }
+
+	var errs []error
+	used := map[string]*Offer{}
+	for _, n := range needs {
+		cov, err := solve(n, c, shape)
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if err := applyChoice(n, cov, c); err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		c.Cover[n.ID] = cov
+		for _, o := range coveringOffers(cov) {
+			used[o.Tile] = o
+		}
+	}
+	for _, tile := range sortedKeys(used) {
+		c.Used = append(c.Used, used[tile])
 	}
 	return errors.Join(errs...)
 }
 
-func illegalFor(b *Backend, needs []string) string {
-	for _, n := range needs {
-		if reason, ok := b.IllegalWhen[n]; ok {
-			return reason
+// applyChoice lets the config and the lock override what cost chose.
+func applyChoice(n *Need, cov *Covering, c *Ctx) error {
+	if want := c.Cfg.tileFor(n.Capability); want != "" {
+		for _, r := range cov.Illegal {
+			if matchesTile(want, r.Tile) {
+				return fmt.Errorf("%s: the config chose %s, which is illegal for %s: %s; legal: %s, or use auto",
+					n.Pos, want, n.ID, r.Reason, legalTiles(cov))
+			}
 		}
+		for _, cand := range cov.Ranked {
+			if matchesTile(want, cand.Offer.Tile) {
+				adopt(cov, cand, "config")
+				return nil
+			}
+		}
+		return fmt.Errorf("%s: the config chose %s, which offers no %s; legal: %s", n.Pos, want, n.Capability, legalTiles(cov))
 	}
-	return ""
+	if e, ok := c.Lock[n.ID]; ok && !c.Reselect {
+		for _, r := range cov.Illegal {
+			if r.Tile == e.Tile {
+				c.warn(e.Pos, "%s: %s is now illegal for %s (%s); re-selected", lockFile, e.Tile, n.ID, r.Reason)
+				return nil
+			}
+		}
+		for _, cand := range cov.Ranked {
+			if cand.Offer.Tile == e.Tile {
+				adopt(cov, cand, "lock")
+				return nil
+			}
+		}
+		c.warn(e.Pos, "%s: tile %q offers no %s any more; re-selected%s", lockFile, e.Tile, n.Capability, didYouMean(e.Tile, tileNamesOf(cov)))
+	}
+	return nil
 }
 
-func legalList(ch *Choice) string {
+// matchesTile accepts a tile's registry name or a shorter alias the config
+// may use (storage postgres -> postgres-sqlc).
+func matchesTile(want, tile string) bool {
+	return want == tile || aliasOf(tile) == want
+}
+
+func adopt(cov *Covering, cand Candidate, by string) {
+	cov.Offer, cov.Score, cov.Own, cov.Terms, cov.Via, cov.By = cand.Offer, cand.Score, cand.Own, cand.Terms, cand.Via, by
+	cov.Why = ""
+}
+
+func coveringOffers(cov *Covering) []*Offer {
+	out := []*Offer{cov.Offer}
+	for _, k := range cov.Children {
+		out = append(out, coveringOffers(k)...)
+	}
+	return out
+}
+
+func legalTiles(cov *Covering) string {
 	var parts []string
-	for _, s := range ch.Ranked {
-		parts = append(parts, fmt.Sprintf("%s (score %d)", s.B.Name, s.Score))
+	for _, cand := range cov.Ranked {
+		parts = append(parts, fmt.Sprintf("%s (score %d)", cand.Offer.Tile, cand.Score))
 	}
 	if len(parts) == 0 {
 		return "none"
@@ -166,90 +129,96 @@ func legalList(ch *Choice) string {
 	return strings.Join(parts, ", ")
 }
 
-// checkReserved rejects project packages that a chosen backend needs for
-// its own code (postgres-sqlc puts sqlc's output in package db).
+func tileNamesOf(cov *Covering) []string {
+	var out []string
+	for _, cand := range cov.Ranked {
+		out = append(out, cand.Offer.Tile)
+	}
+	for _, r := range cov.Illegal {
+		out = append(out, r.Tile)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// checkReserved rejects project packages a chosen tile needs for itself.
 func checkReserved(project *Node, c *Ctx) error {
 	var errs []error
 	for _, pkg := range project.FindAll("package") {
 		name := pkg.List[1]
-		for _, b := range c.Used {
-			if dir, ok := b.Packages[name.Atom]; ok {
-				errs = append(errs, fmt.Errorf("%s: package name %q is reserved: the %s backend puts its code in %s", name.Pos, name.Atom, b.Tile, dir))
+		for _, o := range c.Used {
+			b, ok := o.Impl.(*Backend)
+			if !ok {
+				continue
+			}
+			if dir, taken := b.Packages[name.Atom]; taken {
+				errs = append(errs, fmt.Errorf("%s: package name %q is reserved: the %s tile puts its code in %s", name.Pos, name.Atom, o.Tile, dir))
 			}
 		}
 	}
 	return errors.Join(errs...)
 }
 
-// choiceNodes records a choice in the tree, so -dump shows it.
-func choiceNodes(ch *Choice) []*Node {
+// coverNodes records a covering in the tree, so -dump shows it.
+func coverNodes(cov *Covering) []*Node {
 	var out []*Node
-	for _, s := range ch.Ranked {
+	for _, cand := range cov.Ranked {
 		head := "considered"
-		if s.B == ch.Chosen {
+		if cand.Offer == cov.Offer {
 			head = "chosen"
 		}
-		n := L(Sym(head), Sym(s.B.Tile), L(Sym("score"), Sym(fmt.Sprint(s.Score))))
-		if len(s.Via) > 0 {
-			n.List = append(n.List, L(Sym("base"), Sym(fmt.Sprint(s.Base))))
-			for _, st := range s.Via {
+		n := L(Sym(head), Sym(cand.Offer.Tile), L(Sym("score"), Sym(fmt.Sprint(cand.Score))))
+		if len(cand.Via) > 0 {
+			n.List = append(n.List, L(Sym("own"), Sym(fmt.Sprint(cand.Own))))
+			for _, st := range cand.Via {
 				n.List = append(n.List, L(Sym("via"), Sym(st.Chain.Name), Sym(fmt.Sprint(st.Score)), Str(st.Detail)))
 			}
 		}
-		n.List = append(n.List, L(Sym("by"), Sym(ch.By)))
+		if head == "chosen" {
+			n.List = append(n.List, L(Sym("by"), Sym(cov.By)))
+		}
 		out = append(out, n)
 	}
-	if ch.By == "config" && !contains(tileNames(ch.Ranked), ch.Chosen.Tile) {
-		out = append(out, L(Sym("chosen"), Sym(ch.Chosen.Tile), L(Sym("by"), Sym("config"))))
-	}
-	for _, r := range ch.Illegal {
-		out = append(out, L(Sym("illegal"), Sym(r.B.Tile), Str(r.Reason)))
+	for _, r := range cov.Illegal {
+		out = append(out, L(Sym("illegal"), Sym(r.Tile), Str(r.Reason)))
 	}
 	return out
 }
 
-func tileNames(s []Scored) []string {
-	var out []string
-	for _, x := range s {
-		out = append(out, x.B.Tile)
-	}
-	return out
-}
-
-// explain prints one choice for a person.
-func explain(ch *Choice) string {
+// explainCovering prints one covering for a person.
+func explainCovering(cov *Covering) string {
 	var b strings.Builder
-	needs := "none"
-	if len(ch.Needs) > 0 {
-		needs = strings.Join(ch.Needs, ", ")
+	reqs := "none"
+	if len(cov.Need.Requirements) > 0 {
+		reqs = strings.Join(cov.Need.Requirements, ", ")
 	}
-	fmt.Fprintf(&b, "%s   needs: %s   chosen by: %s\n", ch.Store, needs, ch.By)
-	for _, s := range ch.Ranked {
+	fmt.Fprintf(&b, "%s   (%s)   needs: %s   chosen by: %s\n", cov.Need.ID, cov.Need.Capability, reqs, cov.By)
+	for _, cand := range cov.Ranked {
 		mark := "        "
-		if s.B == ch.Chosen {
+		if cand.Offer == cov.Offer {
 			mark = "chosen  "
 		}
-		fmt.Fprintf(&b, "  %s%-15s score %-4d %s", mark, s.B.Tile, s.Score, s.Terms)
-		if len(s.Via) > 0 {
-			fmt.Fprintf(&b, " = %d", s.Base)
-			for _, st := range s.Via {
+		fmt.Fprintf(&b, "  %s%-15s score %-4d %s", mark, cand.Offer.Tile, cand.Score, cand.Terms)
+		if len(cand.Via) > 0 {
+			fmt.Fprintf(&b, " = %d", cand.Own)
+			for _, st := range cand.Via {
 				fmt.Fprintf(&b, "\n  %-24s          + %s %d (%s)", "", st.Chain.Name, st.Score, st.Detail)
 			}
 		}
 		b.WriteString("\n")
 	}
-	if ch.By == "config" && !contains(tileNames(ch.Ranked), ch.Chosen.Tile) {
-		fmt.Fprintf(&b, "  chosen  %-15s (named by the config; no declared cost)\n", ch.Chosen.Tile)
+	for _, r := range cov.Illegal {
+		fmt.Fprintf(&b, "  illegal %-15s %s\n", r.Tile, r.Reason)
 	}
-	for _, r := range ch.Illegal {
-		fmt.Fprintf(&b, "  illegal %-15s %s\n", r.B.Tile, r.Reason)
+	if cov.Why != "" {
+		fmt.Fprintf(&b, "  policy: %s\n", cov.Why)
 	}
-	if ch.Why != "" {
-		fmt.Fprintf(&b, "  policy: %s\n", ch.Why)
-	}
-	if ch.By == "lock" && len(ch.Ranked) > 0 && ch.Ranked[0].B != ch.Chosen {
+	if cov.By == "lock" && len(cov.Ranked) > 0 && cov.Ranked[0].Offer != cov.Offer {
 		fmt.Fprintf(&b, "  note: pinned by %s; auto would now pick %s (score %d). Run with -reselect to switch.\n",
-			lockFile, ch.Ranked[0].B.Tile, ch.Ranked[0].Score)
+			lockFile, cov.Ranked[0].Offer.Tile, cov.Ranked[0].Score)
+	}
+	for _, k := range cov.Children {
+		b.WriteString(indent(explainCovering(k), "    "))
 	}
 	return b.String()
 }

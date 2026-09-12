@@ -26,8 +26,8 @@ type Ctx struct {
 	Local    map[string]string    // project package name -> import path
 	PkgDirs  map[string]string    // project package name -> directory
 	Enums    map[string][]string  // "pkg.Type" -> values, for SQL CHECK constraints
-	Choices  map[string]*Choice   // "pkg.XStore" -> the backend chosen for it
-	Used     []*Backend           // every backend some store uses, by name
+	Cover    map[string]*Covering // need ID -> the tile chosen for it
+	Used     []*Offer             // every tile some need uses, by tile name
 	curPkg   string               // package being concretized
 	Lock     map[string]LockEntry // tilegen.lock: pinned backend choices
 	Reselect bool                 // ignore the lock
@@ -55,7 +55,7 @@ var (
 )
 
 func allStoreOps() []string {
-	return append(append(append([]string{"method", "constraint"}, storeOps...), fieldOps...), knownNeeds...)
+	return append(append(append([]string{"method", "constraint"}, storeOps...), fieldOps...), knownRequirements()...)
 }
 
 // Validate checks the spec's shape before any lowering. Everything here
@@ -350,8 +350,10 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 				case kind == "constraint":
 					v.shape(op, "(constraint ?text)")
 					continue
-				case contains(knownNeeds, kind):
-					v.shape(op, "(_)") // a need, like (durable): no arguments
+				case contains(knownRequirements(), kind):
+					if v.shape(op, "(_)") != nil { // a requirement, like (durable)
+						validateRequirements("store", []string{kind}, op, v)
+					}
 					continue
 				case kind == "method":
 					v.method(op)

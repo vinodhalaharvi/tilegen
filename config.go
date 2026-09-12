@@ -15,18 +15,20 @@ import (
 type Config struct {
 	JSONTags     string // snake | camel | none
 	ContextFirst bool   // prepend ctx context.Context to interface methods
-	Storage      string // auto (cheapest legal backend per store) | a registered backend
+	Storage      string // auto (the cheapest legal tile per store) | a tile
+	Events       string // auto | a tile offering event-bus
 	Layout       string // flat | internal
 }
 
 func DefaultConfig() Config {
-	return Config{JSONTags: "snake", ContextFirst: true, Storage: "auto", Layout: "flat"}
+	return Config{JSONTags: "snake", ContextFirst: true, Storage: "auto", Events: "auto", Layout: "flat"}
 }
 
 var configChoices = map[string][]string{
 	"json-tags":     {"snake", "camel", "none"},
 	"context-first": {"yes", "no"},
-	"storage":       nil, // the registered backends; see choicesFor
+	"storage":       nil, // the tiles offering "store"; see choicesFor
+	"events":        nil, // the tiles offering "event-bus"
 	"layout":        {"flat", "internal"},
 }
 
@@ -82,6 +84,8 @@ func ParseConfig(form *Node) (Config, error) {
 			cfg.ContextFirst = val == "yes"
 		case "storage":
 			cfg.Storage = val
+		case "events":
+			cfg.Events = val
 		case "layout":
 			cfg.Layout = val
 		}
@@ -156,10 +160,28 @@ func exported(s string) bool {
 
 // choicesFor returns a config key's allowed values. Storage comes from the
 // backend registry, so a new backend needs no change here.
+// tileFor is the tile a config names for a capability, or "" for auto.
+func (c Config) tileFor(capability string) string {
+	switch capability {
+	case "store":
+		if c.Storage != "auto" {
+			return c.Storage
+		}
+	case "event-bus":
+		if c.Events != "auto" {
+			return c.Events
+		}
+	}
+	return ""
+}
+
 func choicesFor(key string) ([]string, bool) {
 	choices, ok := configChoices[key]
-	if key == "storage" {
-		choices = append([]string{"auto"}, backendNames()...)
+	switch key {
+	case "storage":
+		choices = append([]string{"auto"}, aliasesFor("store")...)
+	case "events":
+		choices = append([]string{"auto"}, aliasesFor("event-bus")...)
 	}
 	return choices, ok
 }

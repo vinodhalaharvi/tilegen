@@ -430,94 +430,70 @@ compares them with the spec. Nested modules (folders with their own
 `go.mod` is merged, never rewritten: versions are only raised, so
 `go mod tidy` results survive regeneration.
 
-## Choosing a backend
+## Choosing tiles
 
-A store says what it needs; tilegen picks how:
+A node says what it **needs**; tiles say what they **offer**. Where more
+than one tile offers a capability they compete, and the cheapest legal one
+wins. Storage and event buses work the same way, through the same solver:
 
 ```lisp
 (entity Order
-  ...
   (store get list save
-    (durable)))          ; must survive a restart
+    (durable)))              ; this data must survive a restart
 
-(config
-  (storage auto))        ; the default: the cheapest legal backend, per store
+(events
+  (cross-process)            ; handlers live in other processes
+  (event JobStarted (field JobID int64)))
 ```
 
-Each backend declares when it is illegal (memory: `(illegal-when (store
-durable) ...)`) and what it costs. With `auto`, every store gets the
-cheapest legal backend by cost times weight, so one project can use
-postgres for its durable orders and memory for its scratch sessions.
-An explicit `(storage memory)` still decides, but naming a backend that is
-illegal for some store is an error at the spec. Legality depends only on
-the spec, never on which tools are installed, so every machine chooses
-the same. See why:
-
-```
-$ tilegen explain examples/auto
-orders.OrderStore   needs: durable   chosen by: auto
-  chosen  postgres-sqlc   score 22   llm 3·4 + maint 2·3 + dep 3·1 + run 1·1
-          postgres-pgx    score 45   llm 7·4 + maint 5·3 + dep 1·1 + run 1·1
-  illegal memory          an in-memory map loses its data on restart
-
-sessions.SessionStore   needs: none   chosen by: auto
-  chosen  memory          score 12   llm 2·4 + maint 1·3 + dep 0·1 + run 1·1
-          ...
-```
-
-The choice is also recorded in `-dump` (`03-concretize.sexp`). Three
-backends are registered: `memory`, `postgres-sqlc` (tilegen writes SQL,
-sqlc writes Go) and `postgres-pgx` (tilegen writes the schema, the LLM
-writes the SQL, with the query sqlc would have used as a hint).
-
-### The policy: what your team values
-
-Tiles declare what they cost; a policy prices them. It lives beside the spec
-(any `.sexp` file in the folder) or in `-policy FILE`:
+Requirements are one shared vocabulary: `(durable)` means the same for a
+store and for a bus. Each tile declares when it cannot serve one:
 
 ```lisp
-(policy
-  (weights (llm-work 4) (maintenance 3) (dependency 1) (runtime 1) (uncertainty 5))
-  (prefer postgres-sqlc)                  ; break near-ties its way
-  (margin 8)                              ; how far behind "near" is
-  (avoid pgx "we standardised on sqlc"))  ; never choose it
+(tile local-bus
+  (offers event-bus)
+  (illegal-when (durable) "an in-process bus loses undelivered events on restart")
+  (illegal-when (cross-process) "an in-process bus only reaches handlers in this program")
+  (cost (llm-work 0) (maintenance 0) (dependency 0) (runtime 1)))
 ```
 
-The same spec then gives different teams different architectures, with no
-tile edited. A team that weighs LLM work heavily and prefers sqlc keeps sqlc
-even for an entity whose row-mapper is expensive; a team that weighs
-dependencies heavily, or avoids codegen, gets pgx everywhere, with the
-reason recorded:
+So the same spec gives you a `LocalBus` for a package whose events stay in
+the process and a `NatsBus` for one whose do not:
 
 ```
-  illegal postgres-sqlc   avoided by the policy: we do not want a codegen step in CI
+$ tilegen explain spec.sexp
+fleet.Bus   (event-bus)   needs: cross-process   chosen by: auto
+  chosen  nats-bus        score 35   llm 5·4 + maint 3·3 + dep 4·1 + run 2·1
+  illegal local-bus       an in-process bus only reaches handlers in this program
+
+local.Bus   (event-bus)   needs: none   chosen by: auto
+  chosen  local-bus       score 1    llm 0·4 + maint 0·3 + dep 0·1 + run 1·1
+          nats-bus        score 35   llm 5·4 + maint 3·3 + dep 4·1 + run 2·1
 ```
 
-`tilegen explain` prints the policy in force and, when a preference decided
-it, why. Weights price chain rules too, so a policy that discounts LLM work
-also discounts the row-mapper.
+Storage has three tiles: `memory`, `postgres-sqlc` (tilegen writes SQL, sqlc
+writes the Go) and `postgres-pgx` (tilegen writes the schema, the LLM writes
+the SQL). A config may name one for a capability, `(storage postgres)` or
+`(events nats)`, and then it decides, but naming one that is illegal for
+some node is an error at that node.
 
-### Pinning choices: tilegen.lock
+### How the covering is found
 
-Every choice is pinned in `tilegen.lock` in the generated project. Commit it,
-like `go.sum`:
+The cheapest covering is computed bottom-up, the way a compiler's
+instruction selector does it: the cost of covering a node is the tile's own
+cost, plus the cost of covering the children it delegates, plus any chain
+that converts its form to the one its parent wants. Doing it greedily would
+be locally right and globally wrong as soon as a tile's cost depends on its
+children's.
 
-```lisp
-(lock
-  (store orders.OrderStore (backend postgres))
-  (store profiles.ProfileStore (backend pgx))
-  (store sessions.SessionStore (backend memory)))
-```
+Four properties hold, and each has a test:
 
-A pinned choice sticks while it stays legal, so a spec change that makes
-another backend cheaper (say, new enum and nullable fields that raise
-sqlc's mapper cost) never silently moves a store and rewrites its code.
-`tilegen explain` shows the drift instead: *pinned by tilegen.lock; auto
-would now pick postgres-pgx (score 45). Run with -reselect to switch.* A pin
-that becomes illegal is re-selected with a warning pointing at its line.
-Delete a line, or run `tilegen -reselect`, to choose again; an explicit
-`(storage NAME)` wins and is recorded. `tilegen check` treats the lock like
-any generated file.
+| Property | What it means |
+|---|---|
+| Totality | every need is covered, or reported with every rejection and its reason |
+| Determinism | the same spec, policy and lock always give the same covering; ties break by tile name |
+| Legality before cost | an illegal tile is never scored, however cheap; legality depends only on the spec |
+| Optimality | among legal coverings, the chosen one is cheapest under the policy's weights, checked against brute-force enumeration |
 
 ### Chain rules
 
@@ -543,8 +519,8 @@ profiles.ProfileStore   needs: durable   chosen by: auto
   illegal memory          an in-memory map loses its data on restart
 ```
 
-`examples/auto` uses all three backends in one project. A backend whose form
-no chain converts to domain is illegal.
+`examples/auto` uses all three storage tiles in one project. A tile whose
+form no chain converts to domain is illegal.
 
 ## The tile registry
 
