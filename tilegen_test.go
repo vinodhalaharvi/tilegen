@@ -1,15 +1,19 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -3764,5 +3768,167 @@ print(n)
 	}
 	if n := strings.TrimSpace(string(b)); n != "7" {
 		t.Errorf("want 7 valid queries, got %q", n)
+	}
+}
+
+// ---- the HTTP service ----
+
+func serveRequest(t *testing.T, method, path, body, contentType string) *http.Response {
+	t.Helper()
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	rec := httptest.NewRecorder()
+	serveMux().ServeHTTP(rec, req)
+	return rec.Result()
+}
+
+const serveSpec = `(project bookmarks (module example.com/bookmarks) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package links
+    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable)))
+    (http (route GET "/links" (list Link)) (route GET "/links/{id}" (get Link)))))`
+
+func TestServeGenerateReturnsAZip(t *testing.T) {
+	res := serveRequest(t, "POST", "/generate", serveSpec, "")
+	if res.StatusCode != 200 {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("got %d: %s", res.StatusCode, b)
+	}
+	if cd := res.Header.Get("Content-Disposition"); !strings.Contains(cd, `"bookmarks.zip"`) {
+		t.Errorf("the zip should be named for the project: %q", cd)
+	}
+	if res.Header.Get("X-Tilegen-Holes") == "" {
+		t.Error("the response should say how many holes are open")
+	}
+	body, _ := io.ReadAll(res.Body)
+	z, err := zip.NewReader(bytes.NewReader(body), int64(len(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, f := range z.File {
+		got[f.Name] = true
+	}
+	for _, want := range []string{
+		"bookmarks/go.mod", "bookmarks/links/links_gen.go", "bookmarks/links/http_gen.go",
+		"bookmarks/links/postgres_link_store.go", "bookmarks/db/schema.sql", "bookmarks/sqlc.yaml",
+		"bookmarks/tilegen.tasks.json", "bookmarks/tilegen.lock", "bookmarks/GENERATED.md",
+	} {
+		if !got[want] {
+			t.Errorf("the zip is missing %s (has %v)", want, sortedKeys(got))
+		}
+	}
+	// The README tells you what the service deliberately did not run.
+	for _, f := range z.File {
+		if f.Name != "bookmarks/GENERATED.md" {
+			continue
+		}
+		rc, _ := f.Open()
+		b, _ := io.ReadAll(rc)
+		if !strings.Contains(string(b), "sqlc generate") || !strings.Contains(string(b), "go mod tidy") {
+			t.Errorf("GENERATED.md should say what to run next:\n%s", b)
+		}
+	}
+}
+
+func TestServeExplainAndPlan(t *testing.T) {
+	res := serveRequest(t, "POST", "/explain", `{"spec":`+strconv.Quote(serveSpec)+`}`, "application/json")
+	if res.StatusCode != 200 {
+		b, _ := io.ReadAll(res.Body)
+		t.Fatalf("explain: %d %s", res.StatusCode, b)
+	}
+	var ex ExplainJSON
+	json.NewDecoder(res.Body).Decode(&ex)
+	if len(ex.Coverage) != 1 || ex.Coverage[0].Need != "links.LinkStore" || ex.Coverage[0].Chosen == "" {
+		t.Errorf("explain: %+v", ex.Coverage)
+	}
+
+	res = serveRequest(t, "POST", "/plan", serveSpec, "")
+	var pl PlanJSON
+	json.NewDecoder(res.Body).Decode(&pl)
+	if res.StatusCode != 200 || len(pl.Levels) < 2 {
+		t.Errorf("plan: %d, %d levels", res.StatusCode, len(pl.Levels))
+	}
+
+	res = serveRequest(t, "GET", "/tiles", "", "")
+	var tiles TilesJSON
+	json.NewDecoder(res.Body).Decode(&tiles)
+	if res.StatusCode != 200 || len(tiles.Tiles) < 20 {
+		t.Errorf("tiles: %d, %d tiles", res.StatusCode, len(tiles.Tiles))
+	}
+}
+
+// TestServeRejectsBadInput: the input is untrusted, so every failure is a
+// clear message and a sensible status, never a panic or a hang.
+func TestServeRejectsBadInput(t *testing.T) {
+	for _, c := range []struct {
+		name, body, contentType string
+		want                    int
+		msg                     string
+	}{
+		{"empty", "", "", 400, "empty"},
+		{"not json", "{oops", "application/json", 400, "not valid JSON"},
+		{"no spec field", `{"config":"(config)"}`, "application/json", 400, "no spec"},
+		{"unparsable", "(project", "", 422, "unclosed"},
+		{"no project", "(package a)", "", 422, "nothing to generate"},
+		{"invalid spec", `(project p (module example.com/p) (go 1.22) (package a (entity E (store get))))`, "", 422, "needs an ID field"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			res := serveRequest(t, "POST", "/generate", c.body, c.contentType)
+			b, _ := io.ReadAll(res.Body)
+			if res.StatusCode != c.want {
+				t.Errorf("got %d, want %d: %s", res.StatusCode, c.want, b)
+			}
+			var e map[string]string
+			if json.Unmarshal(b, &e) != nil || !strings.Contains(strings.ToLower(e["error"]), strings.ToLower(c.msg)) {
+				t.Errorf("want an error mentioning %q, got %s", c.msg, b)
+			}
+		})
+	}
+	// A spec too large for a shared service is refused before any work.
+	var big strings.Builder
+	big.WriteString("(project p (module example.com/p) (go 1.22))\n")
+	for i := 0; i < maxPackages+5; i++ {
+		fmt.Fprintf(&big, "(package p%d)\n", i)
+	}
+	res := serveRequest(t, "POST", "/generate", big.String(), "")
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 422 || !strings.Contains(string(b), "the service takes up to") {
+		t.Errorf("an oversized spec should be refused: %d %s", res.StatusCode, b)
+	}
+}
+
+// TestServeWritesNothing: the service holds the plan in memory, so a
+// request must leave no file behind and run no command.
+func TestServeWritesNothing(t *testing.T) {
+	dir := t.TempDir()
+	wd, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(wd)
+
+	res := serveRequest(t, "POST", "/generate", serveSpec, "")
+	io.ReadAll(res.Body)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("the service wrote %v; it should write nothing", entries)
+	}
+}
+
+func TestServeIndex(t *testing.T) {
+	res := serveRequest(t, "GET", "/", "", "")
+	b, _ := io.ReadAll(res.Body)
+	if res.StatusCode != 200 || !strings.Contains(string(b), "<title>tilegen") {
+		t.Fatalf("index: %d", res.StatusCode)
+	}
+	if !strings.Contains(string(b), version) {
+		t.Error("the page should show the version")
+	}
+	if res := serveRequest(t, "GET", "/nope", "", ""); res.StatusCode != 404 {
+		t.Errorf("unknown path should be 404, got %d", res.StatusCode)
 	}
 }

@@ -45,6 +45,12 @@ type Options struct {
 func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "serve":
+			if err := serveCmd(os.Args[2:], os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "plan":
 			if err := planCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -122,6 +128,7 @@ func main() {
 			"       tilegen import [DIR]         lift an existing Go module into a spec\n"+
 			"       tilegen api IMPORT-PATH      the API surface a prompt carries for a package\n"+
 			"       tilegen plan [-dot] [SPEC]   what the plan makes, in dependency order\n"+
+			"       tilegen serve [-addr :8080]  a spec in, a project out, over HTTP\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
@@ -166,6 +173,20 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 	if err != nil {
 		return nil, err
 	}
+	return compileForms(forms, o, log)
+}
+
+// compileForms is compile once the spec has been read, so a caller that
+// already has the forms - the HTTP service, whose "files" are request
+// fields - runs exactly the same compiler.
+func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
+	if err := checkRegistry(); err != nil {
+		return nil, fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
+	}
+	if o.Runner == nil {
+		o.Runner = execRunner{log: log, dry: o.DryRun}
+	}
+	var err error
 	stages := []string{Dump(forms)}
 	linked, err := Merge(forms)
 	if err != nil {
