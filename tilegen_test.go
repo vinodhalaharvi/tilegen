@@ -3981,9 +3981,9 @@ func TestWorksWithoutTheGoToolchain(t *testing.T) {
 	}
 }
 
-// TestDocsExamplesGenerate: every example in the documentation that has a
-// "try this" button must actually generate, or the docs teach a spec that
-// does not work.
+// TestDocsExamplesGenerate: every example the documentation offers to open
+// in the editor must actually generate, or the docs teach a spec that does
+// not work.
 func TestDocsExamplesGenerate(t *testing.T) {
 	blocks := strings.Split(docsHTML, `<button class="try">`)
 	if len(blocks) < 8 {
@@ -3991,13 +3991,20 @@ func TestDocsExamplesGenerate(t *testing.T) {
 	}
 	for i := 1; i < len(blocks); i++ {
 		before := blocks[i-1]
-		start := strings.LastIndex(before, "<pre><code>")
-		end := strings.LastIndex(before, "</code></pre>")
-		if start < 0 || end < start {
-			t.Errorf("button %d has no example before it", i)
+		// The button follows the figure holding its spec; take the last
+		// spec block before it.
+		start := strings.LastIndex(before, `<code data-lang="sexp">`)
+		if start < 0 {
+			t.Errorf("button %d has no spec before it", i)
 			continue
 		}
-		spec := html.UnescapeString(before[start+len("<pre><code>") : end])
+		body := before[start+len(`<code data-lang="sexp">`):]
+		end := strings.Index(body, "</code>")
+		if end < 0 {
+			t.Errorf("button %d: unterminated spec block", i)
+			continue
+		}
+		spec := html.UnescapeString(body[:end])
 		t.Run(fmt.Sprintf("example%d", i), func(t *testing.T) {
 			dir := t.TempDir()
 			sp, _ := writeSpec(t, dir, spec, "")
