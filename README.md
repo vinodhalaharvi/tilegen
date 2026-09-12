@@ -476,6 +476,39 @@ from one computation, so they cannot disagree; a test checks that they
 report the same problems. `check -json` still exits non-zero on failure, so
 it works in CI either way.
 
+## As a service
+
+`tilegen serve` answers over HTTP: a spec in, a scaffolded project out.
+
+```sh
+tilegen serve                     # or PORT=8080, which Cloud Run sets
+curl -X POST localhost:8080/generate --data-binary @spec.sexp -o project.zip
+curl -X POST localhost:8080/explain -d @spec.sexp | jq .
+```
+
+| Route | What it does |
+|---|---|
+| `GET /` | a page: a spec on the left, the tile choices on the right, a download button |
+| `POST /generate` | the project as a zip, named for the spec's project |
+| `POST /explain` | which tile covered each need, with scores and rejections |
+| `POST /plan` | what the run makes, in dependency levels |
+| `GET /tiles` | the registry: capabilities, offers, costs |
+
+It accepts a raw S-expression body, or JSON with `spec`, `config`, `policy`
+and `name` fields.
+
+**It executes nothing.** Generation writes into a plan in memory, which the
+service zips directly, so no file is written and no command runs: no git,
+no sqlc, no build. Those belong to whoever downloads the zip, and the
+included `GENERATED.md` says which to run. Every request is bounded by body
+size, a timeout, and limits on how large a spec may be.
+
+Deploying it is one command, since it is stateless and scales to zero:
+
+```sh
+PROJECT=my-gcp-project deploy/cloudrun.sh
+```
+
 ## Two layers, kept apart
 
 tilegen is a scaffold, not a code generator that finishes the job. The

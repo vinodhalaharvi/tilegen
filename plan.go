@@ -117,3 +117,14 @@ func (r *Report) Apply() error {
 	}
 	return nil
 }
+
+// PlanFiles is every file the plan would write, by path. The HTTP service
+// zips these directly, so nothing is written to disk; the CLI applies
+// them instead.
+func (r *Report) PlanFiles() map[string][]byte {
+	out := make(map[string][]byte, len(r.staged))
+	for rel, data := range r.staged {
+		out[rel] = data
+	}
+	return out
+}
