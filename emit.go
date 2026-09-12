@@ -218,6 +218,13 @@ func finishGo(n *Node, full, rel, src string) ([]byte, error) {
 	}
 	final, err := imports.Process(full, buf.Bytes(), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
 	if err != nil {
+		// goimports needs the go command to resolve imports it has to
+		// guess at. tilegen does not guess: every import was added above
+		// from the spec, so when the toolchain is absent (the HTTP
+		// service runs in an image without one) gofmt alone is enough.
+		if strings.Contains(err.Error(), "go command required") {
+			return buf.Bytes(), nil
+		}
 		return nil, fmt.Errorf("goimports %s: %v", rel, err)
 	}
 	return final, nil

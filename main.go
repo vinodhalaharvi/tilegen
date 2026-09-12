@@ -17,6 +17,8 @@ import (
 	"strings"
 )
 
+//go:generate go run gen_std.go
+
 const version = "v0.3.0"
 
 // Pipeline is the ordered list of local tiling passes. Each maps
