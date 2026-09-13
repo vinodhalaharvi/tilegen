@@ -216,6 +216,17 @@ func planJSONFor(cp *compiled, rep *Report) any {
 
 func handleTiles(w http.ResponseWriter, r *http.Request) { respondJSON(w, tilesJSON(Registry())) }
 
+// usesSqlc reports whether the generated project is finished by running
+// sqlc, which is true when tilegen wrote an sqlc.yaml for it.
+func usesSqlc(rep *Report) bool {
+	for _, f := range append(append([]string{}, rep.Written...), rep.Kept...) {
+		if strings.HasSuffix(f, "sqlc.yaml") {
+			return true
+		}
+	}
+	return false
+}
+
 // handleGenerate returns the project as a zip, built from the plan in
 // memory. Nothing is written to disk and nothing is executed.
 func handleGenerate(w http.ResponseWriter, r *http.Request) {
@@ -243,6 +254,10 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", name+".zip"))
 	w.Header().Set("X-Tilegen-Holes", fmt.Sprint(rep.Tasks))
+	// Whether this project is finished by sqlc. A pgx project has a db/
+	// folder too - the schema - but no sqlc.yaml and nothing to generate,
+	// so "has a db/ folder" is the wrong thing to tell a reader.
+	w.Header().Set("X-Tilegen-Sqlc", fmt.Sprint(usesSqlc(rep)))
 	w.Write(buf.Bytes())
 }
 

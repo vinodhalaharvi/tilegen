@@ -811,7 +811,8 @@ $("download").onclick = async () => {
     show("Saved " + esc(name) + ". " + (res.headers.get("X-Tilegen-Holes") || "0") +
          " methods are yours to write, listed in tilegen.tasks.json.\n\n" +
          paintShell("unzip " + name + " && cd " + name.replace(/\.zip$/, "") + "\n" +
-                 "sqlc generate   # only if the project has a db/ folder\n" +
+                 (res.headers.get("X-Tilegen-Sqlc") === "true"
+                    ? "sqlc generate   # this project's queries are generated\n" : "") +
                  "go mod tidy\n" +
                  "go build ./..."));
   } catch (e) { plain(String(e)); }
