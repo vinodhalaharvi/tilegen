@@ -47,8 +47,7 @@ func bucketName(entity string) string { return lowerFirstWord(entity) + "s" }
 // boltHint says what each method has to do in bbolt's terms: a read is a
 // View, a write is an Update, and the value is JSON either way.
 func boltHint(meth *Node) string {
-	kind, f := methodOp(meth)
-	p := firstParam(meth)
+	kind, _ := methodOp(meth)
 	switch kind {
 	case "get":
 		return "In a View transaction, read the key from the bucket and unmarshal the JSON into the value. Return ErrNotFound when the key is absent."
@@ -60,8 +59,8 @@ func boltHint(meth *Node) string {
 		return "In an Update transaction, Delete the key. Deleting a missing key is not an error in bbolt."
 	case "count":
 		return "In a View transaction, return the bucket's Stats().KeyN."
-	case "list-by", "get-by", "count-by", "exists-by", "delete-by":
-		return fmt.Sprintf("Walk the bucket and test %s against %s on each value. A bucket is keyed by ID alone, so this is a scan.", f, p)
 	}
-	return ""
+	// The *-by ops never reach here: a bucket is keyed by ID alone, and
+	// illegal-when rules this tile out of any store that asks for one.
+	return customHint(meth)
 }
