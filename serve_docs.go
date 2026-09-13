@@ -775,6 +775,61 @@ var _ Assigner = (*RoundRobinAssigner)(nil)</code></pre>
 </div>
 </div>
 
+<div class="step"><h4>How far a policy reaches</h4>
+<p>There are two stores in this spec, and only one of them asked for anything.
+Tickets must survive a restart. Agents said nothing — no <code>(durable)</code>, no
+requirement of any kind. Here is what each was given:</p>
+<div class="pair">
+  <figure>
+    <figcaption>What would it do? — both stores, unchanged spec</figcaption>
+    <pre><code data-lang="sh">agents.AgentStore
+  kept in         sqlite-sqlc
+  ruled out       memory         — the policy requires sqlite-sqlc
+                                   (source: ops, the desk ships as
+                                   one binary to each customer)
+  cheapest, and preferred
+  (source: ops, the desk ships as one binary to each customer)
+
+tickets.TicketStore
+  you asked for   durable
+  kept in         sqlite-sqlc
+  ruled out       memory         — the policy requires sqlite-sqlc
+                                   (source: ops, the desk ships as
+                                   one binary to each customer)
+  cheapest, and preferred
+  (source: ops, the desk ships as one binary to each customer)</code></pre>
+  </figure>
+  <figure>
+    <figcaption>what each policy did to a store that asked for nothing</figcaption>
+    <pre><code data-lang="sh">this spec, with (strength required)
+  agents.AgentStore   kept in   sqlite-sqlc
+
+walkthrough two, with no strength line
+  carts.CartStore     kept in   memory</code></pre>
+    <figcaption style="margin-top:10px">agents/sqlite_agent_store.go — what it got instead of a map</figcaption>
+    <pre><code data-lang="go">type SqliteAgentStore struct {
+	q *db.Queries
+}
+
+func (s *SqliteAgentStore) GetByEmail(ctx context.Context, email string) (*Agent, error) {
+	panic("tilegen:hole agents.SqliteAgentStore.GetByEmail")
+}</code></pre>
+  </figure>
+</div>
+<p>Agents got sqlite even though nothing about agents needed it. That is what
+<code>required</code> means: ops did not say "prefer this where it fits", they said
+this machine ships as one binary, so a second way of storing things is not on the
+table anywhere in the project.</p>
+<p>Compare the shop in walkthrough two. That policy had no <code>strength</code> line,
+so it was a preference rather than a rule, and the cart — which also asked for
+nothing — stayed in memory. Same shape of spec, same shape of policy, opposite
+outcome, decided by one line.</p>
+<p>So: state a requirement on the data when the data needs it, and reach for
+<code>(strength required)</code> only when the constraint is about the whole project
+rather than about one store. The wider the policy, the fewer decisions are left to
+the thing that knows what each store actually does.</p>
+</div>
+
 <div class="step"><h4>The same spec, hosted instead of shipped</h4>
 <p>You stop shipping binaries and start hosting. One postgres, many tenants — and
 now the reporting service needs to hear about solved tickets, so the events must
