@@ -17,11 +17,12 @@ type Config struct {
 	ContextFirst bool   // prepend ctx context.Context to interface methods
 	Storage      string // auto (the cheapest legal tile per store) | a tile
 	Events       string // auto | a tile offering event-bus
+	Auth         string // auto | a tile offering auth
 	Layout       string // flat | internal
 }
 
 func DefaultConfig() Config {
-	return Config{JSONTags: "snake", ContextFirst: true, Storage: "auto", Events: "auto", Layout: "flat"}
+	return Config{JSONTags: "snake", ContextFirst: true, Storage: "auto", Events: "auto", Auth: "auto", Layout: "flat"}
 }
 
 var configChoices = map[string][]string{
@@ -29,6 +30,7 @@ var configChoices = map[string][]string{
 	"context-first": {"yes", "no"},
 	"storage":       nil, // the tiles offering "store"; see choicesFor
 	"events":        nil, // the tiles offering "event-bus"
+	"auth":          nil, // the tiles offering "auth"
 	"layout":        {"flat", "internal"},
 }
 
@@ -86,6 +88,8 @@ func ParseConfig(form *Node) (Config, error) {
 			cfg.Storage = val
 		case "events":
 			cfg.Events = val
+		case "auth":
+			cfg.Auth = val
 		case "layout":
 			cfg.Layout = val
 		}
@@ -171,6 +175,10 @@ func (c Config) tileFor(capability string) string {
 		if c.Events != "auto" {
 			return c.Events
 		}
+	case "auth":
+		if c.Auth != "auto" {
+			return c.Auth
+		}
 	}
 	return ""
 }
@@ -182,6 +190,8 @@ func choicesFor(key string) ([]string, bool) {
 		choices = append([]string{"auto"}, aliasesFor("store")...)
 	case "events":
 		choices = append([]string{"auto"}, aliasesFor("event-bus")...)
+	case "auth":
+		choices = append([]string{"auto"}, aliasesFor("auth")...)
 	}
 	return choices, ok
 }
