@@ -23,9 +23,10 @@ func init() {
 		Requirements: []string{"durable", "cross-process", "lookup-by-field", "no-broker"},
 	})
 	RegisterCapability(&Capability{
-		Name:         "event-bus",
-		Doc:          "delivers a package's events to handlers",
-		Requirements: []string{"durable", "cross-process", "replay", "no-broker"},
+		Name: "event-bus",
+		Doc:  "delivers a package's events to handlers",
+		Requirements: []string{"durable", "cross-process", "replay", "ordered",
+			"at-least-once", "fan-out", "consumer-groups", "no-broker"},
 	})
 }
 

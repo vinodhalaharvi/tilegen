@@ -36,9 +36,11 @@ func init() {
 		Doc:        "in-process bus: synchronous delivery, ordered, errors joined",
 		Cost:       Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalFor: map[string]string{
-			"durable":       "an in-process bus loses undelivered events on restart",
-			"replay":        "nothing is kept: a handler that subscribes later sees only what comes next",
-			"cross-process": "an in-process bus only reaches handlers in this program",
+			"durable":         "an in-process bus loses undelivered events on restart",
+			"replay":          "nothing is kept: a handler that subscribes later sees only what comes next",
+			"cross-process":   "an in-process bus only reaches handlers in this program",
+			"consumer-groups": "every handler is called for every event; there is no way to compete for one",
+			"at-least-once":   "a handler that returns an error is not called again: the error is joined and returned to the publisher",
 		},
 		Impl: &BusTransport{Suffix: "LocalBus", Emit: emitLocalBus},
 	})
