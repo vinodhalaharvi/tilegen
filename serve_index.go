@@ -99,6 +99,10 @@ const indexHTML = `<!doctype html>
   .top nav button[aria-selected=true] { color:var(--hi); border-color:var(--rule); background:var(--panel); }
   .top a.src { color:var(--dim); font-size:13px; text-decoration:none; }
 
+  /* #start and #try set display with an id selector, which outranks the
+     browser's [hidden] rule, so both panes rendered at once and stacked on
+     top of each other. Restate hiding at the same specificity. */
+  #start[hidden], #try[hidden], #docs[hidden] { display:none; }
   #try { display:grid; grid-template-columns:1fr 1fr; height:calc(100vh - 98px); }
   #try > div { display:flex; flex-direction:column; min-width:0; }
   #try > div + div { border-left:1px solid var(--rule); }
@@ -106,18 +110,22 @@ const indexHTML = `<!doctype html>
          border-bottom:1px solid var(--rule); color:var(--dim); font-size:12px; }
   .bar strong { color:var(--fg); font-weight:600; }
   .bar .fill { margin-left:auto; }
+  .pill { font:inherit; font-size:11px; line-height:1; padding:4px 9px; cursor:pointer;
+        border:1px solid var(--rule); border-radius:999px; background:none; color:var(--dim); }
+  .pill:hover { border-color:var(--kw); color:var(--kw); }
+  .pill.done { border-color:var(--str); color:var(--str); }
   /* The editor is a textarea, which cannot colour its own text, so a painted
      <pre> sits behind it carrying identical metrics and the textarea's own
      text is made transparent. Every rule below is shared by both to keep the
      two layers on exactly the same grid. */
   .editor { position:relative; flex:1; min-height:0; }
-  #spec, #spec-hi { position:absolute; inset:0; margin:0; padding:14px 16px; border:0;
-        overflow:auto; background:none; font:inherit; line-height:1.65; tab-size:2;
+  #spec, #spec-hi, #f-spec, #f-hi { position:absolute; inset:0; margin:0; padding:14px 16px;
+        border:0; overflow:auto; background:none; font:inherit; line-height:1.65; tab-size:2;
         white-space:pre-wrap; overflow-wrap:break-word; }
-  #spec-hi { pointer-events:none; color:var(--fg); }
-  #spec { resize:none; outline:none; color:transparent; caret-color:var(--fg);
+  #spec-hi, #f-hi { pointer-events:none; color:var(--fg); }
+  #spec, #f-spec { resize:none; outline:none; color:transparent; caret-color:var(--fg);
         -webkit-text-fill-color:transparent; }
-  #spec::selection { background:var(--kw); color:transparent; }
+  #spec::selection, #f-spec::selection { background:var(--kw); color:transparent; }
   #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
         color:var(--fg); font:inherit; line-height:1.65; tab-size:2; }
   #out { white-space:pre-wrap; }
@@ -162,11 +170,11 @@ const indexHTML = `<!doctype html>
                        display:flex; align-items:center; gap:6px; }
   #start .opts input { accent-color:var(--kw); margin:0; }
   #start .hint { color:var(--mark); font-size:12px; margin:8px 0 0; }
-  #f-out { white-space:pre-wrap; }
+  #f-curl { white-space:pre-wrap; margin:0; padding:14px 16px; overflow:auto; }
   @media (max-width:900px) {
     #start { grid-template-columns:1fr; height:auto; }
     #start > div + div { border-left:0; border-top:1px solid var(--rule); }
-    #f-out { min-height:30vh; }
+    #start .editor { min-height:30vh; }
   }
   .doc { max-width:74rem; margin:0 auto; }
   .lede { margin:40px 0 4px; max-width:46rem; }
@@ -318,11 +326,17 @@ const indexHTML = `<!doctype html>
   <div>
     <div class="bar">
       <strong>the spec those answers make</strong><span class="fill"></span>
+      <button class="pill" data-copy="f-spec">Copy</button>
+      <button class="pill" id="f-rebuild" hidden>Rebuild from the form</button>
       <button class="btn go" id="f-open">Open in the editor</button>
     </div>
-    <pre id="f-out"></pre>
+    <div class="editor">
+      <pre id="f-hi" aria-hidden="true"></pre>
+      <textarea id="f-spec" spellcheck="false"></textarea>
+    </div>
     <div class="bar" style="border-top:1px solid var(--rule)">
-      <strong>the same thing, from a terminal</strong>
+      <strong>the same thing, from a terminal</strong><span class="fill"></span>
+      <button class="pill" data-copy="f-curl">Copy</button>
     </div>
     <pre id="f-curl"></pre>
   </div>
@@ -332,6 +346,8 @@ const indexHTML = `<!doctype html>
   <div>
     <div class="bar">
       <strong>spec — yours to edit</strong><span class="fill"></span>
+      <button class="pill" data-copy="spec">Copy</button>
+      <button class="pill" id="spec-clear">Clear</button>
       <button class="btn" id="explain">What would it do?</button>
       <button class="btn go" id="download">Download project</button>
     </div>
@@ -341,7 +357,9 @@ const indexHTML = `<!doctype html>
     </div>
   </div>
   <div>
-    <div class="bar"><strong id="title">result</strong></div>
+    <div class="bar"><strong id="title">result</strong><span class="fill"></span>
+      <button class="pill" data-copy="out">Copy</button>
+    </div>
     <pre id="out">Edit the spec, then press What would it do? to see how each store
 will be kept, or Download project for the whole thing as a zip.
 
@@ -601,9 +619,48 @@ function refresh() {
     "A map does not survive a restart, so tilegen will refuse this pair and " +
     "say so. Press What would it do? to see the message.";
   const spec = buildSpec();
-  $("f-out").innerHTML = paintSexp(spec);
-  // The same two questions this page asks, asked from a shell. location.origin
-  // so the commands are right for wherever this copy happens to be served.
+  if (!fEdited) {
+    fSpec.value = spec;
+    paintF();
+  }
+  return fEdited ? fSpec.value : spec;
+}
+
+$("start").addEventListener("input", refresh);
+$("start").addEventListener("change", refresh);
+$("f-open").onclick = () => { $("spec").value = refresh(); paintEditor(); tab("try"); };
+
+document.querySelectorAll("button.try").forEach(b => {
+  b.onclick = () => {
+    let el = b.previousElementSibling;
+    while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
+    if (!el) return;
+    $("spec").value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
+    paintEditor();
+    tab("try"); $("explain").click();
+  };
+});
+
+// The builder writes this spec, and you can then edit it by hand. Once you
+// have, the form stops overwriting what you typed: it offers to rebuild
+// instead, so a stray click on a radio button cannot delete your work.
+let fEdited = false;
+const fSpec = $("f-spec"), fHi = $("f-hi");
+
+function paintF() {
+  fHi.innerHTML = paintSexp(fSpec.value + "\n");
+  fHi.scrollTop = fSpec.scrollTop;
+  fHi.scrollLeft = fSpec.scrollLeft;
+  paintCurl(fSpec.value);
+}
+fSpec.addEventListener("input", () => { fEdited = true; $("f-rebuild").hidden = false; paintF(); });
+fSpec.addEventListener("scroll", () => {
+  fHi.scrollTop = fSpec.scrollTop;
+  fHi.scrollLeft = fSpec.scrollLeft;
+});
+$("f-rebuild").onclick = () => { fEdited = false; $("f-rebuild").hidden = true; refresh(); };
+
+function paintCurl(spec) {
   $("f-curl").innerHTML =
     paintShell("# writes the spec above to spec.sexp, then asks the same\n" +
                "# two questions this page asks\n" +
@@ -617,26 +674,24 @@ function refresh() {
                "# the project itself, as a zip\n" +
                "curl -X POST " + location.origin +
                "/generate --data-binary @spec.sexp -o project.zip");
-  return spec;
 }
 
-$("start").addEventListener("input", refresh);
-$("start").addEventListener("change", refresh);
-$("f-open").onclick = () => { $("spec").value = refresh(); paintEditor(); tab("try"); };
-refresh();
-
-document.querySelectorAll("button.try").forEach(b => {
-  b.onclick = () => {
-    let el = b.previousElementSibling;
-    while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
-    if (!el) return;
-    $("spec").value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
-    paintEditor();
-    tab("try"); $("explain").click();
+// Copy and Clear, on whichever pane the button names.
+document.querySelectorAll(".pill[data-copy]").forEach(b => {
+  b.onclick = async () => {
+    const el = $(b.dataset.copy);
+    const text = "value" in el ? el.value : el.textContent;
+    try { await navigator.clipboard.writeText(text); }
+    catch (e) {
+      const t = document.createElement("textarea");
+      t.value = text; document.body.appendChild(t); t.select();
+      document.execCommand("copy"); t.remove();
+    }
+    b.textContent = "Copied"; b.classList.add("done");
+    setTimeout(() => { b.textContent = "Copy"; b.classList.remove("done"); }, 1200);
   };
 });
-
-const out = $("out"), title = $("title");
+$("spec-clear").onclick = () => { $("spec").value = ""; paintEditor(); $("spec").focus(); };
 
 // Keep the painted layer under the caret in step with what is typed. The
 // trailing newline stops the last line scrolling out of step, and the scroll
@@ -653,6 +708,10 @@ specEl.addEventListener("scroll", () => {
   specHi.scrollLeft = specEl.scrollLeft;
 });
 paintEditor();
+// After every declaration above exists: the builder fills its editor once.
+refresh();
+
+const out = $("out"), title = $("title");
 const show = html => { out.innerHTML = html; };
 const plain = text => { out.textContent = text; };
 
