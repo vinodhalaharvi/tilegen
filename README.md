@@ -28,13 +28,33 @@ stage in `<out>/.tilegen/` - the same idea as `GOSSAFUNC` in the Go compiler.
 
 ## Quick start
 
+Go is the only prerequisite. `go.mod` asks for 1.26, and any Go 1.21 or
+newer fetches that automatically the first time you build, so you do not
+have to install it by hand.
+
 ```sh
 go install github.com/vinodhalaharvi/tilegen@latest
 tilegen -config examples/shop/config.sexp -out out/shop -dump examples/shop/spec.sexp
 cd out/shop && go mod tidy && go build ./...   # compiles; bodies panic until filled
 ```
 
-Or from a clone: `make demo`, `make dump`, `make help`.
+Or from a clone, which is what you want in order to read the passes or write
+a tile:
+
+```sh
+git clone https://github.com/vinodhalaharvi/tilegen.git && cd tilegen
+make build && make check      # build, then everything CI runs
+make demo                     # generate examples/shop and prove it compiles
+make dump                     # the S-expression after every pass
+make help                     # every target
+```
+
+Two guides go deeper:
+
+- **[docs/RUNNING.md](docs/RUNNING.md)** - setting up locally, every make
+  target, what each generated file is, the sqlc paths, and troubleshooting.
+- **[docs/TILES.md](docs/TILES.md)** - the tile registry in full, worked
+  selections with real numbers, the cost model, and how to write a tile.
 
 ## The spec
 
@@ -793,7 +813,8 @@ profiles.ProfileStore   needs: durable   chosen by: auto
 ```
 
 `examples/auto` uses all three storage tiles in one project. A tile whose
-form no chain converts to domain is illegal.
+form no chain converts to domain is illegal. [docs/TILES.md](docs/TILES.md)
+works through that example store by store, with the mapper arithmetic.
 
 ## The tile registry
 
@@ -819,8 +840,14 @@ written as data:
   (cost (llm-work 10) (uncertainty 10)))
 ```
 
-Costs are declared but not yet used: selection is still maximal munch plus
-the config. Choosing the cheapest legal tile is next on the roadmap.
+Costs are live: where several tiles offer one capability, the cheapest legal
+one wins under the policy's weights, and `tilegen explain` shows the
+arithmetic. Structural tiles are still covered by maximal munch, since
+nothing competes with them. What remains is replacing *declared* LLM costs
+with measured ones, which is what v0.4 is for.
+
+The registry, the cost model and the chain rules are documented in full,
+with worked examples, in **[docs/TILES.md](docs/TILES.md)**.
 
 ## Writing a tile
 
