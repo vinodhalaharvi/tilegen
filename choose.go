@@ -12,9 +12,9 @@ import (
 // needs, applies the lock and the config, and renders what was chosen.
 
 // defaultWeights turn a cost into a score; a policy replaces them.
-var defaultWeights = map[string]int{"llm-work": 4, "maintenance": 3, "dependency": 1, "runtime": 1, "uncertainty": 5}
+var defaultWeights = map[string]int{"llm-work": 4, "maintenance": 3, "dependency": 1, "runtime": 1, "operations": 3, "uncertainty": 5}
 
-var weightOrder = []string{"llm-work", "maintenance", "dependency", "runtime", "uncertainty"}
+var weightOrder = []string{"llm-work", "maintenance", "dependency", "runtime", "operations", "uncertainty"}
 
 func score(c Cost) (int, string) { return DefaultPolicy().score(c) }
 

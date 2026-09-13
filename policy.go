@@ -10,7 +10,8 @@ import (
 )
 
 // (policy
-//   (weights (llm-work 4) (maintenance 3) (dependency 1) (runtime 1) (uncertainty 5))
+//   (weights (llm-work 4) (maintenance 3) (dependency 1) (runtime 1)
+//            (operations 3) (uncertainty 5))
 //   (prefer postgres-sqlc)                       ; break near-ties in its favour
 //   (avoid pgx "we standardised on sqlc"))       ; never choose it; explicit use is an error
 //

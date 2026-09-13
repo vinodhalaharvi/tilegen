@@ -15,11 +15,15 @@ func init() {
 		Form:     "db-rows", // sqlc's own row types: a row-mapper converts them
 		Doc:      "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
 		Requires: []string{"sqlc"},
+		IllegalWhen: map[string]string{
+			"no-broker": "a postgres to run, with backups, connections and upgrades",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "the LLM writes only row-to-domain mapping; sqlc writes the queries"},
 			{Dim: "maintenance", Value: 2},
 			{Dim: "dependency", Value: 3, Source: "derived", Note: "pgx, plus sqlc as a build-time tool"},
 			{Dim: "runtime", Value: 1},
+			{Dim: "operations", Value: 5, Source: "derived", Note: "a server to run, plus sqlc in the build"},
 		},
 		Topics:       []string{"postgres", "sqlc"},
 		ErrorPackage: "github.com/jackc/pgx/v5/pgconn", // PgError and its SQLSTATE codes

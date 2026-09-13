@@ -16,12 +16,16 @@ func init() {
 		// for (list-by X) and friends, so a store that can only find things
 		// by their key can say so and be ruled out rather than chosen and
 		// then worked around.
-		Requirements: []string{"durable", "cross-process", "lookup-by-field"},
+		// no-broker is the other direction: not a capability a tile must
+		// have, but a constraint a heavy one fails. Without it nothing ever
+		// rules out the most capable answer, and the most capable answer is
+		// usually the most expensive thing to run.
+		Requirements: []string{"durable", "cross-process", "lookup-by-field", "no-broker"},
 	})
 	RegisterCapability(&Capability{
 		Name:         "event-bus",
 		Doc:          "delivers a package's events to handlers",
-		Requirements: []string{"durable", "cross-process"},
+		Requirements: []string{"durable", "cross-process", "replay", "no-broker"},
 	})
 }
 
