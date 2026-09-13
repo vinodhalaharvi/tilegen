@@ -106,14 +106,25 @@ const indexHTML = `<!doctype html>
          border-bottom:1px solid var(--rule); color:var(--dim); font-size:12px; }
   .bar strong { color:var(--fg); font-weight:600; }
   .bar .fill { margin-left:auto; }
-  #spec, #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
+  /* The editor is a textarea, which cannot colour its own text, so a painted
+     <pre> sits behind it carrying identical metrics and the textarea's own
+     text is made transparent. Every rule below is shared by both to keep the
+     two layers on exactly the same grid. */
+  .editor { position:relative; flex:1; min-height:0; }
+  #spec, #spec-hi { position:absolute; inset:0; margin:0; padding:14px 16px; border:0;
+        overflow:auto; background:none; font:inherit; line-height:1.65; tab-size:2;
+        white-space:pre-wrap; overflow-wrap:break-word; }
+  #spec-hi { pointer-events:none; color:var(--fg); }
+  #spec { resize:none; outline:none; color:transparent; caret-color:var(--fg);
+        -webkit-text-fill-color:transparent; }
+  #spec::selection { background:var(--kw); color:transparent; }
+  #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
         color:var(--fg); font:inherit; line-height:1.65; tab-size:2; }
-  #spec { resize:none; outline:none; }
   #out { white-space:pre-wrap; }
   @media (max-width:900px) {
     #try { grid-template-columns:1fr; height:auto; }
     #try > div + div { border-left:0; border-top:1px solid var(--rule); }
-    #spec { min-height:44vh; } #out { min-height:26vh; }
+    .editor { min-height:44vh; } #out { min-height:26vh; }
   }
   @media (max-width:620px) {
     .top { gap:12px; padding:12px 14px; }
@@ -306,7 +317,7 @@ const indexHTML = `<!doctype html>
   </div>
   <div>
     <div class="bar">
-      <strong>your spec</strong><span class="fill"></span>
+      <strong>the spec those answers make</strong><span class="fill"></span>
       <button class="btn go" id="f-open">Open in the editor</button>
     </div>
     <pre id="f-out"></pre>
@@ -320,11 +331,14 @@ const indexHTML = `<!doctype html>
 <main id="try">
   <div>
     <div class="bar">
-      <strong>spec</strong><span class="fill"></span>
+      <strong>spec — yours to edit</strong><span class="fill"></span>
       <button class="btn" id="explain">What would it do?</button>
       <button class="btn go" id="download">Download project</button>
     </div>
-    <textarea id="spec" spellcheck="false">` + exampleSpec + `</textarea>
+    <div class="editor">
+      <pre id="spec-hi" aria-hidden="true"></pre>
+      <textarea id="spec" spellcheck="false">` + exampleSpec + `</textarea>
+    </div>
   </div>
   <div>
     <div class="bar"><strong id="title">result</strong></div>
@@ -590,19 +604,25 @@ function refresh() {
   $("f-out").innerHTML = paintSexp(spec);
   // The same two questions this page asks, asked from a shell. location.origin
   // so the commands are right for wherever this copy happens to be served.
-  $("f-curl").innerHTML = paintShell(
-    "# save the spec above as spec.sexp, then ask the same two questions\n" +
-    "curl -X POST " + location.origin + "/explain \\\n" +
-    "  --data-binary @spec.sexp\n" +
-    "\n" +
-    "curl -X POST " + location.origin + "/generate \\\n" +
-    "  --data-binary @spec.sexp -o project.zip");
+  $("f-curl").innerHTML =
+    paintShell("# writes the spec above to spec.sexp, then asks the same\n" +
+               "# two questions this page asks\n" +
+               "cat > spec.sexp <<'EOF'") + "\n" +
+    paintSexp(spec.replace(/\s*$/, "")) + "\n" +
+    paintShell("EOF\n" +
+               "\n" +
+               "# what would it do?\n" +
+               "curl -X POST " + location.origin + "/explain --data-binary @spec.sexp\n" +
+               "\n" +
+               "# the project itself, as a zip\n" +
+               "curl -X POST " + location.origin +
+               "/generate --data-binary @spec.sexp -o project.zip");
   return spec;
 }
 
 $("start").addEventListener("input", refresh);
 $("start").addEventListener("change", refresh);
-$("f-open").onclick = () => { $("spec").value = refresh(); tab("try"); };
+$("f-open").onclick = () => { $("spec").value = refresh(); paintEditor(); tab("try"); };
 refresh();
 
 document.querySelectorAll("button.try").forEach(b => {
@@ -611,11 +631,28 @@ document.querySelectorAll("button.try").forEach(b => {
     while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
     if (!el) return;
     $("spec").value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
+    paintEditor();
     tab("try"); $("explain").click();
   };
 });
 
 const out = $("out"), title = $("title");
+
+// Keep the painted layer under the caret in step with what is typed. The
+// trailing newline stops the last line scrolling out of step, and the scroll
+// position is copied because only the textarea receives the wheel.
+const specEl = $("spec"), specHi = $("spec-hi");
+function paintEditor() {
+  specHi.innerHTML = paintSexp(specEl.value + "\n");
+  specHi.scrollTop = specEl.scrollTop;
+  specHi.scrollLeft = specEl.scrollLeft;
+}
+specEl.addEventListener("input", paintEditor);
+specEl.addEventListener("scroll", () => {
+  specHi.scrollTop = specEl.scrollTop;
+  specHi.scrollLeft = specEl.scrollLeft;
+});
+paintEditor();
 const show = html => { out.innerHTML = html; };
 const plain = text => { out.textContent = text; };
 
