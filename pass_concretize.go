@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path"
 	"strconv"
 )
 
@@ -35,7 +36,18 @@ func concretizePackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if m.C.Cfg.Layout == "internal" {
 		dir = "internal/" + name
 	}
-	items, err := m.Sub(b.Rest("items")...) // the leaves of this tile
+	// A package may say where it goes. The layout is a house style for
+	// packages that do not care; one that does, says so, and "." is how a
+	// spec generates into the root of an existing module.
+	var rest []*Node
+	for _, it := range b.Rest("items") {
+		if it.Head() == "dir" && len(it.List) == 2 {
+			dir = path.Clean(it.List[1].Atom)
+			continue
+		}
+		rest = append(rest, it)
+	}
+	items, err := m.Sub(rest...) // the leaves of this tile
 	if err != nil {
 		return nil, err
 	}
