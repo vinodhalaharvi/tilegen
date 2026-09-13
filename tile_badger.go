@@ -48,8 +48,7 @@ func (s *badgerTile) Implement(in StoreInput) (StoreParts, error) {
 }
 
 func (s *badgerTile) Hint(meth *Node) string {
-	kind, f := methodOp(meth)
-	p := firstParam(meth)
+	kind, _ := methodOp(meth)
 	switch kind {
 	case "get":
 		return "Fetch the value at s.prefix+id inside a s.db.View transaction, JSON-unmarshal its bytes into a fresh entity, and return it. Map badger.ErrKeyNotFound to ErrNotFound."
@@ -61,16 +60,8 @@ func (s *badgerTile) Hint(meth *Node) string {
 		return "Delete s.prefix+id inside a s.db.Update transaction. badger.ErrKeyNotFound is not an error: deleting an absent key is a no-op."
 	case "count":
 		return "In a s.db.View transaction, iterate with an IteratorOptions whose PrefetchValues is false over prefix []byte(s.prefix), and count the keys."
-	case "list-by":
-		return fmt.Sprintf("In a s.db.View transaction, iterate values under prefix []byte(s.prefix), JSON-unmarshal each into a fresh entity, keep those whose %s equals %s, and return the kept slice sorted by ID.", f, p)
-	case "get-by":
-		return fmt.Sprintf("In a s.db.View transaction, iterate values under prefix []byte(s.prefix), JSON-unmarshal each, and return the entity with the lowest ID whose %s equals %s. Return ErrNotFound when none matches.", f, p)
-	case "count-by":
-		return fmt.Sprintf("In a s.db.View transaction, iterate values under prefix []byte(s.prefix), JSON-unmarshal each, and count those whose %s equals %s.", f, p)
-	case "exists-by":
-		return fmt.Sprintf("In a s.db.View transaction, iterate values under prefix []byte(s.prefix), JSON-unmarshal each, and return true as soon as one has %s equal to %s.", f, p)
-	case "delete-by":
-		return fmt.Sprintf("In a s.db.Update transaction, iterate values under prefix []byte(s.prefix), JSON-unmarshal each, and txn.Delete the key of every entity whose %s equals %s.", f, p)
 	}
+	// The *-by ops never reach here: badger is keyed by ID alone, and
+	// illegal-when rules this tile out of any store that asks for one.
 	return customHint(meth)
 }
