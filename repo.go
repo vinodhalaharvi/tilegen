@@ -210,8 +210,13 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 		topics = append(topics, be.Topics...)
 	}
 	for _, o := range c.Used {
-		if tr, ok := o.Impl.(*BusTransport); ok {
-			topics = append(topics, tr.Topics...)
+		switch impl := o.Impl.(type) {
+		case *BusTransport:
+			topics = append(topics, impl.Topics...)
+		case *AuthScheme:
+			topics = append(topics, impl.Topics...)
+		case *Transport:
+			topics = append(topics, impl.Topics...)
 		}
 	}
 	seen := map[string]bool{}
