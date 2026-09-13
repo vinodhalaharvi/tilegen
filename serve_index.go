@@ -99,13 +99,10 @@ const indexHTML = `<!doctype html>
   .top nav button[aria-selected=true] { color:var(--hi); border-color:var(--rule); background:var(--panel); }
   .top a.src { color:var(--dim); font-size:13px; text-decoration:none; }
 
-  /* #start and #try set display with an id selector, which outranks the
-     browser's [hidden] rule, so both panes rendered at once and stacked on
-     top of each other. Restate hiding at the same specificity. */
-  #start[hidden], #try[hidden], #docs[hidden] { display:none; }
-  #try { display:grid; grid-template-columns:1fr 1fr; height:calc(100vh - 98px); }
-  #try > div { display:flex; flex-direction:column; min-width:0; }
-  #try > div + div { border-left:1px solid var(--rule); }
+  /* #start sets display with an id selector, which outranks the browser's
+     [hidden] rule, so hiding a tab did nothing and the panes stacked on top
+     of each other. Restate hiding at the same specificity. */
+  #start[hidden], #docs[hidden] { display:none; }
   .bar { display:flex; gap:8px; align-items:center; padding:8px 14px;
          border-bottom:1px solid var(--rule); color:var(--dim); font-size:12px; }
   .bar strong { color:var(--fg); font-weight:600; }
@@ -119,21 +116,23 @@ const indexHTML = `<!doctype html>
      text is made transparent. Every rule below is shared by both to keep the
      two layers on exactly the same grid. */
   .editor { position:relative; flex:1; min-height:0; }
-  #spec, #spec-hi, #f-spec, #f-hi { position:absolute; inset:0; margin:0; padding:14px 16px;
+  #f-spec, #f-hi { position:absolute; inset:0; margin:0; padding:14px 16px;
         border:0; overflow:auto; background:none; font:inherit; line-height:1.65; tab-size:2;
         white-space:pre-wrap; overflow-wrap:break-word; }
-  #spec-hi, #f-hi { pointer-events:none; color:var(--fg); }
-  #spec, #f-spec { resize:none; outline:none; color:transparent; caret-color:var(--fg);
+  #f-hi { pointer-events:none; color:var(--fg); }
+  #f-spec { resize:none; outline:none; color:transparent; caret-color:var(--fg);
         -webkit-text-fill-color:transparent; }
-  #spec::selection, #f-spec::selection { background:var(--kw); color:transparent; }
+  #f-spec::selection { background:var(--kw); color:transparent; }
   #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
-        color:var(--fg); font:inherit; line-height:1.65; tab-size:2; }
-  #out { white-space:pre-wrap; }
-  @media (max-width:900px) {
-    #try { grid-template-columns:1fr; height:auto; }
-    #try > div + div { border-left:0; border-top:1px solid var(--rule); }
-    .editor { min-height:44vh; } #out { min-height:26vh; }
-  }
+        color:var(--fg); font:inherit; line-height:1.65; tab-size:2; white-space:pre-wrap; }
+  /* The terminal block folds away so the spec gets the height instead. */
+  #term { border-top:1px solid var(--rule); }
+  #term > summary { padding:8px 14px; cursor:pointer; color:var(--fg); font-size:12px;
+        font-weight:600; }
+  #term[open] > summary { border-bottom:1px solid var(--rule); }
+  #term .bar { border-bottom:0; padding-bottom:0; }
+  #f-curl { white-space:pre-wrap; margin:0; padding:10px 16px 14px; overflow:auto;
+        max-height:30vh; }
   @media (max-width:620px) {
     .top { gap:12px; padding:12px 14px; }
     .top .tag { display:none; }
@@ -147,8 +146,10 @@ const indexHTML = `<!doctype html>
 
   #docs { padding:0 22px 90px; }
 
-  /* The builder: plain controls, two columns, same furniture as #try. */
-  #start { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+  /* The builder is the whole app: answer the form on the left, the spec it
+     makes in the middle (the widest column, and the one you edit), what
+     tilegen would do on the right. */
+  #start { display:grid; grid-template-columns:minmax(260px,22rem) minmax(0,1.4fr) minmax(0,1fr);
            height:calc(100vh - 98px); }
   #start > div { display:flex; flex-direction:column; min-width:0; }
   #start > div + div { border-left:1px solid var(--rule); }
@@ -170,11 +171,16 @@ const indexHTML = `<!doctype html>
                        display:flex; align-items:center; gap:6px; }
   #start .opts input { accent-color:var(--kw); margin:0; }
   #start .hint { color:var(--mark); font-size:12px; margin:8px 0 0; }
-  #f-curl { white-space:pre-wrap; margin:0; padding:14px 16px; overflow:auto; }
+  @media (max-width:1200px) {
+    #start { grid-template-columns:minmax(240px,20rem) minmax(0,1fr); }
+    #start > div:nth-child(3) { grid-column:1 / -1; border-left:0;
+          border-top:1px solid var(--rule); min-height:26vh; }
+  }
   @media (max-width:900px) {
     #start { grid-template-columns:1fr; height:auto; }
     #start > div + div { border-left:0; border-top:1px solid var(--rule); }
-    #start .editor { min-height:30vh; }
+    #start .editor { min-height:52vh; }
+    #start > div:nth-child(3) { grid-column:auto; }
   }
   .doc { max-width:74rem; margin:0 auto; }
   .lede { margin:40px 0 4px; max-width:46rem; }
@@ -233,14 +239,13 @@ const indexHTML = `<!doctype html>
   <span class="wordmark">tilegen</span>
   <span class="tag">describe a Go service, get the project</span>
   <nav>
-    <button id="tab-start" aria-selected="false">Start</button>
-    <button id="tab-try" aria-selected="true">Try it</button>
+    <button id="tab-start" aria-selected="true">Build</button>
     <button id="tab-docs" aria-selected="false">Docs</button>
   </nav>
   <a class="src" href="https://github.com/vinodhalaharvi/tilegen">source</a>
 </div>
 
-<main id="start" hidden>
+<main id="start">
   <div>
     <div class="bar"><strong>answer a few questions</strong></div>
     <div class="form">
@@ -327,38 +332,27 @@ const indexHTML = `<!doctype html>
     <div class="bar">
       <strong>the spec those answers make</strong><span class="fill"></span>
       <button class="pill" data-copy="f-spec">Copy</button>
+      <button class="pill" id="spec-clear">Clear</button>
       <button class="pill" id="f-rebuild" hidden>Rebuild from the form</button>
-      <button class="btn go" id="f-open">Open in the editor</button>
     </div>
     <div class="editor">
       <pre id="f-hi" aria-hidden="true"></pre>
       <textarea id="f-spec" spellcheck="false"></textarea>
     </div>
-    <div class="bar" style="border-top:1px solid var(--rule)">
-      <strong>the same thing, from a terminal</strong><span class="fill"></span>
-      <button class="pill" data-copy="f-curl">Copy</button>
-    </div>
-    <pre id="f-curl"></pre>
+    <details id="term">
+      <summary>the same thing, from a terminal</summary>
+      <div class="bar"><span class="fill"></span>
+        <button class="pill" data-copy="f-curl">Copy</button>
+      </div>
+      <pre id="f-curl"></pre>
+    </details>
   </div>
-</main>
-
-<main id="try">
   <div>
     <div class="bar">
-      <strong>spec — yours to edit</strong><span class="fill"></span>
-      <button class="pill" data-copy="spec">Copy</button>
-      <button class="pill" id="spec-clear">Clear</button>
+      <strong id="title">result</strong><span class="fill"></span>
+      <button class="pill" data-copy="out">Copy</button>
       <button class="btn" id="explain">What would it do?</button>
       <button class="btn go" id="download">Download project</button>
-    </div>
-    <div class="editor">
-      <pre id="spec-hi" aria-hidden="true"></pre>
-      <textarea id="spec" spellcheck="false">` + exampleSpec + `</textarea>
-    </div>
-  </div>
-  <div>
-    <div class="bar"><strong id="title">result</strong><span class="fill"></span>
-      <button class="pill" data-copy="out">Copy</button>
     </div>
     <pre id="out">Edit the spec, then press What would it do? to see how each store
 will be kept, or Download project for the whole thing as a zip.
@@ -532,19 +526,20 @@ document.querySelectorAll("pre code[data-lang]").forEach(el => {
 });
 
 function tab(name) {
-  for (const n of ["start", "try", "docs"]) {
+  for (const n of ["start", "docs"]) {
     $(n).hidden = n !== name;
     $("tab-" + n).setAttribute("aria-selected", n === name);
   }
-  if (name === "try") history.replaceState(null, "", location.pathname);
+  if (name === "start") history.replaceState(null, "", location.pathname);
   else location.hash = "#" + name;
   window.scrollTo(0, 0);
 }
 $("tab-start").onclick = () => tab("start");
-$("tab-try").onclick = () => tab("try");
 $("tab-docs").onclick = () => tab("docs");
 if (location.hash.startsWith("#docs")) tab("docs");
 if (location.hash.startsWith("#start")) tab("start");
+// #try was a separate editor tab; the spec the builder makes is that editor now.
+if (location.hash.startsWith("#try")) tab("start");
 
 /* The builder. Every control maps to one thing a spec can say, so the
    preview is the answer sheet: change a box, see the line it writes. */
@@ -628,16 +623,15 @@ function refresh() {
 
 $("start").addEventListener("input", refresh);
 $("start").addEventListener("change", refresh);
-$("f-open").onclick = () => { $("spec").value = refresh(); paintEditor(); tab("try"); };
 
 document.querySelectorAll("button.try").forEach(b => {
   b.onclick = () => {
     let el = b.previousElementSibling;
     while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
     if (!el) return;
-    $("spec").value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
-    paintEditor();
-    tab("try"); $("explain").click();
+    fSpec.value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
+    fEdited = true; $("f-rebuild").hidden = false; paintF();
+    tab("start"); $("explain").click();
   };
 });
 
@@ -691,23 +685,10 @@ document.querySelectorAll(".pill[data-copy]").forEach(b => {
     setTimeout(() => { b.textContent = "Copy"; b.classList.remove("done"); }, 1200);
   };
 });
-$("spec-clear").onclick = () => { $("spec").value = ""; paintEditor(); $("spec").focus(); };
+$("spec-clear").onclick = () => {
+  fSpec.value = ""; fEdited = true; $("f-rebuild").hidden = false; paintF(); fSpec.focus();
+};
 
-// Keep the painted layer under the caret in step with what is typed. The
-// trailing newline stops the last line scrolling out of step, and the scroll
-// position is copied because only the textarea receives the wheel.
-const specEl = $("spec"), specHi = $("spec-hi");
-function paintEditor() {
-  specHi.innerHTML = paintSexp(specEl.value + "\n");
-  specHi.scrollTop = specEl.scrollTop;
-  specHi.scrollLeft = specEl.scrollLeft;
-}
-specEl.addEventListener("input", paintEditor);
-specEl.addEventListener("scroll", () => {
-  specHi.scrollTop = specEl.scrollTop;
-  specHi.scrollLeft = specEl.scrollLeft;
-});
-paintEditor();
 // After every declaration above exists: the builder fills its editor once.
 refresh();
 
@@ -716,7 +697,7 @@ const show = html => { out.innerHTML = html; };
 const plain = text => { out.textContent = text; };
 
 const post = path => fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
-                                  body: JSON.stringify({spec: $("spec").value})});
+                                  body: JSON.stringify({spec: fSpec.value})});
 
 $("explain").onclick = async () => {
   title.textContent = "how each store will be kept";
