@@ -55,11 +55,14 @@ func coverAll(project *Node, c *Ctx) error {
 		}
 		c.Cover[n.ID] = cov
 		for _, o := range coveringOffers(cov) {
-			used[o.Tile] = o
+			// Keyed by capability too: one tile may offer several, with
+			// a different Impl for each, and kafka as a transport is not
+			// the same registration as kafka as an event bus.
+			used[o.Capability+"/"+o.Tile] = o
 		}
 	}
-	for _, tile := range sortedKeys(used) {
-		c.Used = append(c.Used, used[tile])
+	for _, key := range sortedKeys(used) {
+		c.Used = append(c.Used, used[key])
 	}
 	return errors.Join(errs...)
 }
