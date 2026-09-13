@@ -1,6 +1,7 @@
 package main
 
 import (
+	"html/template"
 	"net/http"
 	"strings"
 )
@@ -15,7 +16,26 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Write([]byte(strings.ReplaceAll(indexHTML, "__VERSION__", version)))
+	page := strings.ReplaceAll(indexHTML, "__VERSION__", version)
+	page = strings.ReplaceAll(page, "__TILES__", template.HTMLEscapeString(tilesDoc()))
+	w.Write([]byte(page))
+}
+
+// tilesDoc is the registry as S-expressions: the same text as
+// "tilegen tiles -sexp", with a note on what a reader can do with it.
+func tilesDoc() string {
+	var b strings.Builder
+	b.WriteString("; every tile tilegen knows. the ones with (offers ...) are the\n" +
+		"; ones you can name in the policy - a store or an event bus. the\n" +
+		"; rest are how the other forms in a spec turn into Go.\n" +
+		";\n" +
+		"; tiles live in tilegen itself, so this is a catalogue to choose\n" +
+		"; from rather than something to edit here.\n\n")
+	for _, t := range Registry() {
+		b.WriteString(tileSexp(t).String())
+		b.WriteString("\n\n")
+	}
+	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
 const exampleSpec = `(project bookmarks
@@ -335,7 +355,8 @@ const indexHTML = `<!doctype html>
     <div class="bar">
       <span class="docsel">
         <button class="tab-doc" id="doc-spec" aria-selected="true">spec</button>
-        <button class="tab-doc" id="doc-policy" aria-selected="false">tiles &amp; policy</button>
+        <button class="tab-doc" id="doc-policy" aria-selected="false">policy</button>
+        <button class="tab-doc" id="doc-tiles" aria-selected="false">tiles</button>
       </span>
       <span class="fill"></span>
       <button class="pill" data-copy="f-spec">Copy</button>
@@ -346,6 +367,7 @@ const indexHTML = `<!doctype html>
       <pre id="f-hi" aria-hidden="true"></pre>
       <textarea id="f-spec" spellcheck="false"></textarea>
     </div>
+    <pre id="tiles-src" hidden>__TILES__</pre>
   </div>
   <div>
     <div class="bar">
@@ -634,7 +656,7 @@ function refresh() {
     "say so. Press What would it do? to see the message.";
   if (!docEdited.spec) docText.spec = buildSpec();
   if (!docEdited.policy) docText.policy = buildPolicy();
-  if (!docEdited[curDoc]) fSpec.value = docText[curDoc];
+  if (!docEdited[curDoc] && !readOnlyDoc(curDoc)) fSpec.value = docText[curDoc];
   paintF();
   return wholeSpec();
 }
@@ -663,9 +685,12 @@ const fSpec = $("f-spec"), fHi = $("f-hi");
 // One pane, two documents. The spec says what the service is; the policy
 // says how to decide the rest. Either can be edited, and a hand edit
 // detaches that one from the form so a stray click cannot delete it.
-const docText = {spec: "", policy: ""};
-const docEdited = {spec: false, policy: false};
+const docText = {spec: "", policy: "", tiles: $("tiles-src").textContent};
+const docEdited = {spec: false, policy: false, tiles: false};
 let curDoc = "spec";
+// The tiles document is the registry as it is compiled into this binary, so
+// it is a catalogue to read and choose names from, not a document to edit.
+const readOnlyDoc = name => name === "tiles";
 
 // What gets sent and what the terminal block writes: both documents, in the
 // order tilegen reads them.
@@ -675,7 +700,7 @@ function wholeSpec() {
 }
 
 function paintF() {
-  docText[curDoc] = fSpec.value;
+  if (!readOnlyDoc(curDoc)) docText[curDoc] = fSpec.value;
   fHi.innerHTML = paintSexp(fSpec.value + "\n");
   fHi.scrollTop = fSpec.scrollTop;
   fHi.scrollLeft = fSpec.scrollLeft;
@@ -683,18 +708,23 @@ function paintF() {
 }
 
 function showDoc(name) {
-  docText[curDoc] = fSpec.value;
+  if (!readOnlyDoc(curDoc)) docText[curDoc] = fSpec.value;
   curDoc = name;
   fSpec.value = docText[name];
-  $("doc-spec").setAttribute("aria-selected", name === "spec");
-  $("doc-policy").setAttribute("aria-selected", name === "policy");
-  $("f-rebuild").hidden = !docEdited[name];
+  for (const n of ["spec", "policy", "tiles"]) {
+    $("doc-" + n).setAttribute("aria-selected", n === name);
+  }
+  fSpec.readOnly = readOnlyDoc(name);
+  $("spec-clear").hidden = readOnlyDoc(name);
+  $("f-rebuild").hidden = readOnlyDoc(name) || !docEdited[name];
   paintF();
 }
 $("doc-spec").onclick = () => showDoc("spec");
 $("doc-policy").onclick = () => showDoc("policy");
+$("doc-tiles").onclick = () => showDoc("tiles");
 
 fSpec.addEventListener("input", () => {
+  if (readOnlyDoc(curDoc)) return;
   docEdited[curDoc] = true; $("f-rebuild").hidden = false; paintF();
 });
 fSpec.addEventListener("scroll", () => {
