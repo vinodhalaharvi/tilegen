@@ -243,6 +243,12 @@ func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			rest = append(rest, r)
 		}
 	}
+	if len(decls) == 0 {
+		// Every tile in this package wrote its own file, so there is
+		// nothing left for <name>_gen.go to hold. Writing an empty one
+		// would put a file in the tree that says nothing.
+		return rest, nil
+	}
 	if doc == "" {
 		doc = fmt.Sprintf("Package %s was scaffolded by tilegen.", name)
 	}

@@ -51,7 +51,7 @@ func (c *Ctx) warn(p Pos, format string, a ...any) {
 // The names each context knows, for did-you-mean suggestions.
 var (
 	projectItems = []string{"module", "go", "require", "package", "repo", "doc"}
-	packageForms = []string{"entity", "struct", "interface", "implement", "enum", "doc", "llm"}
+	packageForms = []string{"entity", "struct", "interface", "implement", "enum", "doc", "llm", "dir"}
 )
 
 func allStoreOps() []string {
@@ -279,6 +279,10 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 			v.enum(it, types)
 		case "doc", "llm":
 			v.shape(it, "(_ ?text ?more...)")
+		case "dir":
+			// A package may say where it goes, overriding (layout ...).
+			// "." generates into the root of the module at <out>.
+			v.shape(it, "(dir ?path)")
 		default:
 			if s := closest(it.Head(), knownPackageForms()); s != "" {
 				// A likely typo is an error: it must not quietly become an LLM task.
