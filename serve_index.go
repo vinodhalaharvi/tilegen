@@ -127,6 +127,36 @@ const indexHTML = `<!doctype html>
   .btn.go { background:var(--kw); border-color:var(--kw); color:var(--bg); font-weight:600; }
 
   #docs { padding:0 22px 90px; }
+
+  /* The builder: plain controls, two columns, same furniture as #try. */
+  #start { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+           height:calc(100vh - 98px); }
+  #start > div { display:flex; flex-direction:column; min-width:0; }
+  #start > div + div { border-left:1px solid var(--rule); }
+  #start .form { overflow:auto; padding:16px 18px 40px; }
+  #start fieldset { border:0; border-top:1px solid var(--rule); margin:0 0 4px; padding:12px 0 6px; }
+  #start fieldset:first-child { border-top:0; padding-top:0; }
+  #start legend { color:var(--dim); font-size:12px; text-transform:lowercase;
+                  padding:0 0 6px; }
+  #start .row { display:flex; align-items:center; gap:10px; margin:0 0 7px; }
+  #start .row span { color:var(--dim); font-size:13px; width:62px; flex:none; }
+  #start input[type=text], #start .row input { font:inherit; font-size:13px; flex:1; min-width:0;
+        background:var(--panel); color:var(--fg); border:1px solid var(--rule);
+        border-radius:4px; padding:5px 8px; outline:none; }
+  #start .row input:focus { border-color:var(--kw); }
+  #start .opts { display:flex; flex-wrap:wrap; gap:4px 16px; }
+  #start .opts.col { flex-direction:column; gap:5px; }
+  #start .opts.sub { margin-top:6px; padding-left:16px; }
+  #start .opts label { font-size:13px; color:var(--fg); cursor:pointer;
+                       display:flex; align-items:center; gap:6px; }
+  #start .opts input { accent-color:var(--kw); margin:0; }
+  #start .hint { color:var(--mark); font-size:12px; margin:8px 0 0; }
+  #f-out { white-space:pre-wrap; }
+  @media (max-width:900px) {
+    #start { grid-template-columns:1fr; height:auto; }
+    #start > div + div { border-left:0; border-top:1px solid var(--rule); }
+    #f-out { min-height:30vh; }
+  }
   .doc { max-width:74rem; margin:0 auto; }
   .lede { margin:40px 0 4px; max-width:46rem; }
   .lede h1 { font-size:22px; line-height:1.4; margin:0 0 14px; font-weight:700; color:var(--hi);
@@ -184,11 +214,104 @@ const indexHTML = `<!doctype html>
   <span class="wordmark">tilegen</span>
   <span class="tag">describe a Go service, get the project</span>
   <nav>
+    <button id="tab-start" aria-selected="false">Start</button>
     <button id="tab-try" aria-selected="true">Try it</button>
     <button id="tab-docs" aria-selected="false">Docs</button>
   </nav>
   <a class="src" href="https://github.com/vinodhalaharvi/tilegen">source</a>
 </div>
+
+<main id="start" hidden>
+  <div>
+    <div class="bar"><strong>answer a few questions</strong></div>
+    <div class="form">
+      <fieldset>
+        <legend>The project</legend>
+        <label class="row"><span>name</span><input id="f-name" value="notes"></label>
+        <label class="row"><span>module</span><input id="f-module" value="example.com/notes"></label>
+      </fieldset>
+
+      <fieldset>
+        <legend>What you are storing</legend>
+        <label class="row"><span>called</span><input id="f-entity" value="Note"></label>
+        <div class="opts" id="f-fields">
+          <label><input type="checkbox" value="Title string" checked> Title</label>
+          <label><input type="checkbox" value="Body string" checked> Body</label>
+          <label><input type="checkbox" value="Done bool"> Done</label>
+          <label><input type="checkbox" value="CreatedAt time.Time" checked> CreatedAt</label>
+          <label><input type="checkbox" value="OwnerID uuid.UUID"> OwnerID</label>
+        </div>
+        <div class="opts">
+          <label><input type="radio" name="id" value="int64" checked> ID is a number</label>
+          <label><input type="radio" name="id" value="uuid.UUID"> ID is a UUID</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>What you can do with it</legend>
+        <div class="opts" id="f-ops">
+          <label><input type="checkbox" value="get" checked> get</label>
+          <label><input type="checkbox" value="list" checked> list</label>
+          <label><input type="checkbox" value="save" checked> save</label>
+          <label><input type="checkbox" value="delete"> delete</label>
+          <label><input type="checkbox" value="count"> count</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>What it needs</legend>
+        <div class="opts">
+          <label><input type="checkbox" id="f-durable" checked> must survive a restart</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Also generate</legend>
+        <div class="opts">
+          <label><input type="checkbox" id="f-http" checked> HTTP routes</label>
+          <label><input type="checkbox" id="f-events"> events</label>
+          <label><input type="checkbox" id="f-enum"> a status enum</label>
+        </div>
+        <div class="opts sub" id="f-events-sub" hidden>
+          <label><input type="checkbox" id="f-xproc"> handlers live in other processes</label>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Where it is kept</legend>
+        <div class="opts col" id="f-store">
+          <label><input type="radio" name="store" value="" checked> let tilegen decide</label>
+          <label><input type="radio" name="store" value="memory"> in memory</label>
+          <label><input type="radio" name="store" value="sqlite-sqlc"> sqlite, one file</label>
+          <label><input type="radio" name="store" value="postgres-sqlc"> postgres, queries generated</label>
+          <label><input type="radio" name="store" value="postgres-pgx"> postgres, queries by hand</label>
+        </div>
+        <p class="hint" id="f-warn" hidden></p>
+      </fieldset>
+
+      <fieldset id="f-policy-set" hidden>
+        <legend>How firm is that</legend>
+        <div class="opts col">
+          <label><input type="radio" name="firm" value="prefer" checked> we would prefer it</label>
+          <label><input type="radio" name="firm" value="required"> it has to be this</label>
+        </div>
+        <div class="opts">
+          <label><input type="radio" name="who" value="team" checked> team</label>
+          <label><input type="radio" name="who" value="ops"> ops</label>
+          <label><input type="radio" name="who" value="client"> client</label>
+        </div>
+        <label class="row"><span>because</span><input id="f-why" value="we run one postgres for everything"></label>
+      </fieldset>
+    </div>
+  </div>
+  <div>
+    <div class="bar">
+      <strong>your spec</strong><span class="fill"></span>
+      <button class="btn go" id="f-open">Open in the editor</button>
+    </div>
+    <pre id="f-out"></pre>
+  </div>
+</main>
 
 <main id="try">
   <div>
@@ -279,6 +402,9 @@ function paintAnswer(src) {
     if (also) return span("c", esc(also[1])) + esc(also[2]) + esc(also[3]);
     const asked = line.match(/^(\s*you asked for\s+)(.*)$/);
     if (asked) return span("c", esc(asked[1])) + span("r", esc(asked[2]));
+    const inline = line.match(/^(\s*)([\w.]+)(\s+kept in\s+)(\S+)\s*$/);
+    if (inline) return esc(inline[1]) + span("h", esc(inline[2])) +
+      span("c", esc(inline[3])) + span("ok", esc(inline[4]));
     const cont = line.match(/^(\s+)([(—].*|[a-z].*)$/);
     if (cont) return esc(cont[1]) + span("c", esc(cont[2]));
     const added = line.match(/^(\s*)(wrote|added|kept|removed|stale|stub|drift|holes)(\s+)(.*)$/);
@@ -360,16 +486,101 @@ document.querySelectorAll("pre code[data-lang]").forEach(el => {
 });
 
 function tab(name) {
-  const isTry = name === "try";
-  $("try").hidden = !isTry; $("docs").hidden = isTry;
-  $("tab-try").setAttribute("aria-selected", isTry);
-  $("tab-docs").setAttribute("aria-selected", !isTry);
-  if (isTry) history.replaceState(null, "", location.pathname); else location.hash = "#docs";
+  for (const n of ["start", "try", "docs"]) {
+    $(n).hidden = n !== name;
+    $("tab-" + n).setAttribute("aria-selected", n === name);
+  }
+  if (name === "try") history.replaceState(null, "", location.pathname);
+  else location.hash = "#" + name;
   window.scrollTo(0, 0);
 }
+$("tab-start").onclick = () => tab("start");
 $("tab-try").onclick = () => tab("try");
 $("tab-docs").onclick = () => tab("docs");
 if (location.hash.startsWith("#docs")) tab("docs");
+if (location.hash.startsWith("#start")) tab("start");
+
+/* The builder. Every control maps to one thing a spec can say, so the
+   preview is the answer sheet: change a box, see the line it writes. */
+
+const plural = w => w.toLowerCase() + (/s$/.test(w.toLowerCase()) ? "es" : "s");
+const checked = id => [...$(id).querySelectorAll("input:checked")].map(i => i.value);
+const radio = name => (document.querySelector("input[name=" + name + "]:checked") || {}).value || "";
+const ident = (s, fallback) => (s || "").trim().replace(/[^\w.\/-]/g, "") || fallback;
+
+function buildSpec() {
+  const name = ident($("f-name").value, "notes");
+  const module = ident($("f-module").value, "example.com/" + name);
+  const Entity = ident($("f-entity").value, "Note").replace(/[^\w]/g, "") || "Note";
+  const pkg = plural(Entity);
+  const idType = radio("id");
+  const fields = checked("f-fields");
+  let ops = checked("f-ops");
+  if (!ops.length) ops = ["get"];
+  const durable = $("f-durable").checked;
+  const wantHTTP = $("f-http").checked, wantEvents = $("f-events").checked;
+  const wantEnum = $("f-enum").checked, xproc = $("f-xproc").checked;
+  const store = radio("store");
+
+  const usesUUID = idType === "uuid.UUID" || fields.some(f => f.includes("uuid.UUID"));
+
+  let s = "(project " + name + "\n  (module " + module + ")\n  (go 1.22)";
+  s += usesUUID ? "\n  (require (uuid github.com/google/uuid v1.6.0)))\n" : ")\n";
+
+  s += "\n(package " + pkg + "\n";
+  if (wantEnum) s += "  (enum Status draft active done)\n\n";
+  s += "  (entity " + Entity + "\n    (field ID " + idType + ")\n";
+  for (const f of fields) s += "    (field " + f + ")\n";
+  if (wantEnum) s += "    (field Status Status)\n";
+  s += "    (store " + ops.join(" ");
+  if (wantEnum && ops.includes("list")) s += "\n      (list-by Status)";
+  if (durable) s += "\n      (durable)";
+  s += "))";
+
+  if (wantHTTP) {
+    const routes = [];
+    const path = "/" + pkg;
+    if (ops.includes("list")) routes.push('(route GET    "' + path + '"      (list ' + Entity + "))");
+    if (ops.includes("get")) routes.push('(route GET    "' + path + '/{id}" (get ' + Entity + "))");
+    if (ops.includes("save")) routes.push('(route POST   "' + path + '"      (save ' + Entity + "))");
+    if (ops.includes("delete")) routes.push('(route DELETE "' + path + '/{id}" (delete ' + Entity + "))");
+    if (routes.length) s += "\n\n  (http\n    " + routes.join("\n    ") + ")";
+  }
+  if (wantEvents) {
+    s += "\n\n  (events";
+    if (xproc) s += "\n    (cross-process)";
+    s += "\n    (event " + Entity + "Saved (field " + Entity + "ID " + idType + ")))";
+  }
+  s += ")\n";
+
+  if (store) {
+    const firm = radio("firm"), who = radio("who");
+    const why = ($("f-why").value || "").trim().replace(/"/g, "'") || "that is what we run";
+    s += "\n(policy\n  (prefer " + store;
+    if (firm === "required") s += "\n    (strength required)";
+    s += "\n    (source " + who + ' "' + why + '")))\n';
+  }
+  return s;
+}
+
+function refresh() {
+  const store = radio("store");
+  $("f-policy-set").hidden = !store;
+  $("f-events-sub").hidden = !$("f-events").checked;
+  const clash = store === "memory" && $("f-durable").checked;
+  $("f-warn").hidden = !clash;
+  if (clash) $("f-warn").textContent =
+    "A map does not survive a restart, so tilegen will refuse this pair and " +
+    "say so. Press What would it do? to see the message.";
+  const spec = buildSpec();
+  $("f-out").innerHTML = paintSexp(spec);
+  return spec;
+}
+
+$("start").addEventListener("input", refresh);
+$("start").addEventListener("change", refresh);
+$("f-open").onclick = () => { $("spec").value = refresh(); tab("try"); };
+refresh();
 
 document.querySelectorAll("button.try").forEach(b => {
   b.onclick = () => {
