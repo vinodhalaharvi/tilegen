@@ -11,7 +11,16 @@ func init() {
 		Tile:       "nats-bus",
 		Capability: "event-bus",
 		Doc:        "NATS bus: events cross processes and survive a restart (JetStream)",
-		Cost:       Cost{{Dim: "llm-work", Value: 5}, {Dim: "maintenance", Value: 3}, {Dim: "dependency", Value: 4}, {Dim: "runtime", Value: 2}},
+		IllegalFor: map[string]string{
+			"no-broker": "there is a server to run, and streams to size and retain",
+		},
+		Cost: Cost{
+			{Dim: "llm-work", Value: 5},
+			{Dim: "maintenance", Value: 3},
+			{Dim: "dependency", Value: 4},
+			{Dim: "runtime", Value: 2},
+			{Dim: "operations", Value: 4, Source: "derived", Note: "one binary with no dependencies, but streams, consumers and retention to configure"},
+		},
 		Impl: &BusTransport{
 			Suffix: "NatsBus",
 			Emit:   emitNatsBus,

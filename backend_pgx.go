@@ -14,11 +14,15 @@ func init() {
 		Name: "pgx",
 		Tile: "postgres-pgx",
 		Doc:  "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
+		IllegalWhen: map[string]string{
+			"no-broker": "a postgres to run, with backups, connections and upgrades",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 7, Source: "derived", Note: "the LLM writes every query and scan by hand"},
 			{Dim: "maintenance", Value: 5, Source: "derived", Note: "hand-written SQL drifts from the schema silently"},
 			{Dim: "dependency", Value: 1, Source: "derived", Note: "pgx only, and no build-time tool"},
 			{Dim: "runtime", Value: 1},
+			{Dim: "operations", Value: 5, Source: "derived", Note: "a server to run, with backups, connections and upgrades"},
 		},
 		Topics:       []string{"postgres", "pgx"},
 		ErrorPackage: "github.com/jackc/pgx/v5/pgconn", // PgError and its SQLSTATE codes

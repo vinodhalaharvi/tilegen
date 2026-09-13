@@ -18,7 +18,7 @@ import (
 type Cost []CostTerm
 
 type CostTerm struct {
-	Dim   string // llm-work | maintenance | dependency | runtime | uncertainty
+	Dim   string // llm-work | maintenance | dependency | runtime | operations | uncertainty
 	Value int
 
 	// Where the number came from. A cost with no provenance is a guess,
@@ -42,7 +42,7 @@ func (t CostTerm) provenance() string {
 
 // Short is the compact form for tables: llm 3, maint 2, dep 3.
 func (c Cost) Short() string {
-	abbr := map[string]string{"llm-work": "llm", "maintenance": "maint", "dependency": "dep", "runtime": "run", "uncertainty": "unc"}
+	abbr := map[string]string{"llm-work": "llm", "maintenance": "maint", "dependency": "dep", "runtime": "run", "operations": "ops", "uncertainty": "unc"}
 	parts := make([]string, len(c))
 	for i, t := range c {
 		d := abbr[t.Dim]
