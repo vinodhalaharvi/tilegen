@@ -4039,9 +4039,10 @@ func TestDocsStayUserFacing(t *testing.T) {
 }
 
 // TestEveryWalkthroughIsComplete: a walkthrough has to show the whole
-// spec, twice, with a policy in each, and the real output of both. A
-// fragment or a spec with no policy teaches the reader that the thing
-// tilegen is for is an afterthought.
+// spec at least twice, with the real output of each, and carry a policy in
+// all but the one spec that exists to show what happens without one. A
+// fragment teaches the reader that the thing tilegen is for is an
+// afterthought.
 func TestEveryWalkthroughIsComplete(t *testing.T) {
 	sections := strings.Split(docsHTML, `<h2 id=`)
 	var walks []string
@@ -4058,20 +4059,31 @@ func TestEveryWalkthroughIsComplete(t *testing.T) {
 	for i, w := range walks {
 		name := fmt.Sprintf("walkthrough %d", i+1)
 		specs := specBlocks(w)
-		if len(specs) != 2 {
-			t.Errorf("%s shows %d spec(s); it should show the same spec twice, once per decision", name, len(specs))
+		if len(specs) < 2 {
+			t.Errorf("%s shows %d spec(s); it should show the spec at least twice, once per decision", name, len(specs))
 			continue
 		}
+		withPolicy := 0
 		for n, spec := range specs {
-			switch {
-			case !strings.Contains(spec, "(project "):
+			if !strings.Contains(spec, "(project ") {
 				t.Errorf("%s spec %d is a fragment, not a whole spec", name, n+1)
-			case !strings.Contains(spec, "(policy"):
-				t.Errorf("%s spec %d has no policy", name, n+1)
+			}
+			if strings.Contains(spec, "(policy") {
+				withPolicy++
 			}
 		}
-		if specs[0] == specs[1] {
-			t.Errorf("%s shows the same spec twice with no change", name)
+		// Every spec but at most one carries a policy: the exception is the
+		// step that shows what a spec decides on its own.
+		if len(specs)-withPolicy > 1 {
+			t.Errorf("%s has %d spec(s) with no policy; at most one may omit it", name, len(specs)-withPolicy)
+		}
+		if withPolicy < 2 {
+			t.Errorf("%s shows %d spec(s) with a policy; it should show at least two", name, withPolicy)
+		}
+		for n := 1; n < len(specs); n++ {
+			if specs[n] == specs[n-1] {
+				t.Errorf("%s shows the same spec twice with no change", name)
+			}
 		}
 		for _, want := range []string{"What would it do?", `data-lang="go"`, `data-lang="sh"`} {
 			if strings.Count(w, want) < 2 {
