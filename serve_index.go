@@ -107,6 +107,12 @@ const indexHTML = `<!doctype html>
          border-bottom:1px solid var(--rule); color:var(--dim); font-size:12px; }
   .bar strong { color:var(--fg); font-weight:600; }
   .bar .fill { margin-left:auto; }
+  .docsel { display:flex; gap:2px; }
+  .tab-doc { font:inherit; font-size:12px; padding:4px 10px; cursor:pointer;
+        border:1px solid transparent; border-radius:4px; background:none; color:var(--dim); }
+  .tab-doc:hover { color:var(--fg); }
+  .tab-doc[aria-selected=true] { color:var(--fg); font-weight:600;
+        border-color:var(--rule); background:var(--panel); }
   .pill { font:inherit; font-size:11px; line-height:1; padding:4px 9px; cursor:pointer;
         border:1px solid var(--rule); border-radius:999px; background:none; color:var(--dim); }
   .pill:hover { border-color:var(--kw); color:var(--kw); }
@@ -327,7 +333,11 @@ const indexHTML = `<!doctype html>
   </div>
   <div>
     <div class="bar">
-      <strong>the spec those answers make</strong><span class="fill"></span>
+      <span class="docsel">
+        <button class="tab-doc" id="doc-spec" aria-selected="true">spec</button>
+        <button class="tab-doc" id="doc-policy" aria-selected="false">tiles &amp; policy</button>
+      </span>
+      <span class="fill"></span>
       <button class="pill" data-copy="f-spec">Copy</button>
       <button class="pill" id="spec-clear">Clear</button>
       <button class="pill" id="f-rebuild" hidden>Rebuild from the form</button>
@@ -589,14 +599,28 @@ function buildSpec() {
   }
   s += ")\n";
 
+  return s;
+}
+
+// The second document: what your team values, and which store it prefers.
+// Kept apart from the spec because it answers a different question - the
+// spec says what the service is, this says how to decide the rest.
+function buildPolicy() {
+  const store = radio("store");
+  let s = "; raise a number to care about it more; the answer on the right\n" +
+          "; changes as you do. stores you can name: memory, sqlite-sqlc,\n" +
+          "; postgres-sqlc, postgres-pgx. event buses: local-bus, nats-bus.\n\n" +
+          "(policy\n" +
+          "  (weights (llm-work 4) (maintenance 3) (dependency 1)" +
+          " (runtime 1) (uncertainty 5))";
   if (store) {
     const firm = radio("firm"), who = radio("who");
     const why = ($("f-why").value || "").trim().replace(/"/g, "'") || "that is what we run";
-    s += "\n(policy\n  (prefer " + store;
+    s += "\n  (prefer " + store;
     if (firm === "required") s += "\n    (strength required)";
-    s += "\n    (source " + who + ' "' + why + '")))\n';
+    s += "\n    (source " + who + ' "' + why + '"))';
   }
-  return s;
+  return s + ")\n";
 }
 
 function refresh() {
@@ -608,12 +632,11 @@ function refresh() {
   if (clash) $("f-warn").textContent =
     "A map does not survive a restart, so tilegen will refuse this pair and " +
     "say so. Press What would it do? to see the message.";
-  const spec = buildSpec();
-  if (!fEdited) {
-    fSpec.value = spec;
-    paintF();
-  }
-  return fEdited ? fSpec.value : spec;
+  if (!docEdited.spec) docText.spec = buildSpec();
+  if (!docEdited.policy) docText.policy = buildPolicy();
+  if (!docEdited[curDoc]) fSpec.value = docText[curDoc];
+  paintF();
+  return wholeSpec();
 }
 
 $("start").addEventListener("input", refresh);
@@ -624,8 +647,10 @@ document.querySelectorAll("button.try").forEach(b => {
     let el = b.previousElementSibling;
     while (el && !el.querySelector("code[data-lang=sexp]")) el = el.previousElementSibling;
     if (!el) return;
-    fSpec.value = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
-    fEdited = true; $("f-rebuild").hidden = false; paintF();
+    docText.spec = el.querySelector("code[data-lang=sexp]").textContent.trim() + "\n";
+    docText.policy = "";
+    docEdited.spec = true; docEdited.policy = true;
+    curDoc = "spec"; showDoc("spec");
     tab("start"); $("explain").click();
   };
 });
@@ -633,21 +658,53 @@ document.querySelectorAll("button.try").forEach(b => {
 // The builder writes this spec, and you can then edit it by hand. Once you
 // have, the form stops overwriting what you typed: it offers to rebuild
 // instead, so a stray click on a radio button cannot delete your work.
-let fEdited = false;
 const fSpec = $("f-spec"), fHi = $("f-hi");
 
+// One pane, two documents. The spec says what the service is; the policy
+// says how to decide the rest. Either can be edited, and a hand edit
+// detaches that one from the form so a stray click cannot delete it.
+const docText = {spec: "", policy: ""};
+const docEdited = {spec: false, policy: false};
+let curDoc = "spec";
+
+// What gets sent and what the terminal block writes: both documents, in the
+// order tilegen reads them.
+function wholeSpec() {
+  return docText.spec.replace(/\s*$/, "") + "\n\n" +
+         docText.policy.replace(/\s*$/, "") + "\n";
+}
+
 function paintF() {
+  docText[curDoc] = fSpec.value;
   fHi.innerHTML = paintSexp(fSpec.value + "\n");
   fHi.scrollTop = fSpec.scrollTop;
   fHi.scrollLeft = fSpec.scrollLeft;
-  paintCurl(fSpec.value);
+  paintCurl(wholeSpec());
 }
-fSpec.addEventListener("input", () => { fEdited = true; $("f-rebuild").hidden = false; paintF(); });
+
+function showDoc(name) {
+  docText[curDoc] = fSpec.value;
+  curDoc = name;
+  fSpec.value = docText[name];
+  $("doc-spec").setAttribute("aria-selected", name === "spec");
+  $("doc-policy").setAttribute("aria-selected", name === "policy");
+  $("f-rebuild").hidden = !docEdited[name];
+  paintF();
+}
+$("doc-spec").onclick = () => showDoc("spec");
+$("doc-policy").onclick = () => showDoc("policy");
+
+fSpec.addEventListener("input", () => {
+  docEdited[curDoc] = true; $("f-rebuild").hidden = false; paintF();
+});
 fSpec.addEventListener("scroll", () => {
   fHi.scrollTop = fSpec.scrollTop;
   fHi.scrollLeft = fSpec.scrollLeft;
 });
-$("f-rebuild").onclick = () => { fEdited = false; $("f-rebuild").hidden = true; refresh(); };
+$("f-rebuild").onclick = () => {
+  docEdited[curDoc] = false; $("f-rebuild").hidden = true;
+  refresh(); fSpec.value = docText[curDoc]; paintF();
+};
 
 function paintCurl(spec) {
   $("f-curl").innerHTML =
@@ -681,7 +738,8 @@ document.querySelectorAll(".pill[data-copy]").forEach(b => {
   };
 });
 $("spec-clear").onclick = () => {
-  fSpec.value = ""; fEdited = true; $("f-rebuild").hidden = false; paintF(); fSpec.focus();
+  fSpec.value = ""; docEdited[curDoc] = true; $("f-rebuild").hidden = false;
+  paintF(); fSpec.focus();
 };
 
 // After every declaration above exists: the builder fills its editor once.
@@ -692,7 +750,7 @@ const show = html => { out.innerHTML = html; };
 const plain = text => { out.textContent = text; };
 
 const post = path => fetch(path, {method:"POST", headers:{"Content-Type":"application/json"},
-                                  body: JSON.stringify({spec: fSpec.value})});
+                                  body: JSON.stringify({spec: wholeSpec()})});
 
 $("explain").onclick = async () => {
   title.textContent = "how each store will be kept";
