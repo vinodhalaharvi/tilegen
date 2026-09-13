@@ -37,7 +37,8 @@ type tileCoverage struct {
 
 // coveredModules maps an import path to the tile that speaks it, taken
 // from what the tiles themselves declare rather than from a list kept by
-// hand: a store backend's Imports, and a bus transport's Import.
+// hand: a store backend's Imports, and a bus transport's or auth
+// scheme's Import.
 func coveredModules() map[string][]string {
 	out := map[string][]string{}
 	add := func(path, tile string) {
@@ -53,8 +54,13 @@ func coveredModules() map[string][]string {
 	}
 	for _, capability := range capabilityNames() {
 		for _, o := range offersOf(capability) {
-			if tr, ok := o.Impl.(*BusTransport); ok {
-				add(tr.Import[1], o.Tile)
+			switch impl := o.Impl.(type) {
+			case *BusTransport:
+				add(impl.Import[1], o.Tile)
+			case *AuthScheme:
+				add(impl.Import[1], o.Tile)
+			case *Transport:
+				add(impl.Import[1], o.Tile)
 			}
 		}
 	}

@@ -183,8 +183,19 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 	}
 	for _, o := range c.Used {
-		if tr, ok := o.Impl.(*BusTransport); ok && tr.Import[0] != "" {
-			c.Requires[tr.Import[0]] = tr.Import[1]
+		switch impl := o.Impl.(type) {
+		case *BusTransport:
+			if impl.Import[0] != "" {
+				c.Requires[impl.Import[0]] = impl.Import[1]
+			}
+		case *AuthScheme:
+			if impl.Import[0] != "" {
+				c.Requires[impl.Import[0]] = impl.Import[1]
+			}
+		case *Transport:
+			if impl.Import[0] != "" {
+				c.Requires[impl.Import[0]] = impl.Import[1]
+			}
 		}
 	}
 
