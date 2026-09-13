@@ -291,9 +291,29 @@ func storeBackendIntent(method, tile string, n *Node) string {
 			"that will write the body. Switch on methodOp(meth), which returns the op kind and field: "+
 			"get, list, save, delete, count, list-by, get-by, count-by, exists-by, delete-by. "+
 			"firstParam(meth) is the first non-context parameter's name. Return customHint(meth) for "+
-			"anything else. memoryHint in pass_select.go is the same method for the memory tile.%s", tile, using)
+			"anything else. memoryHint in pass_select.go is the same method for the memory tile.%s%s", tile, using, unreachableOps(n))
 	}
 	return ""
+}
+
+// unreachableOps names the store ops this tile has declared it cannot
+// serve. Without it the LLM writes a case for every op kind, including the
+// ones illegal-when rules out, and the tile ends up arguing with itself
+// three lines below its own clause.
+func unreachableOps(n *Node) string {
+	var reasons []string
+	for _, it := range n.FindAll("illegal-when") {
+		if len(it.List) >= 3 && it.List[1].IsList && len(it.List[1].List) == 1 &&
+			it.List[1].List[0].Atom == "lookup-by-field" {
+			reasons = append(reasons, it.List[2].Atom)
+		}
+	}
+	if len(reasons) == 0 {
+		return ""
+	}
+	return " This tile declares lookup-by-field illegal (" + strings.Join(reasons, "; ") +
+		"), so list-by, get-by, count-by, exists-by and delete-by never reach this method. " +
+		"Write no cases for them: they would be code that contradicts the tile's own clause."
 }
 
 // storeBackendRegistration writes the half of the tile that follows from
