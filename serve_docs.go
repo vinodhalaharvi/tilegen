@@ -127,6 +127,42 @@ func (s *SqliteTaskStore) Get(ctx context.Context, id int64) (*Task, error) {
 signature and what it should do. The project compiles as it stands.</p>
 </div>
 
+<div class="step"><h4>Without the policy at all</h4>
+<p>The policy is the last three lines, and it is optional. Delete it and the spec
+still answers the question, because the store already said what it needs:</p>
+<div class="pair">
+  <figure>
+    <figcaption>todo.sexp — the policy removed</figcaption>
+    <pre><code data-lang="sexp">(project todo
+  (module example.com/todo)
+  (go 1.22))
+
+(package tasks
+  (entity Task
+    (field ID int64)
+    (field Title string)
+    (field Done bool)
+    (store get list save delete
+      (durable))))</code></pre>
+  </figure>
+  <figure>
+    <figcaption>What would it do?</figcaption>
+    <pre><code data-lang="sh">tasks.TaskStore
+  you asked for   durable
+  kept in         sqlite-sqlc
+  also possible   postgres-sqlc
+  also possible   postgres-pgx
+  ruled out       memory  — an in-memory map loses its data on restart</code></pre>
+  </figure>
+</div>
+<button class="try">Open this in the editor</button>
+<p>The same answer, reached differently. Here <code>sqlite-sqlc</code> was just the
+lightest way to survive a restart; in the spec above, ops had said it had to be. The
+difference is in the other lines: with no policy the alternatives are
+<b>also possible</b>, and with one they are <b>ruled out</b>. Write a policy when the
+decision is not yours to make, and leave it out when it is.</p>
+</div>
+
 <div class="step"><h4>The same spec, one policy different</h4>
 <p>Ops changed their mind: this runs on the cluster now, next to the postgres
 everything else already uses.</p>
@@ -183,6 +219,58 @@ ON CONFLICT (id) DO UPDATE SET
 <code>postgres_task_store.go</code>, and <code>sqlc.yaml</code> now names a different
 engine and driver. Your entity, your four operations and <code>TaskStore</code> are
 character for character identical.</p>
+</div>
+
+<div class="step"><h4>A week later: the spec grows</h4>
+<p>You have written <code>Get</code> by hand. Now tasks need a due date, a count, and
+a way to list the ones still open. Add them to the spec and run tilegen again —
+the same command, over the same folder.</p>
+<div class="pair">
+  <figure>
+    <figcaption>todo.sexp — four lines added, every other line unchanged</figcaption>
+    <pre><code data-lang="sexp">(project todo
+  (module example.com/todo)
+  (go 1.22))
+
+(package tasks
+  (entity Task
+    (field ID int64)
+    (field Title string)
+    (field Done bool)
+    (field DueAt *time.Time)
+    (store get list save delete count
+      (list-by Done)
+      (durable))))
+
+(policy
+  (prefer sqlite-sqlc
+    (strength required)
+    (source ops "one binary, one file, no database server")))</code></pre>
+  </figure>
+  <figure>
+    <figcaption>the second run</figcaption>
+    <pre><code data-lang="sh">wrote  tasks/tasks_gen.go
+wrote  tasks/sqlite_task_store.go
+wrote  db/schema.sql
+wrote  db/query.sql
+wrote  tilegen.tasks.json
+  (3 file(s) already up to date)
+added  Count to tasks/sqlite_task_store.go
+       (new in the spec; your code untouched)
+added  ListByDone to tasks/sqlite_task_store.go
+       (new in the spec; your code untouched)
+5 open task(s), 1 already filled</code></pre>
+  </figure>
+</div>
+<p>Three files were left alone because nothing in the spec changed them. The schema
+gained a <code>due_at</code> column, <code>TaskStore</code> gained two methods, and two
+new stubs were appended to the file you have been writing in — below the
+<code>Get</code> you wrote, which was not read, not reformatted and not touched.
+That is the rule for every run: <b>the files marked "do not edit" follow the spec, and
+the files marked yours are only ever added to.</b></p>
+<p>Remove <code>count</code> again and the unwritten stub goes away with it. Remove an
+operation you had already implemented and tilegen says so and leaves your code where
+it is, because deleting work you did is not a decision a generator should make.</p>
 </div>
 
 </div>
@@ -472,6 +560,74 @@ func (s *PgxOrderStore) Get(ctx context.Context, id uuid.UUID) (*Order, error) {
 generator. The schema stays, and the note on each method now carries the query it
 would have generated, so whoever writes the body is not starting from nothing. Your
 types, your enum, your routes and your handlers did not move.</p>
+</div>
+
+<div class="step"><h4>One policy, two different answers</h4>
+<p>Shops acquire a second thing to store. A cart is scratch: if the process restarts
+before checkout, nobody wants yesterday's cart back. So it does not ask for
+<code>durable</code> — and that one omission is the whole difference.</p>
+<div class="pair">
+  <figure>
+    <figcaption>shop.sexp — every line of it, two packages now</figcaption>
+    <pre><code data-lang="sexp">(project shop
+  (module example.com/shop)
+  (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0)))
+
+(package orders
+  (entity Order
+    (field ID uuid.UUID)
+    (field Email string)
+    (field TotalCents int64)
+    (store get list save
+      (durable))))
+
+(package carts
+  (entity Cart
+    (field ID string)
+    (field Items int64)
+    (store get save delete)))
+
+(policy
+  (prefer postgres-sqlc
+    (source team "we run one postgres for everything")))</code></pre>
+  </figure>
+  <figure>
+    <figcaption>What would it do?</figcaption>
+    <pre><code data-lang="sh">carts.CartStore
+  kept in         memory
+  also possible   sqlite-sqlc
+  also possible   postgres-sqlc
+  also possible   postgres-pgx
+
+orders.OrderStore
+  you asked for   durable
+  kept in         postgres-sqlc
+  also possible   sqlite-sqlc
+  also possible   postgres-pgx
+  ruled out       memory  — an in-memory map loses its data on restart
+  cheapest, and preferred
+  (source: team, we run one postgres for everything)</code></pre>
+    <figcaption style="margin-top:10px">what you get</figcaption>
+    <pre><code data-lang="sh">orders/orders_gen.go
+orders/postgres_order_store.go
+carts/carts_gen.go
+carts/memory_cart_store.go
+db/schema.sql
+db/query.sql
+sqlc.yaml</code></pre>
+  </figure>
+</div>
+<button class="try">Open this in the editor</button>
+<p>One project, one policy, two ways of keeping things — and no line anywhere that
+says so. Orders went to postgres because they must survive a restart and the team
+runs postgres. Carts stayed in memory because nothing said they had to be anywhere
+else, and a map is the smaller thing to own. The preference applied where it was
+relevant and stayed quiet where it was not.</p>
+<p>This is worth knowing before you write your first spec: a requirement travels with
+the data it describes, not with the project. Put <code>(durable)</code> on what must
+survive and leave it off what must not, and the shape of the project follows from the
+data rather than from a setting at the top of a file.</p>
 </div>
 
 </div>

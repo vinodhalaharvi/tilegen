@@ -69,11 +69,13 @@ const indexHTML = `<!doctype html>
   :root {
     --bg:#0f1419; --fg:#d7dde5; --dim:#7c8899; --rule:#222c37; --panel:#151c24;
     --kw:#7aa2c8; --str:#98b978; --com:#5a6775; --lit:#c9a26d; --mark:#d98a63; --hi:#e8edf3;
+    --pol:#a98ad4; --punc:#4a5563;
   }
   @media (prefers-color-scheme: light) {
     :root {
       --bg:#fdfdfc; --fg:#1d252e; --dim:#606d7e; --rule:#e0e4e9; --panel:#f4f6f8;
       --kw:#2d6a94; --str:#4c7038; --com:#8a95a3; --lit:#8a6320; --mark:#b2542c; --hi:#0b1219;
+      --pol:#6b4aa0; --punc:#a8b0ba;
     }
   }
   * { box-sizing:border-box; }
@@ -87,10 +89,11 @@ const indexHTML = `<!doctype html>
   :focus-visible { outline:2px solid var(--kw); outline-offset:2px; }
 
   .top { display:flex; align-items:center; gap:18px; padding:12px 22px;
-         border-bottom:1px solid var(--rule); flex-wrap:wrap; }
-  .wordmark { color:var(--hi); font-weight:700; letter-spacing:-.2px; }
-  .tag { color:var(--dim); font-size:13px; }
-  .top nav { display:flex; gap:2px; margin-left:auto; }
+         border-bottom:1px solid var(--rule); flex-wrap:nowrap; }
+  .wordmark { color:var(--hi); font-weight:700; letter-spacing:-.2px; white-space:nowrap; }
+  .tag { color:var(--dim); font-size:13px; overflow:hidden; text-overflow:ellipsis;
+         white-space:nowrap; min-width:0; }
+  .top nav { display:flex; gap:2px; margin-left:auto; flex:none; }
   .top nav button { font:inherit; font-size:13px; padding:4px 14px; cursor:pointer;
         border:1px solid transparent; border-radius:4px; background:none; color:var(--dim); }
   .top nav button[aria-selected=true] { color:var(--hi); border-color:var(--rule); background:var(--panel); }
@@ -111,6 +114,12 @@ const indexHTML = `<!doctype html>
     #try { grid-template-columns:1fr; height:auto; }
     #try > div + div { border-left:0; border-top:1px solid var(--rule); }
     #spec { min-height:44vh; } #out { min-height:26vh; }
+  }
+  @media (max-width:620px) {
+    .top { gap:12px; padding:12px 14px; }
+    .top .tag { display:none; }
+    .top a.src { display:none; }
+    #docs { padding:0 14px 70px; }
   }
   .btn { font:inherit; font-size:13px; padding:5px 12px; border:1px solid var(--rule);
          border-radius:4px; background:none; color:var(--fg); cursor:pointer; }
@@ -161,6 +170,12 @@ const indexHTML = `<!doctype html>
 
   .c { color:var(--com); } .s { color:var(--str); } .k { color:var(--kw); }
   .l { color:var(--lit); } .h { color:var(--mark); font-weight:700; }
+  /* What a form decides, not just that it is a form: requirements and policy
+     are the lines a reader changes, so they do not wear the same colour as
+     the types around them. */
+  .r { color:var(--mark); } .p { color:var(--pol); } .o { color:var(--str); }
+  .d { color:var(--punc); } .n0 { color:var(--hi); }
+  .ok { color:var(--str); } .no { color:var(--punc); }
   .foot { border-top:1px solid var(--rule); margin-top:50px; padding:14px 22px;
           color:var(--dim); font-size:13px; }
 </style>
@@ -205,6 +220,18 @@ const span = (cls, text) => '<span class="' + cls + '">' + esc(text) + "</span>"
 /* One pass per language. Chaining regexes over already-marked-up text is
    how you end up highlighting your own span tags. */
 
+// The vocabulary, grouped by what a form decides rather than by shape, so a
+// reader can tell a requirement from a type without being told which is which.
+const SX_REQ = new Set("durable cross-process".split(" "));
+const SX_POLICY = new Set(("policy prefer avoid weights margin strength source " +
+  "required strong weak llm-work maintenance dependency runtime uncertainty " +
+  "client team ops derived measured user").split(" "));
+const SX_OP = new Set(("get list save delete count list-by get-by count-by " +
+  "exists-by delete-by").split(" "));
+// Names of things you can choose, wherever they appear: a value, not a form.
+const SX_NAME = new Set(("memory sqlite-sqlc postgres-sqlc postgres-pgx " +
+  "local-bus nats-bus sqlite postgres pgx local nats auto").split(" "));
+
 function paintSexp(src) {
   let out = "", i = 0;
   while (i < src.length) {
@@ -214,12 +241,51 @@ function paintSexp(src) {
     if (ch === '"') { let j = i + 1;
       while (j < src.length && (src[j] !== '"' || src[j-1] === "\\")) j++;
       out += span("s", src.slice(i, Math.min(j + 1, src.length))); i = j + 1; continue; }
-    if (ch === "(") { let j = i + 1;
-      while (j < src.length && /[\w\-\/.]/.test(src[j])) j++;
-      out += "(" + span("k", src.slice(i + 1, j)); i = j; continue; }
+    if (ch === "(" || ch === ")") { out += span("d", ch); i++; continue; }
+    if (/[\w\-\/.*\[\]]/.test(ch)) {
+      let j = i;
+      while (j < src.length && /[\w\-\/.*\[\]]/.test(src[j])) j++;
+      const w = src.slice(i, j);
+      out += span(sexpClass(w), w); i = j; continue;
+    }
     out += esc(ch); i++;
   }
   return out;
+}
+
+// A word's colour: what it decides first, then what it looks like.
+function sexpClass(w) {
+  if (SX_REQ.has(w)) return "r";
+  if (SX_NAME.has(w)) return "n0";
+  if (SX_POLICY.has(w)) return "p";
+  if (SX_OP.has(w)) return "o";
+  if (/^[0-9]/.test(w)) return "l";
+  if (/^\*?[a-z][\w]*\.[A-Z]/.test(w) || /^\*?(string|bool|byte|rune|error|int|int8|int16|int32|int64|uint|uint8|uint16|uint32|uint64|float32|float64)$/.test(w))
+    return "l";
+  if (/^[a-z][\w\-]*$/.test(w)) return "k";
+  return "n0";
+}
+
+// The answer panels, painted the way the live result panel already paints
+// them, so a sample in the docs and a real answer read identically.
+function paintAnswer(src) {
+  return src.split("\n").map(line => {
+    const kept = line.match(/^(\s*kept in\s+)(\S+)(.*)$/);
+    if (kept) return span("c", esc(kept[1])) + span("ok", esc(kept[2])) + esc(kept[3]);
+    const ruled = line.match(/^(\s*ruled out\s+)(\S+)(\s*)(.*)$/);
+    if (ruled) return span("c", esc(ruled[1])) + span("no", esc(ruled[2])) +
+      esc(ruled[3]) + span("c", esc(ruled[4]));
+    const also = line.match(/^(\s*also possible\s+)(\S+)(.*)$/);
+    if (also) return span("c", esc(also[1])) + esc(also[2]) + esc(also[3]);
+    const asked = line.match(/^(\s*you asked for\s+)(.*)$/);
+    if (asked) return span("c", esc(asked[1])) + span("r", esc(asked[2]));
+    const cont = line.match(/^(\s+)([(—].*|[a-z].*)$/);
+    if (cont) return esc(cont[1]) + span("c", esc(cont[2]));
+    const added = line.match(/^(\s*)(wrote|added|kept|removed|stale|stub|drift|holes)(\s+)(.*)$/);
+    if (added) return esc(added[1]) + span("k", esc(added[2])) + esc(added[3]) + esc(added[4]);
+    if (/^\S/.test(line) && /^[a-z][\w.]*\.[A-Z]/.test(line)) return span("h", esc(line));
+    return esc(line);
+  }).join("\n");
 }
 
 const GO_KW = new Set(("package import func type struct interface var const return if else for range " +
@@ -287,7 +353,7 @@ function paintJSON(src) {
   return out;
 }
 
-const painters = {sexp:paintSexp, go:paintGo, sql:paintSQL, json:paintJSON};
+const painters = {sexp:paintSexp, go:paintGo, sql:paintSQL, json:paintJSON, sh:paintAnswer};
 document.querySelectorAll("pre code[data-lang]").forEach(el => {
   const paint = painters[el.dataset.lang];
   el.innerHTML = paint ? paint(el.textContent) : esc(el.textContent);
