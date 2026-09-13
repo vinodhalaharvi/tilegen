@@ -37,6 +37,7 @@ func init() {
 		Cost:       Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalFor: map[string]string{
 			"durable":       "an in-process bus loses undelivered events on restart",
+			"replay":        "nothing is kept: a handler that subscribes later sees only what comes next",
 			"cross-process": "an in-process bus only reaches handlers in this program",
 		},
 		Impl: &BusTransport{Suffix: "LocalBus", Emit: emitLocalBus},

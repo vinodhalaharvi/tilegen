@@ -14,11 +14,15 @@ func init() {
 		Name: "mongo",
 		Tile: "mongo",
 		Doc:  "mongo: a collection per entity, documents rather than rows",
+		IllegalWhen: map[string]string{
+			"no-broker": "a mongo to run, with backups and a replica set for durability",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 5, Source: "derived", Note: "filters and updates written by hand, but no schema to keep in step"},
 			{Dim: "maintenance", Value: 3},
 			{Dim: "dependency", Value: 3, Source: "derived", Note: "the driver, and a server to run"},
 			{Dim: "runtime", Value: 2},
+			{Dim: "operations", Value: 5, Source: "derived", Note: "a server to run, and a replica set if you want durable writes"},
 		},
 		Form:         "bson-docs",
 		Imports:      map[string]string{"mongo": "go.mongodb.org/mongo-driver/mongo"},
