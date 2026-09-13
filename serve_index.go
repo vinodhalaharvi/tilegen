@@ -339,8 +339,8 @@ const indexHTML = `<!doctype html>
       <fieldset id="f-policy-set" hidden>
         <legend>How firm is that</legend>
         <div class="opts col">
-          <label><input type="radio" name="firm" value="prefer" checked> we would prefer it</label>
-          <label><input type="radio" name="firm" value="required"> it has to be this</label>
+          <label><input type="radio" name="firm" value="prefer" checked> use it wherever it is legal</label>
+          <label><input type="radio" name="firm" value="required"> nothing else is allowed</label>
         </div>
         <div class="opts">
           <label><input type="radio" name="who" value="team" checked> team</label>
@@ -638,8 +638,11 @@ function buildPolicy() {
   if (store) {
     const firm = radio("firm"), who = radio("who");
     const why = ($("f-why").value || "").trim().replace(/"/g, "'") || "that is what we run";
-    s += "\n  (prefer " + store;
-    if (firm === "required") s += "\n    (strength required)";
+    // You picked a store, so your pick wins wherever it is legal. Without a
+    // strength a preference only breaks ties, which meant choosing "postgres,
+    // queries by hand" and being handed sqlite because it scored lower.
+    s += "\n  (prefer " + store +
+         "\n    (strength " + (firm === "required" ? "required" : "strong") + ")";
     s += "\n    (source " + who + ' "' + why + '"))';
   }
   return s + ")\n";
