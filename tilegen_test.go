@@ -1610,7 +1610,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by memory, postgres-pgx, postgres-sqlc"} {
+		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by bolt, memory, mongo, postgres-pgx, postgres-sqlc"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1838,7 +1838,7 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), postgres-sqlc (score 29), postgres-pgx (score 45), or use auto") {
+	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), postgres-sqlc (score 29), mongo (score 41), postgres-pgx (score 45), bolt (score 48), or use auto") {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
@@ -2173,7 +2173,7 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
-	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc))`), 0o644)
+	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc) (avoid bolt) (avoid mongo))`), 0o644)
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
 		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
@@ -3087,7 +3087,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			store = &tiles.Capabilities[i]
 		}
 	}
-	if store == nil || len(store.OfferedBy) != 4 || len(store.Requirements) != 1 {
+	if store == nil || len(store.OfferedBy) != 6 || len(store.Requirements) != 3 {
 		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
 	}
 	for _, tl := range tiles.Tiles {

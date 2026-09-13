@@ -1,15 +1,22 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // The capabilities tiles compete to offer, and the shared vocabulary a
 // node uses to say what it wants. (durable) means the same thing for a
 // store and for an event bus.
 func init() {
 	RegisterCapability(&Capability{
-		Name:         "store",
-		Doc:          "persists an entity's values",
-		Requirements: []string{"durable"},
+		Name: "store",
+		Doc:  "persists an entity's values",
+		// lookup-by-field is not written by hand: it is implied by asking
+		// for (list-by X) and friends, so a store that can only find things
+		// by their key can say so and be ruled out rather than chosen and
+		// then worked around.
+		Requirements: []string{"durable", "cross-process", "lookup-by-field"},
 	})
 	RegisterCapability(&Capability{
 		Name:         "event-bus",
@@ -30,7 +37,7 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 		out = append(out, &Need{
 			ID:           pkgName + "." + e.List[1].Atom + "Store",
 			Capability:   "store",
-			Requirements: requirementsOf(store),
+			Requirements: append(requirementsOf(store), lookupRequirements(store)...),
 			Pos:          store.Pos,
 			Node:         store,
 			Data:         e,
@@ -49,6 +56,18 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 }
 
 // requirementsOf reads the bare requirement forms of a node: (durable).
+// lookupRequirements reads the operations a store was asked for and adds
+// what they imply. Asking to find an entity by anything other than its key
+// is a requirement even though nobody wrote it as one.
+func lookupRequirements(store *Node) []string {
+	for _, op := range store.Args() {
+		if op.IsList && strings.HasSuffix(op.Head(), "-by") {
+			return []string{"lookup-by-field"}
+		}
+	}
+	return nil
+}
+
 func requirementsOf(n *Node) []string {
 	var out []string
 	for _, it := range n.Args() {
