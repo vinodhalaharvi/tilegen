@@ -310,6 +310,10 @@ const indexHTML = `<!doctype html>
       <button class="btn go" id="f-open">Open in the editor</button>
     </div>
     <pre id="f-out"></pre>
+    <div class="bar" style="border-top:1px solid var(--rule)">
+      <strong>the same thing, from a terminal</strong>
+    </div>
+    <pre id="f-curl"></pre>
   </div>
 </main>
 
@@ -391,6 +395,16 @@ function sexpClass(w) {
 
 // The answer panels, painted the way the live result panel already paints
 // them, so a sample in the docs and a real answer read identically.
+// Shell: a comment is a comment, and the command is the word that runs.
+function paintShell(src) {
+  return src.split("\n").map(line => {
+    if (/^\s*#/.test(line)) return span("c", esc(line));
+    const m = line.match(/^(\s*)(curl|tilegen|cd|unzip|go|sqlc|make)(\b[\s\S]*)$/);
+    if (m) return esc(m[1]) + span("k", esc(m[2])) + esc(m[3]);
+    return esc(line);
+  }).join("\n");
+}
+
 function paintAnswer(src) {
   return src.split("\n").map(line => {
     const kept = line.match(/^(\s*kept in\s+)(\S+)(.*)$/);
@@ -574,6 +588,15 @@ function refresh() {
     "say so. Press What would it do? to see the message.";
   const spec = buildSpec();
   $("f-out").innerHTML = paintSexp(spec);
+  // The same two questions this page asks, asked from a shell. location.origin
+  // so the commands are right for wherever this copy happens to be served.
+  $("f-curl").innerHTML = paintShell(
+    "# save the spec above as spec.sexp, then ask the same two questions\n" +
+    "curl -X POST " + location.origin + "/explain \\\n" +
+    "  --data-binary @spec.sexp\n" +
+    "\n" +
+    "curl -X POST " + location.origin + "/generate \\\n" +
+    "  --data-binary @spec.sexp -o project.zip");
   return spec;
 }
 
@@ -624,8 +647,8 @@ $("download").onclick = async () => {
     URL.revokeObjectURL(a.href);
     show("Saved " + esc(name) + ". " + (res.headers.get("X-Tilegen-Holes") || "0") +
          " methods are yours to write, listed in tilegen.tasks.json.\n\n" +
-         paintGo("unzip " + name + " && cd " + name.replace(/\.zip$/, "") + "\n" +
-                 "sqlc generate   // only if the project has a db/ folder\n" +
+         paintShell("unzip " + name + " && cd " + name.replace(/\.zip$/, "") + "\n" +
+                 "sqlc generate   # only if the project has a db/ folder\n" +
                  "go mod tidy\n" +
                  "go build ./..."));
   } catch (e) { plain(String(e)); }
