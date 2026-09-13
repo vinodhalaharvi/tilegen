@@ -57,6 +57,15 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 			Node:         ev,
 		})
 	}
+	for _, a := range pkg.FindAll("auth") {
+		out = append(out, &Need{
+			ID:           pkgName + ".Auth",
+			Capability:   "auth",
+			Requirements: requirementsOf(a),
+			Pos:          a.Pos,
+			Node:         a,
+		})
+	}
 	return out
 }
 
