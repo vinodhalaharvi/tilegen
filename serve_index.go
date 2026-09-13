@@ -125,14 +125,11 @@ const indexHTML = `<!doctype html>
   #f-spec::selection { background:var(--kw); color:transparent; }
   #out { flex:1; margin:0; padding:14px 16px; border:0; overflow:auto; background:none;
         color:var(--fg); font:inherit; line-height:1.65; tab-size:2; white-space:pre-wrap; }
-  /* The terminal block folds away so the spec gets the height instead. */
-  #term { border-top:1px solid var(--rule); }
-  #term > summary { padding:8px 14px; cursor:pointer; color:var(--fg); font-size:12px;
-        font-weight:600; }
-  #term[open] > summary { border-bottom:1px solid var(--rule); }
-  #term .bar { border-bottom:0; padding-bottom:0; }
-  #f-curl { white-space:pre-wrap; margin:0; padding:10px 16px 14px; overflow:auto;
-        max-height:30vh; }
+  /* The terminal block lives under the result, always visible, with its own
+     scroll, so the spec keeps the full height of the middle column. */
+  #term-bar { border-top:1px solid var(--rule); }
+  #f-curl { white-space:pre-wrap; margin:0; padding:12px 16px 16px; overflow:auto;
+        flex:0 1 auto; max-height:42%; }
   @media (max-width:620px) {
     .top { gap:12px; padding:12px 14px; }
     .top .tag { display:none; }
@@ -339,13 +336,6 @@ const indexHTML = `<!doctype html>
       <pre id="f-hi" aria-hidden="true"></pre>
       <textarea id="f-spec" spellcheck="false"></textarea>
     </div>
-    <details id="term">
-      <summary>the same thing, from a terminal</summary>
-      <div class="bar"><span class="fill"></span>
-        <button class="pill" data-copy="f-curl">Copy</button>
-      </div>
-      <pre id="f-curl"></pre>
-    </details>
   </div>
   <div>
     <div class="bar">
@@ -358,6 +348,11 @@ const indexHTML = `<!doctype html>
 will be kept, or Download project for the whole thing as a zip.
 
 First time here? Open Docs.</pre>
+    <div class="bar" id="term-bar">
+      <strong>the same thing, from a terminal</strong><span class="fill"></span>
+      <button class="pill" data-copy="f-curl">Copy</button>
+    </div>
+    <pre id="f-curl"></pre>
   </div>
 </main>
 
