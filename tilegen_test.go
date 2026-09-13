@@ -2173,7 +2173,7 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
-	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc) (avoid bolt) (avoid mongo))`), 0o644)
+	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc) (avoid bolt) (avoid badger) (avoid mongo))`), 0o644)
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
 		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
