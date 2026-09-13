@@ -32,6 +32,7 @@ func importCmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen import", flag.ExitOnError)
 	out := fs.String("out", "spec", "where to write the spec, relative to DIR")
 	force := fs.Bool("force", false, "overwrite an existing spec folder, and import even if some packages do not type-check")
+	tiles := fs.Bool("tiles", false, "read go.mod only: report which direct requirements a tile covers, and write a tile-spec skeleton for each one that has none")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen import [-out spec] [DIR]\n\nLifts an existing Go module into a spec: structs, interfaces, enums and\nimplementations, all from the type checker. What it cannot prove is listed\nin NOTES.md.\n\n")
 		fs.PrintDefaults()
@@ -40,6 +41,13 @@ func importCmd(args []string, stdout, log io.Writer) error {
 	dir := "."
 	if len(pos) > 0 {
 		dir = pos[0]
+	}
+	if *tiles {
+		outDir := *out
+		if outDir == "spec" {
+			outDir = "tilespecs" // the default -out is for a project spec, not tiles
+		}
+		return importTiles(dir, outDir, *force, stdout)
 	}
 	specDir := filepath.Join(dir, *out)
 	if _, err := os.Stat(specDir); err == nil && !*force {
