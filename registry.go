@@ -75,6 +75,8 @@ type Backend struct {
 	Generate     string               // command to run after tilegen and before building, if any
 	GenerateDoc  string               // what it does, for the starter README
 	IllegalWhen  map[string]string    // need -> why this backend cannot serve it, e.g. durable
+	Satisfies    map[string]string    // need -> how this backend meets it; silence is not a yes
+	Unverified   map[string]string    // need -> why nobody has checked; treated as illegal
 	Imports      map[string]string    // package qualifiers its code uses -> import paths
 	ErrorPackage string               // the package whose errors its stores return, for prompts
 	Dialect      *Dialect             // for SQL backends: how this database spells things
@@ -123,6 +125,8 @@ func registerStoreBackend(b *Backend) {
 		Cost:       b.Cost,
 		Requires:   b.Requires,
 		IllegalFor: b.IllegalWhen,
+		Satisfies:  b.Satisfies,
+		Unverified: b.Unverified,
 		Impl:       b,
 	})
 }
@@ -157,6 +161,7 @@ func backendNames() []string {
 // TileInfo is one row of the registry, whatever kind of tile it is.
 type TileInfo struct {
 	IllegalWhen               map[string]string
+	Satisfies, Unverified     map[string]string
 	Form                      string    // for backends: the form their code yields
 	Converts                  [2]string // for chains: from, to
 	CostRule                  string    // for chains: how the cost is computed
@@ -168,6 +173,7 @@ type TileInfo struct {
 
 // Registry lists every tile: the pass rules in order, then the backends.
 func Registry() []TileInfo {
+	ensureClassified()
 	var out []TileInfo
 	for _, p := range Pipeline {
 		for _, r := range p.Rules {
@@ -182,7 +188,8 @@ func Registry() []TileInfo {
 				covers = append(covers, L(Sym("alias"), Sym(a)))
 			}
 			out = append(out, TileInfo{Name: o.Tile, Pass: "select", Covers: covers, Produces: capability,
-				Doc: o.Doc, Requires: o.Requires, Cost: o.Cost, IllegalWhen: o.IllegalFor, Form: offerForm(o)})
+				Doc: o.Doc, Requires: o.Requires, Cost: o.Cost, IllegalWhen: o.IllegalFor,
+				Satisfies: o.Satisfies, Unverified: o.Unverified, Form: offerForm(o)})
 		}
 	}
 	for _, ch := range chains {
@@ -222,8 +229,14 @@ func tileSexp(t TileInfo) *Node {
 	if t.CostRule != "" {
 		n.List = append(n.List, L(Sym("cost-rule"), Str(t.CostRule)))
 	}
+	for _, req := range sortedKeys(t.Satisfies) {
+		n.List = append(n.List, L(Sym("satisfies"), Sym(req), Str(t.Satisfies[req])))
+	}
 	for _, req := range sortedKeys(t.IllegalWhen) {
 		n.List = append(n.List, L(Sym("illegal-when"), L(Sym(req)), Str(t.IllegalWhen[req])))
+	}
+	for _, req := range sortedKeys(t.Unverified) {
+		n.List = append(n.List, L(Sym("unverified"), Sym(req), Str(t.Unverified[req])))
 	}
 	if len(t.Requires) > 0 {
 		req := L(Sym("requires"))

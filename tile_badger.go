@@ -21,6 +21,10 @@ func init() {
 			"cross-process":   "badger takes a directory lock; a second process cannot open the same store",
 			"lookup-by-field": "one keyspace, one key; a secondary index would be written and repaired by hand",
 		},
+		Satisfies: map[string]string{
+			"durable":   "a directory on disk with a write-ahead log replayed on open",
+			"no-broker": "a library and a directory; there is no server",
+		},
 		Imports: map[string]string{
 			"badger": "github.com/dgraph-io/badger/v4",
 		},

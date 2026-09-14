@@ -20,6 +20,7 @@ func score(c Cost) (int, string) { return DefaultPolicy().score(c) }
 
 // coverAll builds a need for every node that has one, and covers it.
 func coverAll(project *Node, c *Ctx) error {
+	ensureClassified()
 	c.Cover = map[string]*Covering{}
 	c.Used = nil
 	enums := map[string]bool{}

@@ -26,6 +26,10 @@ func init() {
 				"which is the cost this scheme exists to avoid",
 			"third-party-idp": "this issues its own tokens; it does not verify anyone else's",
 		},
+		Satisfies: map[string]string{
+			"offline-verify": "the token carries its claims and its signature; verifying it touches nothing else",
+			"expiring":       "the exp claim is inside the signed payload, so it cannot be altered",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "parse a bearer header, verify a signature, check iss and exp"},
 			{Dim: "maintenance", Value: 2, Source: "derived", Note: "the signing key has to be rotated, and rotation is a second key for a while"},
@@ -47,6 +51,12 @@ func init() {
 		Tile:       "oidc",
 		Capability: "auth",
 		Doc:        "an identity provider issues tokens; this verifies them against its keys",
+		Satisfies: map[string]string{
+			"revocable":       "the provider stops honouring a session, and short-lived tokens stop being reissued",
+			"third-party-idp": "this is the case it exists for: tokens are issued elsewhere and verified here",
+			"offline-verify":  "verification uses cached public keys, with no call per request",
+			"expiring":        "the exp claim is inside the signed payload",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 4, Source: "derived", Note: "verify with the provider's verifier, then map claims to a principal"},
 			{Dim: "maintenance", Value: 2},
@@ -73,6 +83,10 @@ func init() {
 			"third-party-idp": "a session is issued here, after whatever login you run; it says nothing about who " +
 				"vouched for the user",
 		},
+		Satisfies: map[string]string{
+			"revocable": "the session is read on every request, so deleting it takes effect on the next one",
+			"expiring":  "the stored session carries an expiry, checked on every read",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "read a cookie, load the session, check it has not expired"},
 			{Dim: "maintenance", Value: 2, Source: "derived", Note: "expired sessions have to be swept, or the store grows forever"},
@@ -96,6 +110,9 @@ func init() {
 			"expiring":        "a key is valid until someone deletes it; nothing in the credential says when to stop trusting it",
 			"offline-verify":  "a key carries no claims: every request is a lookup",
 			"third-party-idp": "an API key is issued by you, not by an identity provider",
+		},
+		Satisfies: map[string]string{
+			"revocable": "the key is resolved on every request, so removing it takes effect on the next one",
 		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 2, Source: "derived", Note: "read a header and call the lookup; the store is the caller's"},

@@ -41,6 +41,13 @@ func init() {
 		IllegalFor: map[string]string{
 			"no-broker": "a cluster to run, partitions to size, and retention and consumer lag to watch",
 		},
+		Satisfies: map[string]string{
+			"cross-process": "the producers are other systems entirely; that is what an inbound edge is",
+			"durable":       "a record is on the partition's replicas before it is acknowledged",
+			"replay":        "a consumer can start at any offset still inside retention",
+			"ordered":       "a partition is an ordered log, and one key goes to one partition",
+			"at-least-once": "an uncommitted offset is redelivered after a rebalance or a restart",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 7, Source: "derived", Note: "a consumer group, offset commits after the handler, and a rebalance callback: more than the publish side"},
 			{Dim: "maintenance", Value: 5},
@@ -67,6 +74,12 @@ func init() {
 			"at-least-once": "core NATS delivers at most once and does not redeliver on failure",
 			"no-broker":     "there is a server to run, though only one binary and no state",
 		},
+		Satisfies: map[string]string{
+			"cross-process": "publishers in other processes reach this subject over the network",
+		},
+		Unverified: map[string]string{
+			"ordered": "messages from one publisher arrive in order on one connection, but nobody has checked what holds across a reconnect",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 2, Source: "derived", Note: "subscribe to a subject and decode; there are no offsets to keep"},
 			{Dim: "maintenance", Value: 1},
@@ -80,7 +93,8 @@ func init() {
 			Import: [2]string{"nats", "github.com/nats-io/nats.go"},
 		},
 	})
-	registerAlias("nats-core", "nats-core")
+	// No alias here: bus_nats.go already registers "nats" for this tile,
+	// and one tile has one alias however many capabilities it offers.
 
 	// MQTT is missing on purpose. Every clause it would carry is
 	// broker-dependent (Mosquitto, EMQX and HiveMQ differ on what a

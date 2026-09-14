@@ -29,6 +29,11 @@ func init() {
 		IllegalWhen: map[string]string{
 			"cross-process": "a sqlite file serves one process; another would need its own connection to the same disk",
 		},
+		Satisfies: map[string]string{
+			"durable":         "the database is a file on disk, and a committed transaction is in it",
+			"lookup-by-field": "a WHERE clause, and an index when you add one",
+			"no-broker":       "one file and a library; there is no server",
+		},
 		Topics:       []string{"sqlite", "sqlc"},
 		Packages:     map[string]string{"db": "internal/db"},
 		Generate:     "sqlc generate",

@@ -42,6 +42,11 @@ func init() {
 			"consumer-groups": "every handler is called for every event; there is no way to compete for one",
 			"at-least-once":   "a handler that returns an error is not called again: the error is joined and returned to the publisher",
 		},
+		Satisfies: map[string]string{
+			"ordered":   "Publish calls every handler in subscription order, in the publisher's goroutine",
+			"fan-out":   "every subscriber is called for every event",
+			"no-broker": "a slice of handlers and a mutex; there is nothing to run",
+		},
 		Impl: &BusTransport{Suffix: "LocalBus", Emit: emitLocalBus},
 	})
 	registerAlias("local-bus", "local")
@@ -170,7 +175,7 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 
 	// A transport that emits complete code (local-bus) goes in the
 	// generated file with everything else. One that leaves its methods to
-	// the LLM (nats-bus) gets a scaffolded file of its own, kept and
+	// the LLM (nats-core, nats-jetstream) gets a scaffolded file of its own, kept and
 	// reconciled like a store's, with one task per method.
 	if tr.Hint == nil {
 		gen, err := goFile(c, path.Join(pkg.Dir, "events_gen.go"), "generated", "", append(append(decls, impl...), assert))

@@ -17,6 +17,13 @@ func init() {
 		IllegalWhen: map[string]string{
 			"no-broker": "a mongo to run, with backups and a replica set for durability",
 		},
+		Satisfies: map[string]string{
+			"cross-process":   "a server other processes connect to over the network",
+			"lookup-by-field": "a filter on any field, and an index when you add one",
+		},
+		Unverified: map[string]string{
+			"durable": "a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 5, Source: "derived", Note: "filters and updates written by hand, but no schema to keep in step"},
 			{Dim: "maintenance", Value: 3},

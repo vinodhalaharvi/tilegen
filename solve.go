@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // Selection, properly.
@@ -76,6 +77,17 @@ type Offer struct {
 	Cost       Cost              // its own cost, before children and chains
 	Requires   []string          // external tools, reported but never a legality test
 	IllegalFor map[string]string // requirement -> why it cannot serve it
+
+	// Satisfies is the affirmative half of legality: requirement -> how
+	// this tile meets it. A requirement in neither map is not assumed to
+	// be met. RegisterOffer moves it to Unverified, which selection
+	// treats as illegal.
+	//
+	// Silence used to read as yes, and that is how nats-bus came to be
+	// chosen for (durable) while emitting fire-and-forget code. A claim
+	// nobody has made is now a claim nobody can rely on.
+	Satisfies  map[string]string
+	Unverified map[string]string // requirement -> why it is not known; filled by RegisterOffer
 
 	// Children are the capabilities this offer itself needs covered. An
 	// offer with children is what makes the covering a tree, and what
@@ -288,9 +300,16 @@ func describePick(chosen, cheapest Candidate, pref Preference, why string) strin
 }
 
 func offerIllegalFor(o *Offer, reqs []string) string {
+	// A declared impossibility is reported first: it is the more useful
+	// sentence, and it will not change when someone does the work.
 	for _, r := range reqs {
 		if why, ok := o.IllegalFor[r]; ok {
 			return why
+		}
+	}
+	for _, r := range reqs {
+		if why, ok := o.Unverified[r]; ok {
+			return "unverified: " + why
 		}
 	}
 	return ""
@@ -333,7 +352,50 @@ func validateRequirements(capability string, reqs []string, at *Node, v *validat
 // spec's need can always be covered or explained), and every offer names a
 // capability that exists. run() calls it, so a mistake fails loudly and
 // immediately rather than at the node that needed it.
+// classifyRequirements fills Unverified with every requirement of the
+// offer's capability that the tile neither claims nor refuses, so that a
+// tile is legal only for what it says it can do. It also catches a tile
+// that says both at once.
+func classifyRequirements(o *Offer) {
+	cap := capabilities[o.Capability]
+	if cap == nil {
+		return
+	}
+	for _, r := range cap.Requirements {
+		_, no := o.IllegalFor[r]
+		_, yes := o.Satisfies[r]
+		switch {
+		case no && yes:
+			panic(fmt.Sprintf("tilegen: tile %q both satisfies and is illegal for %q", o.Tile, r))
+		case no || yes:
+			continue
+		}
+		if o.Unverified == nil {
+			o.Unverified = map[string]string{}
+		}
+		if _, already := o.Unverified[r]; !already {
+			o.Unverified[r] = fmt.Sprintf("the %s tile does not say whether it meets this, and an unmade claim is not a yes", o.Tile)
+		}
+	}
+}
+
+var classifyOnce sync.Once
+
+// ensureClassified runs classifyRequirements over every offer, once. It
+// cannot happen in RegisterOffer: init functions run in filename order,
+// so bus_nats.go registers before capabilities.go declares event-bus.
+func ensureClassified() {
+	classifyOnce.Do(func() {
+		for _, capability := range sortedKeys(offers) {
+			for _, o := range offers[capability] {
+				classifyRequirements(o)
+			}
+		}
+	})
+}
+
 func checkRegistry() error {
+	ensureClassified()
 	var errs []error
 	for _, name := range capabilityNames() {
 		if len(offers[name]) == 0 {

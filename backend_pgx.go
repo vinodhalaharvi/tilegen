@@ -17,6 +17,11 @@ func init() {
 		IllegalWhen: map[string]string{
 			"no-broker": "a postgres to run, with backups, connections and upgrades",
 		},
+		Satisfies: map[string]string{
+			"durable":         "a committed transaction is on disk before COMMIT returns",
+			"cross-process":   "a server other processes connect to over the network",
+			"lookup-by-field": "a WHERE clause, and an index when you add one",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 7, Source: "derived", Note: "the LLM writes every query and scan by hand"},
 			{Dim: "maintenance", Value: 5, Source: "derived", Note: "hand-written SQL drifts from the schema silently"},
