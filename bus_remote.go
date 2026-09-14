@@ -20,6 +20,15 @@ func init() {
 		IllegalFor: map[string]string{
 			"no-broker": "a cluster to run, partitions to size, and retention and consumer lag to watch",
 		},
+		Satisfies: map[string]string{
+			"durable":         "a produce is acknowledged once the partition's replicas have the record",
+			"cross-process":   "consumers in other processes read the topic over the network",
+			"replay":          "a consumer group can seek to any offset still inside retention",
+			"ordered":         "records with the same key go to one partition, and a partition is an ordered log",
+			"at-least-once":   "an uncommitted offset is redelivered to whoever takes the partition next",
+			"fan-out":         "several consumer groups on one topic each see every record",
+			"consumer-groups": "a group shares partitions among its members and rebalances them",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 5},
 			{Dim: "maintenance", Value: 5},
@@ -45,6 +54,14 @@ func init() {
 			"no-broker": "there is a Redis to run",
 			"durable":   "durability is an operator setting: under the default append-only policy a second of writes can be lost on a crash",
 		},
+		Satisfies: map[string]string{
+			"cross-process":   "clients in other processes read the stream over the network",
+			"replay":          "a stream is read from any id, so a late reader can start at the beginning",
+			"ordered":         "one stream is an ordered sequence of ids",
+			"at-least-once":   "an unacknowledged entry stays in the pending list and can be claimed again",
+			"fan-out":         "several groups on one stream each see every entry",
+			"consumer-groups": "a group shares entries among its consumers",
+		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 4},
 			{Dim: "maintenance", Value: 3},
@@ -69,6 +86,16 @@ func init() {
 		IllegalFor: map[string]string{
 			"no-broker": "a broker to run, and exchanges and bindings to get right",
 			"replay":    "a classic queue removes a message when it is acknowledged; there is nothing left to read back",
+		},
+		Satisfies: map[string]string{
+			"cross-process":   "consumers in other processes bind to the exchange over the network",
+			"at-least-once":   "an unacknowledged message is requeued when the channel closes",
+			"fan-out":         "several queues bound to one exchange each receive every message",
+			"consumer-groups": "several consumers on one queue compete for its messages",
+		},
+		Unverified: map[string]string{
+			"durable": "a durable exchange, a durable queue and persistent messages are all needed, and this tile declares none of them",
+			"ordered": "one consumer on one queue sees publisher order, but nobody has checked what requeueing does to it",
 		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 4},

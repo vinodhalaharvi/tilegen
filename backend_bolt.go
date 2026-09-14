@@ -23,6 +23,10 @@ func init() {
 			"cross-process":   "bbolt takes an exclusive lock on the file; a second process cannot open it",
 			"lookup-by-field": "a bucket has one key; a secondary index would be written and repaired by hand",
 		},
+		Satisfies: map[string]string{
+			"durable":   "one memory-mapped file; a committed write transaction is fsynced before it returns",
+			"no-broker": "a file and a library; there is no server",
+		},
 		Imports:      map[string]string{"bbolt": "go.etcd.io/bbolt"},
 		Topics:       []string{"bbolt", "embedded-database"},
 		ErrorPackage: "bbolt",
