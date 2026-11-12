@@ -4315,3 +4315,107 @@ func TestExplainProject(t *testing.T) {
 		t.Errorf("a bad extra-engine should be reported: %v", err)
 	}
 }
+
+// TestEnginesAreDeclaredByTiles: what shares a server is a fact each tile
+// states, not a table beside the solver.
+func TestEnginesAreDeclaredByTiles(t *testing.T) {
+	find := func(capability, tile string) *Offer {
+		for _, o := range offersOf(capability) {
+			if o.Tile == tile {
+				return o
+			}
+		}
+		t.Fatalf("no %s offer %s", capability, tile)
+		return nil
+	}
+	for _, c := range []struct{ capability, tile, engine string }{
+		{"store", "postgres-sqlc", "postgres"}, {"store", "postgres-pgx", "postgres"},
+		{"store", "sqlite-sqlc", "sqlite"}, {"store", "badger", "badger"}, {"store", "memory", ""},
+		{"event-bus", "nats-core", "nats"}, {"event-bus", "nats-jetstream", "nats"}, {"event-bus", "local-bus", ""},
+		{"transport", "nats-core", "nats"}, {"event-bus", "kafka", "kafka"}, {"transport", "kafka", "kafka"},
+	} {
+		if got := engineOf(find(c.capability, c.tile)); got != c.engine {
+			t.Errorf("%s %s: engine %q, want %q", c.capability, c.tile, got, c.engine)
+		}
+	}
+
+	// One cluster serving two capabilities is paid for once: a Kafka bus,
+	// then Kafka as an inbound edge. The second adds no server and no
+	// library, and is not a second engine, because it is the same one.
+	p := DefaultPolicy()
+	p.ExtraEngine = 50
+	bus, edge := find("event-bus", "kafka"), find("transport", "kafka")
+	busScore, _ := p.score(bus.Cost)
+	edgeScore, _ := p.score(edge.Cost)
+	first, r := running{}.add(Candidate{Offer: bus, Score: busScore}, p)
+	second, _ := r.add(Candidate{Offer: edge, Score: edgeScore}, p)
+	if first != busScore {
+		t.Errorf("the first use of an engine pays in full: %d, want %d", first, busScore)
+	}
+	if want := edgeScore - weighted(edge, p, "operations") - weighted(edge, p, "dependency"); second != want {
+		t.Errorf("the second capability on kafka should add %d, got %d", want, second)
+	}
+
+	// Two tiles, one server: JetStream after core NATS runs on the
+	// nats-server already there, and pays only what its dearer price adds.
+	core, stream := find("event-bus", "nats-core"), find("event-bus", "nats-jetstream")
+	coreScore, _ := p.score(core.Cost)
+	streamScore, _ := p.score(stream.Cost)
+	_, r = running{}.add(Candidate{Offer: core, Score: coreScore}, p)
+	if got, want := priceOn(r, stream, streamScore, p), streamScore-weighted(core, p, "operations"); got != want {
+		t.Errorf("JetStream on a running nats-server should add %d, got %d", want, got)
+	}
+
+	// And in a real spec. Need by need, a bus that must reach other
+	// processes gets core NATS and one that must replay gets Redis
+	// Streams: two brokers. As a project, one Redis serves both.
+	v := projectViewOf(t, `(project p (module example.com/p) (go 1.22)
+  (package alerts (events (cross-process) (event Fired (field ID int64))))
+  (package audit (events (cross-process) (replay) (event Logged (field ID int64)))))`, "(policy (extra-engine 10))")
+	if v.Today[0].Tile != "nats-core" || v.Today[1].Tile != "redis-streams" || enginesIn(v.Today) != "nats, redis-streams" {
+		t.Fatalf("need by need should be two brokers, got %+v", v.Today)
+	}
+	if v.Best[0].Tile != "redis-streams" || v.Best[1].Tile != "redis-streams" || v.TodayTotal != 81 || v.BestTotal != 65 {
+		t.Fatalf("as a project it should be one redis at 65 against 81, got %+v, %d against %d", v.Best, v.BestTotal, v.TodayTotal)
+	}
+}
+
+// priceOn prices one more offer for a project that already runs r.
+func priceOn(r running, o *Offer, score int, p *Policy) int {
+	cost, _ := r.add(Candidate{Offer: o, Score: score}, p)
+	return cost
+}
+
+// TestTileSpecDeclaresItsEngine: a tile written as a (tile-spec ...) says
+// what it runs on, and the generated registration carries it.
+func TestTileSpecDeclaresItsEngine(t *testing.T) {
+	const spec = `(project tiles (module example.com/tiles) (go 1.22)
+  (package main (dir ".")
+    (tile-spec pebble
+      (kind store-backend)
+      (doc "embedded key-value on the cockroach engine")
+      (engine cockroach)
+      %s
+      (cost (llm-work 4) (maintenance 3)))))`
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, ""), "")
+	out := filepath.Join(dir, "out")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
+		if err == nil && strings.HasSuffix(path, ".go") {
+			b, _ := os.ReadFile(path)
+			// gofmt may align the field, so compare with the spaces removed.
+			found = found || strings.Contains(strings.Join(strings.Fields(string(b)), ""), `Engine:"cockroach",`)
+		}
+		return nil
+	})
+	if !found {
+		t.Error(`the generated tile should carry Engine: "cockroach"`)
+	}
+	if err := validateSrc(t, fmt.Sprintf(spec, "(engine again)"), false); err == nil || !strings.Contains(err.Error(), "duplicate (engine ...)") {
+		t.Errorf("a second (engine ...) should be reported: %v", err)
+	}
+}

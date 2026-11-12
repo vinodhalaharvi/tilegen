@@ -66,6 +66,7 @@ func init() {
 	// illegal for three of the six and very cheap for the rest.
 	RegisterOffer(&Offer{
 		Tile:       "nats-core",
+		Engine:     "nats",
 		Capability: "transport",
 		Doc:        "core NATS: subjects and queue groups, with nothing kept",
 		IllegalFor: map[string]string{

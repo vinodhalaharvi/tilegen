@@ -11,9 +11,10 @@ import (
 // More LLM work and more to maintain than sqlc, but no generate step.
 func init() {
 	registerStoreBackend(&Backend{
-		Name: "pgx",
-		Tile: "postgres-pgx",
-		Doc:  "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
+		Name:   "pgx",
+		Tile:   "postgres-pgx",
+		Engine: "postgres",
+		Doc:    "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
 		IllegalWhen: map[string]string{
 			"no-broker": "a postgres to run, with backups, connections and upgrades",
 		},

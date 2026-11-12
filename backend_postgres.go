@@ -12,6 +12,7 @@ func init() {
 	registerStoreBackend(&Backend{
 		Name:     "postgres",
 		Tile:     "postgres-sqlc",
+		Engine:   "postgres",
 		Form:     "db-rows", // sqlc's own row types: a row-mapper converts them
 		Doc:      "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
 		Requires: []string{"sqlc"},

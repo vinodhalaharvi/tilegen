@@ -32,6 +32,7 @@ import (
 func init() {
 	RegisterOffer(&Offer{
 		Tile:       "local-bus",
+		Engine:     noEngine,
 		Capability: "event-bus",
 		Doc:        "in-process bus: synchronous delivery, ordered, errors joined",
 		Cost:       Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},

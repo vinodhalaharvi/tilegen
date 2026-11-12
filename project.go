@@ -30,24 +30,19 @@ import (
 // Today this only reports: `tilegen explain -project`. Nothing it finds
 // changes what tilegen generates.
 
-// engines names the engine behind a tile where it is not the tile itself:
-// two tiles on one engine share its server. "" means there is nothing to
-// run or keep. A tile not listed is its own engine.
-var engines = map[string]string{
-	"postgres-sqlc":  "postgres",
-	"postgres-pgx":   "postgres",
-	"nats-core":      "nats",
-	"nats-jetstream": "nats",
-	"sqlite-sqlc":    "sqlite",
-	"memory":         "",
-	"local-bus":      "",
-}
+// noEngine is the Engine of a tile with nothing to run or keep.
+const noEngine = "none"
 
+// engineOf is the engine a tile's project runs: the one it declares, or
+// the tile itself. "" means there is none.
 func engineOf(o *Offer) string {
-	if e, ok := engines[o.Tile]; ok {
-		return e
+	switch o.Engine {
+	case "":
+		return o.Tile
+	case noEngine:
+		return ""
 	}
-	return o.Tile
+	return o.Engine
 }
 
 // weighted is what one cost dimension of an offer comes to under a policy.
@@ -127,9 +122,10 @@ func (r running) add(cand Candidate, p *Policy) (int, running) {
 
 // projectPick is one need's tile in a project-wide choice.
 type projectPick struct {
-	Need string
-	Tile string
-	Cost int // what it adds to the project
+	Need   string
+	Tile   string
+	Engine string
+	Cost   int // what it adds to the project
 }
 
 // ProjectView compares the choice made need by need with the cheapest
@@ -149,10 +145,11 @@ type projectState struct {
 }
 
 type projectStep struct {
-	need string
-	tile string
-	cost int
-	done bool
+	need   string
+	tile   string
+	engine string
+	cost   int
+	done   bool
 }
 
 // free reports whether cost alone chose this need's tile, so the
@@ -168,7 +165,7 @@ func projectView(c *Ctx) *ProjectView {
 	for _, n := range names {
 		cov := c.Cover[n]
 		cost, next := r.add(Candidate{Offer: cov.Offer, Score: cov.Score}, c.Policy)
-		v.Today = append(v.Today, projectPick{n, cov.Offer.Tile, cost})
+		v.Today = append(v.Today, projectPick{n, cov.Offer.Tile, engineOf(cov.Offer), cost})
 		v.TodayTotal += cost
 		r = next
 	}
@@ -190,7 +187,7 @@ func projectView(c *Ctx) *ProjectView {
 			key := next.key()
 			runs[key] = next
 			out = append(out, dyna.Node[projectStep, projectState]{
-				Label: projectStep{need: names[s.i], tile: cand.Offer.Tile, cost: cost},
+				Label: projectStep{need: names[s.i], tile: cand.Offer.Tile, engine: engineOf(cand.Offer), cost: cost},
 				Kids:  []projectState{{s.i + 1, key}},
 			})
 		}
@@ -208,7 +205,7 @@ func projectView(c *Ctx) *ProjectView {
 	best, stats := dyna.Dyna(cheapest, coalg, projectState{})
 	v.States = stats.States
 	for e := best[0]; !e.Label.done; e = e.Kids[0] {
-		v.Best = append(v.Best, projectPick{e.Label.need, e.Label.tile, e.Label.cost})
+		v.Best = append(v.Best, projectPick{e.Label.need, e.Label.tile, e.Label.engine, e.Label.cost})
 		v.BestTotal += e.Label.cost
 	}
 	if v.BestTotal == v.TodayTotal {
@@ -229,12 +226,8 @@ func (v *ProjectView) same() bool {
 func enginesIn(picks []projectPick) string {
 	seen := map[string]bool{}
 	for _, p := range picks {
-		e, listed := engines[p.Tile]
-		if !listed {
-			e = p.Tile
-		}
-		if e != "" {
-			seen[e] = true
+		if p.Engine != "" {
+			seen[p.Engine] = true
 		}
 	}
 	if len(seen) == 0 {
