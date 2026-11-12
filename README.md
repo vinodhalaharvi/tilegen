@@ -698,6 +698,36 @@ want. It lives beside the spec (any `.sexp` file in the folder) or in
 Weights price every tile and chain rule, so the same spec gives different
 teams different architectures with no tile edited.
 
+### The project as a whole
+
+Each need is covered on its own, so a cost a project pays once is charged
+for every need: five stores on postgres are priced as five servers.
+`tilegen explain -project` prices the project as a whole instead. A server
+(`operations`) is paid once per engine, a library (`dependency`) once per
+tile, and each engine beyond the first within a capability costs the
+policy's `(extra-engine N)`, which is 0 unless you set it:
+
+```lisp
+(policy (extra-engine 10))   ; a second database is one more thing to run
+```
+
+```
+whole project   a server and a library are paid once; each extra engine in a capability costs 10
+
+                     need by need           whole project
+  app.CommentStore   badger 29              postgres-sqlc 44       changes
+  app.ProjectStore   badger 27              postgres-sqlc 26       changes
+  app.TaskStore      badger 27              postgres-sqlc 26       changes
+  app.TeamStore      badger 27              postgres-sqlc 26       changes
+  app.UserStore      sqlite-sqlc 48         postgres-sqlc 26       changes
+  total              158                    148
+  engines            badger, sqlite         postgres
+```
+
+Each figure is what that need adds to the project. This is a report:
+tilegen still generates the need-by-need choice. A need whose tile the
+config, the lock or a preference decided keeps it.
+
 Costs say what a tile is worth technically. Preferences say what people
 want, and they are not the same thing: a tile that loses on every
 engineering measure can still be right because a client requires it or a

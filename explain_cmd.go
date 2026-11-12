@@ -18,6 +18,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	fs.StringVar(&o.Out, "out", "", "the generated project, whose tilegen.lock pins choices (default: the workspace's (out ...), else ./out)")
 	fs.BoolVar(&o.Reselect, "reselect", false, "ignore tilegen.lock: show what a fresh choice would be")
 	asJSON := fs.Bool("json", false, "print the coverings as JSON")
+	whole := fs.Bool("project", false, "also compare the need-by-need choice with the cheapest for the project as a whole")
 	fs.StringVar(&o.PolicyFile, "policy", "", "policy .sexp file (default: a (policy ...) form in the spec)")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "usage: tilegen explain [flags] [SPEC] [STORE...]\n\n")
@@ -39,6 +40,9 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	if *whole && (*asJSON || len(pos) > 0) {
+		return fmt.Errorf("-project reports on the whole spec, as text: drop -json and the need names")
+	}
 	if *asJSON {
 		jsonWeights = cp.c.Policy.Weights
 		out := ExplainJSON{Policy: policyJSON(cp.c.Policy)}
@@ -66,6 +70,9 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 			return fmt.Errorf("no store %s%s", pos[0], didYouMean(pos[0], names))
 		}
 		fmt.Fprintln(stdout, "no stores in this spec")
+	}
+	if *whole {
+		projectView(cp.c).print(stdout)
 	}
 	return nil
 }
