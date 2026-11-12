@@ -728,6 +728,12 @@ Each figure is what that need adds to the project. This is a report:
 tilegen still generates the need-by-need choice. A need whose tile the
 config, the lock or a preference decided keeps it.
 
+What counts as one engine is something each tile declares. `postgres-sqlc`
+and `postgres-pgx` both say `postgres`, so they share a server; the two
+NATS tiles share `nats`; a tile that says nothing is its own engine, and
+`memory` and `local-bus` have none. A tile written as a `(tile-spec ...)`
+says it with `(engine NAME)`.
+
 Costs say what a tile is worth technically. Preferences say what people
 want, and they are not the same thing: a tile that loses on every
 engineering measure can still be right because a client requires it or a

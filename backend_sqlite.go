@@ -17,6 +17,7 @@ func init() {
 	registerStoreBackend(&Backend{
 		Name:     "sqlite",
 		Tile:     "sqlite-sqlc",
+		Engine:   "sqlite",
 		Doc:      "sqlite via sqlc: one file, no server; uuid and time are TEXT",
 		Form:     "db-rows",
 		Requires: []string{"sqlc"},

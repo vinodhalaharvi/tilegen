@@ -5,10 +5,11 @@ import "fmt"
 // The memory backend: a map guarded by a mutex. Useful for tests and fakes.
 func init() {
 	registerStoreBackend(&Backend{
-		Name: "memory",
-		Tile: "memory",
-		Doc:  "in-memory store: a map guarded by a mutex",
-		Cost: Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
+		Name:   "memory",
+		Tile:   "memory",
+		Engine: noEngine,
+		Doc:    "in-memory store: a map guarded by a mutex",
+		Cost:   Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1}, {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalWhen: map[string]string{
 			"durable":       "an in-memory map loses its data on restart",
 			"cross-process": "the map lives in this process's heap; another process has its own, empty one",

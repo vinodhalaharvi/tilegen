@@ -109,6 +109,8 @@ func validateTileSpec(v *validator, n *Node, types map[string]bool) {
 			}
 		case "form":
 			v.shape(it, "(form ?name)")
+		case "engine":
+			v.shape(it, "(engine ?name)")
 		case "requires":
 			for _, r := range it.Args() {
 				v.shape(r, "(tool ?name)")
@@ -118,7 +120,7 @@ func validateTileSpec(v *validator, n *Node, types map[string]bool) {
 		case "cost":
 			validateTileCost(v, it)
 		default:
-			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "requires", "illegal-when", "cost"}
+			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "illegal-when", "cost"}
 			v.bad(it, "a tile-spec contains %s, got %s%s",
 				strings.Join(known, ", "), short(it), didYouMean(it.Head(), known))
 			continue
@@ -379,6 +381,9 @@ func storeBackendRegistration(name, impl string, n *Node) string {
 	}
 	if form := n.Text("form"); form != "" {
 		fmt.Fprintf(&b, "\t\tForm: %s,\n", strconv.Quote(form))
+	}
+	if engine := n.Text("engine"); engine != "" {
+		fmt.Fprintf(&b, "\t\tEngine: %s,\n", strconv.Quote(engine))
 	}
 	if req := n.Find("requires"); req != nil {
 		var tools []string

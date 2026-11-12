@@ -70,6 +70,7 @@ type Backend struct {
 	Doc          string   // one line for `tilegen tiles`
 	Requires     []string // external tools
 	Cost         Cost
+	Engine       string               // what a project runs for it, shared by tiles that name the same one; see Offer.Engine
 	Topics       []string             // GitHub topics a project using it gets
 	Packages     map[string]string    // project folders its code lives in, by package name (reserved)
 	Generate     string               // command to run after tilegen and before building, if any
@@ -124,6 +125,7 @@ func registerStoreBackend(b *Backend) {
 		Form:       b.Form,
 		Cost:       b.Cost,
 		Requires:   b.Requires,
+		Engine:     b.Engine,
 		IllegalFor: b.IllegalWhen,
 		Satisfies:  b.Satisfies,
 		Unverified: b.Unverified,

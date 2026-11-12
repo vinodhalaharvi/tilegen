@@ -19,6 +19,7 @@ import "fmt"
 func init() {
 	RegisterOffer(&Offer{
 		Tile:       "nats-core",
+		Engine:     "nats",
 		Capability: "event-bus",
 		Doc:        "core NATS: subjects and queue groups, with nothing kept",
 		IllegalFor: map[string]string{
@@ -54,6 +55,7 @@ func init() {
 
 	RegisterOffer(&Offer{
 		Tile:       "nats-jetstream",
+		Engine:     "nats",
 		Capability: "event-bus",
 		Doc:        "NATS JetStream: the same server with a log, so events are kept and can be read back",
 		IllegalFor: map[string]string{
