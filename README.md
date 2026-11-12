@@ -33,7 +33,7 @@ newer fetches that automatically the first time you build, so you do not
 have to install it by hand.
 
 ```sh
-go install github.com/vinodhalaharvi/tilegen@latest
+brew install vinodhalaharvi/tap/tilegen      # or: go install github.com/vinodhalaharvi/tilegen@latest
 tilegen -config examples/shop/config.sexp -out out/shop -dump examples/shop/spec.sexp
 cd out/shop && go mod tidy && go build ./...   # compiles; bodies panic until filled
 ```
@@ -941,7 +941,7 @@ waiting to be written.
 
 ## Status
 
-v0.3.0. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
+v0.3.1. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
 every attempt, and replacing declared LLM costs with measured ones. See
 [ROADMAP.md](ROADMAP.md).
 
