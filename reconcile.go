@@ -255,7 +255,7 @@ func sweep(out string, r *Report) {
 			return nil
 		}
 		switch filepath.Ext(p) {
-		case ".go", ".sql", ".yaml":
+		case ".go", ".sql", ".yaml", ".proto":
 		default:
 			return nil
 		}

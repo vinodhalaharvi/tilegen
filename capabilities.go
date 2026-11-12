@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 )
 
@@ -66,6 +67,15 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 			Node:         a,
 		})
 	}
+	for _, a := range pkg.FindAll("api") {
+		out = append(out, &Need{
+			ID:           pkgName + ".API",
+			Capability:   "api",
+			Requirements: requirementsOf(a),
+			Pos:          a.Pos,
+			Node:         a,
+		})
+	}
 	return out
 }
 
@@ -121,6 +131,57 @@ func aliasesFor(capability string) []string {
 // usedBackends are the storage backends among the tiles a project uses.
 // Code that needs backend details (reserved packages, imports, topics, the
 // generate step) asks for these rather than every offer.
+// toolStep is a command a chosen tile needs run after tilegen and before
+// the project builds: sqlc generate, buf generate.
+type toolStep struct {
+	Cmd, Doc, Tile string
+	Reads          func(rel string) bool // the files tilegen writes for it
+	Writes         []string              // the directories it fills
+}
+
+// Target is the make target that runs the step: the tool's name.
+func (s toolStep) Target() string { return strings.Fields(s.Cmd)[0] }
+
+// toolSteps lists the steps the chosen tiles need, each command once.
+func toolSteps(c *Ctx) []toolStep {
+	var out []toolStep
+	seen := map[string]int{}
+	for _, o := range c.Used {
+		var s toolStep
+		switch impl := o.Impl.(type) {
+		case *Backend:
+			if impl.Generate == "" {
+				continue
+			}
+			s = toolStep{Cmd: impl.Generate, Doc: impl.GenerateDoc, Tile: impl.Tile,
+				Reads: func(rel string) bool { return strings.HasPrefix(rel, "db/") || rel == "sqlc.yaml" }}
+			for _, dir := range impl.Packages {
+				s.Writes = append(s.Writes, dir)
+			}
+			sort.Strings(s.Writes)
+		case *APITransport:
+			if impl.Plugin == "" {
+				continue
+			}
+			s = toolStep{Cmd: "buf generate", Doc: "writes gen/ from the .proto files", Tile: o.Tile, Writes: []string{"gen"},
+				Reads: func(rel string) bool { return strings.HasPrefix(rel, "proto/") || strings.HasPrefix(rel, "buf.") }}
+		default:
+			continue
+		}
+		if i, dup := seen[s.Cmd]; dup { // two tiles, one tool: one step that writes for both
+			for _, dir := range s.Writes {
+				if !contains(out[i].Writes, dir) {
+					out[i].Writes = append(out[i].Writes, dir)
+				}
+			}
+			continue
+		}
+		seen[s.Cmd] = len(out)
+		out = append(out, s)
+	}
+	return out
+}
+
 func usedBackends(c *Ctx) []*Backend {
 	var out []*Backend
 	for _, o := range c.Used {

@@ -86,6 +86,7 @@ Two guides go deeper:
 | `(enum Status pending paid shipped)` | a string type with constants, `StatusValues`, `Valid()`, `ParseStatus()` |
 | `(events (event Name (field ...))...)` | event structs, a typed `Bus` interface, and an in-process `LocalBus` |
 | `(http (route GET "/x/{id}" (get X))...)` | a `Handler` and `ServeMux` over the package's stores |
+| `(api (get X) (save X)... (typed-clients))` | a server for those operations over HTTP and JSON, Connect or gRPC, whichever its clients need |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -170,6 +171,77 @@ two holes and exercises every route, checking 200, 404 for a missing
 record, 400 for an unparsable id, for failed validation and for unknown
 fields, 204 on delete, 405 for the wrong method and 404 for an unknown
 path.
+
+### APIs: HTTP, Connect or gRPC
+
+`(http ...)` is for writing the routes yourself. `(api ...)` says what the
+package serves and what its clients need, and leaves the transport to be
+chosen, the way a store's backend is:
+
+```lisp
+(api
+  (get Order) (list Order) (save Order) (delete Order)
+  (typed-clients))
+```
+
+| Requirement | Meaning |
+|---|---|
+| `(typed-clients)` | clients are generated from a schema, not written by hand |
+| `(browser-clients)` | a browser calls it directly, with no proxy in between |
+| `(grpc-native)` | it must be grpc-go: its interceptors, reflection and health services |
+
+| Tile | Legal for | Generates |
+|---|---|---|
+| `http-json` | no requirement, `browser-clients` | exactly what `(http ...)` does, with a conventional route per operation |
+| `connect` | `typed-clients`, `browser-clients` | a `.proto` and a [Connect](https://connectrpc.com) server, which also answers gRPC and gRPC-Web clients |
+| `grpc` | `typed-clients`, `grpc-native` | the same `.proto` and a grpc-go server |
+
+With no requirement the cheapest wins, which is `http-json`. Asking for a
+browser and for grpc-go at once is refused with the reason: a browser
+cannot speak gRPC. `tilegen explain` shows the choice, and `(api grpc)` in
+the config makes it outright.
+
+The two schema tiles write `proto/<package>/v1/<package>.proto` from the
+entities, and `buf.yaml` and `buf.gen.yaml` beside `go.mod`.
+[buf](https://buf.build) turns the `.proto` into Go, as sqlc does for SQL:
+
+```sh
+tilegen -out out/api examples/api/spec.sexp
+cd out/api && buf generate && go mod tidy && go build ./...
+```
+
+It needs `buf`, `protoc-gen-go`, and `protoc-gen-connect-go` or
+`protoc-gen-go-grpc` on your `PATH`; `tilegen tiles` says which are
+missing. The server in `<package>/api_gen.go` is generated whole,
+conversions between an `Order` and its wire form included. As with HTTP,
+the only holes are the two judgment calls:
+
+```go
+func (s *APIServer) validateOrder(order *Order) error    // what makes a value unacceptable
+func (s *APIServer) codeForOrder(err error) connect.Code // which code a store error deserves
+```
+
+A field's number is its identity on the wire, so tilegen never works it
+out from the order of the spec. Numbers are pinned in `tilegen.lock`:
+
+```lisp
+(proto orders.Order
+  (number ID 1)
+  (number CustomerEmail 2)
+  (number Currency 9)
+  (reserved 3))
+```
+
+Reorder the fields and nothing moves. Add one and it takes the next number
+nobody has had. Remove one and its number is reserved, in the lock and in
+the `.proto`, so an old client's bytes can never be read as a different
+field. `-reselect` chooses tiles again and leaves numbers alone. Commit the
+lock.
+
+Fields can be strings, numbers, bools, `[]byte`, `uuid.UUID`, `time.Time`,
+the package's enums, and pointers to those, which become `optional`. An
+enum gets an `UNSPECIFIED` zero value, and a request that leaves one unset
+is an invalid argument rather than a silent default.
 
 ### Implementing any interface
 
@@ -337,6 +409,7 @@ Same spec, different config, different (equally valid) Go:
   (json-tags snake)     ; snake | camel | none
   (context-first yes)   ; prepend ctx context.Context to interface methods
   (storage auto)        ; auto (cheapest legal per store) | memory | postgres | pgx
+  (api auto)            ; auto (cheapest legal for its clients) | http | connect | grpc
   (layout flat))        ; flat | internal
 ```
 
@@ -380,6 +453,7 @@ guarantees coverage with a one-node tile per operator.
 | formatting, stdlib imports | `go/format`, `x/tools/imports` (the goimports engine gopls uses) |
 | which stdlib packages exist | `go list std` |
 | database access code | [sqlc](https://sqlc.dev), fed by the postgres tile |
+| protobuf and RPC code | [buf](https://buf.build) and the protoc-gen plugins, fed by the connect and grpc tiles |
 | type checking the result | `go build`, `go vet` |
 
 Everything tilegen itself implements is the reader, the matcher, the tiles,

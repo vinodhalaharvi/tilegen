@@ -84,20 +84,17 @@ func buildPlanGraph(r *Report, c *Ctx) *PlanGraph {
 
 	// Tool steps: a backend's generate command needs the files tilegen
 	// wrote for it, and the files the tool writes need the step.
-	for _, be := range usedBackends(c) {
-		if be.Generate == "" {
-			continue
-		}
-		step := g.add(&PlanNode{ID: toolNode(be.Generate), Kind: "tool", Name: be.Generate, By: be.Tile,
+	for _, st := range toolSteps(c) {
+		step := g.add(&PlanNode{ID: toolNode(st.Cmd), Kind: "tool", Name: st.Cmd, By: st.Tile,
 			Note: "run after tilegen, before building"})
 		for _, rel := range r.order {
-			if strings.HasPrefix(rel, "db/") || rel == "sqlc.yaml" {
+			if st.Reads(rel) {
 				g.dep(step.ID, fileNode(rel))
 			}
 		}
-		for _, dir := range be.Packages { // what the tool writes
-			out := g.add(&PlanNode{ID: "dir:" + dir, Kind: "file", Name: dir + "/", By: be.Tile,
-				Note: "written by " + be.Generate})
+		for _, dir := range st.Writes { // what the tool writes
+			out := g.add(&PlanNode{ID: "dir:" + dir, Kind: "file", Name: dir + "/", By: st.Tile,
+				Note: "written by " + st.Cmd})
 			g.dep(out.ID, step.ID)
 		}
 	}

@@ -58,6 +58,7 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 		unlinked: map[string]bool{}, producedBy: map[string]string{}, inPlan: map[string]bool{}}
 	var tables, queries, tasks []*Node
 	var sqlc *Node
+	var bufPlugins []string
 	for _, n := range nodes {
 		var err error
 		r.by = producerOf(n, c) // who to credit for whatever this form stages
@@ -76,6 +77,8 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 			tasks = append(tasks, n)
 		case "text/file":
 			err = emitTextFile(n, out, r)
+		case "buf/plugin":
+			bufPlugins = append(bufPlugins, n.List[1].Atom)
 		case "git/repo":
 			// acted on by run() around Emit when -git is set
 		default:
@@ -100,9 +103,20 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 			return nil, err
 		}
 	}
+	if len(bufPlugins) > 0 {
+		by := "" // the first tile that needs buf; a second one shares the files
+		for _, st := range toolSteps(c) {
+			if st.Target() == "buf" {
+				by = st.Tile
+			}
+		}
+		yaml, gen := bufFiles(bufPlugins)
+		r.stageBy("buf.yaml", by, []byte(yaml))
+		r.stageBy("buf.gen.yaml", by, []byte(gen))
+	}
 	if len(c.Cover) > 0 {
 		r.by = ""
-		r.stageBy(lockFile, "", lockText(c.Cover))
+		r.stageBy(lockFile, "", lockText(c.Cover, c.PinsOut))
 	}
 	r.by = ""
 	r.Produced["tilegen.tasks.json"] = true
@@ -522,10 +536,25 @@ func producerOf(n *Node, c *Ctx) string {
 				return be.Tile
 			}
 		}
+	case "text/file":
+		for _, id := range sortedKeys(c.Cover) {
+			cov := c.Cover[id]
+			pkg := strings.TrimSuffix(id, ".API")
+			if tr, ok := cov.Offer.Impl.(*APITransport); ok && tr.Plugin != "" && n.List[1].Atom == path.Join("proto", pkg, "v1", pkg+".proto") {
+				return cov.Offer.Tile
+			}
+		}
 	case "go/file":
 		base := path.Base(n.List[1].Atom)
 		for _, id := range sortedKeys(c.Cover) {
 			cov := c.Cover[id]
+			if tr, ok := cov.Offer.Impl.(*APITransport); ok && tr.Plugin != "" {
+				// orders.API -> orders/api_gen.go and orders/api.go
+				dir := c.PkgDirs[strings.TrimSuffix(id, ".API")]
+				if f := n.List[1].Atom; f == path.Join(dir, "api_gen.go") || f == path.Join(dir, "api.go") {
+					return cov.Offer.Tile
+				}
+			}
 			if tr, ok := cov.Offer.Impl.(*BusTransport); ok && base == snake(tr.Suffix)+".go" {
 				return cov.Offer.Tile
 			}
