@@ -4171,3 +4171,147 @@ func specBlocks(section string) []string {
 		rest = rest[j:]
 	}
 }
+
+// ---- the whole-project view ----
+
+const saasSpec = `(project saas (module example.com/saas) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package app
+    (entity User (field ID uuid.UUID) (field CreatedAt time.Time) (field Email string)
+      (store get save (get-by Email) (durable)))
+    (entity Team (field ID uuid.UUID) (field CreatedAt time.Time) (field Name string)
+      (store get save delete (durable)))
+    (entity Project (field ID uuid.UUID) (field CreatedAt time.Time) (field Title string)
+      (store get save delete (durable)))
+    (entity Task (field ID uuid.UUID) (field CreatedAt time.Time) (field Title string)
+      (store get save delete (durable)))
+    (entity Comment (field ID uuid.UUID) (field CreatedAt time.Time) (field Body string)
+      (store get save (durable)))))`
+
+func projectViewOf(t *testing.T, spec, policy string) *ProjectView {
+	t.Helper()
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, spec+"\n"+policy, "")
+	cp, err := compile(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return projectView(cp.c)
+}
+
+// TestProjectViewPaysSharedCostsOnce: five durable stores, one of which
+// needs a lookup by field. Need by need that is sqlite for one and badger
+// for four. Priced as a project, where a server is paid once and a second
+// engine costs something, one postgres for all five is cheaper.
+func TestProjectViewPaysSharedCostsOnce(t *testing.T) {
+	v := projectViewOf(t, saasSpec, "(policy (extra-engine 10))")
+	if v.TodayTotal != 158 || v.BestTotal != 148 {
+		t.Fatalf("want 158 need by need and 148 as a project, got %d and %d", v.TodayTotal, v.BestTotal)
+	}
+	if got := enginesIn(v.Today); got != "badger, sqlite" {
+		t.Errorf("need by need should mix engines, got %s", got)
+	}
+	for _, p := range v.Best {
+		if p.Tile != "postgres-sqlc" {
+			t.Errorf("%s should move to postgres-sqlc, got %s", p.Need, p.Tile)
+		}
+	}
+	// The first store on postgres pays for the server; the rest do not.
+	if v.Best[0].Cost != 44 || v.Best[1].Cost != 26 {
+		t.Errorf("the server and the library should be paid once: %+v", v.Best[:2])
+	}
+
+	// A team that finds servers expensive keeps the need-by-need choice,
+	// and the view says so rather than inventing a change.
+	same := projectViewOf(t, saasSpec, "(policy (weights (operations 6)) (extra-engine 10))")
+	if !same.same() || same.TodayTotal != same.BestTotal {
+		t.Errorf("an ops-averse team should keep its choice: %+v", same)
+	}
+	// With no price on a second engine the two tie, and a tie changes nothing.
+	if tie := projectViewOf(t, saasSpec, ""); !tie.same() || tie.TodayTotal != 148 {
+		t.Errorf("a tie should keep the choice already made: %+v", tie)
+	}
+}
+
+// TestProjectViewIsTheCheapest: the dynamic program's total equals the
+// lowest found by pricing every combination of legal tiles on its own.
+func TestProjectViewIsTheCheapest(t *testing.T) {
+	for _, policy := range []string{"", "(policy (extra-engine 10))", "(policy (weights (operations 1) (llm-work 2)) (extra-engine 3))",
+		"(policy (weights (dependency 9)) (extra-engine 25))", "(policy (avoid badger) (extra-engine 7))"} {
+		dir := t.TempDir()
+		sp, _ := writeSpec(t, dir, saasSpec+"\n"+policy, "")
+		cp, err := compile(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c := cp.c
+		names := sortedKeys(c.Cover)
+		best, tried := 1<<30, 0
+		var walk func(i int, r running, total int)
+		walk = func(i int, r running, total int) {
+			if i == len(names) {
+				best, tried = min(best, total), tried+1
+				return
+			}
+			for _, cand := range c.Cover[names[i]].Ranked {
+				cost, next := r.add(cand, c.Policy)
+				walk(i+1, next, total+cost)
+			}
+		}
+		walk(0, running{}, 0)
+		v := projectView(c)
+		if v.BestTotal != best {
+			t.Errorf("%q: the view found %d, but the cheapest of %d combinations is %d", policy, v.BestTotal, tried, best)
+		}
+		if v.BestTotal > v.TodayTotal {
+			t.Errorf("%q: the whole-project choice (%d) cannot cost more than the need-by-need one (%d)", policy, v.BestTotal, v.TodayTotal)
+		}
+		if v.States >= tried {
+			t.Errorf("%q: %d states for %d combinations: the needs are not being shared", policy, v.States, tried)
+		}
+	}
+}
+
+// TestProjectViewKeepsDecisionsThatAreNotAboutCost: a tile the policy
+// requires stays, and the view works around it.
+func TestProjectViewKeepsDecisionsThatAreNotAboutCost(t *testing.T) {
+	v := projectViewOf(t, saasSpec, `(policy (prefer bolt (strength strong) (source team "we know bolt")) (extra-engine 10))`)
+	for i, p := range v.Today {
+		if p.Tile == "bolt" && v.Best[i].Tile != "bolt" {
+			t.Errorf("%s was chosen by a preference and must stay on bolt, got %s", p.Need, v.Best[i].Tile)
+		}
+	}
+}
+
+func TestExplainProject(t *testing.T) {
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, saasSpec+"\n(policy (extra-engine 10))", "")
+	var out strings.Builder
+	if err := explainCmd([]string{"-project", sp}, &out, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"whole project   a server and a library are paid once; each extra engine in a capability costs 10",
+		"app.UserStore      sqlite-sqlc 48         postgres-sqlc 26       changes", // 38, and 10 for the second engine
+		"total              158                    148",
+		"engines            badger, sqlite         postgres",
+		"saves 10. This is a report: tilegen still generates the need-by-need choice.",
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("explain -project missing %q:\n%s", want, out.String())
+		}
+	}
+	// Without the flag, explain prints exactly what it always has.
+	var plain strings.Builder
+	explainCmd([]string{sp}, &plain, io.Discard)
+	if strings.Contains(plain.String(), "whole project") || !strings.HasPrefix(out.String(), plain.String()) {
+		t.Error("-project should only add a section to explain")
+	}
+	if err := explainCmd([]string{"-project", "-json", sp}, io.Discard, io.Discard); err == nil {
+		t.Error("-project with -json should be refused until it has a JSON form")
+	}
+	n, _ := Parse("policy.sexp", `(policy (extra-engine lots))`)
+	if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), "extra-engine must be 0 to 1000") {
+		t.Errorf("a bad extra-engine should be reported: %v", err)
+	}
+}
