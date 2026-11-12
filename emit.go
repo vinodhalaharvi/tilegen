@@ -548,6 +548,9 @@ func producerOf(n *Node, c *Ctx) string {
 		base := path.Base(n.List[1].Atom)
 		for _, id := range sortedKeys(c.Cover) {
 			cov := c.Cover[id]
+			if _, ok := cov.Offer.Impl.(*SecretSource); ok && n.List[1].Atom == path.Join(c.PkgDirs[strings.TrimSuffix(id, ".Secrets")], "secrets_gen.go") {
+				return cov.Offer.Tile
+			}
 			if tr, ok := cov.Offer.Impl.(*APITransport); ok && tr.Plugin != "" {
 				// orders.API -> orders/api_gen.go and orders/api.go
 				dir := c.PkgDirs[strings.TrimSuffix(id, ".API")]

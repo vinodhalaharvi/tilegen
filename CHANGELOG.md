@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `(secrets (secret DatabaseURL)... )` generates a typed `Secrets`
+  interface and its implementation, with no holes. Three tiles offer it:
+  `env-secrets`, the default; `file-secrets`, for `(rotating)`; and
+  `vault`, for `(audited)` or when `(config (secrets vault))` says so.
+  Every constructor fails at startup and lists all the missing secrets
+  together. `(key ...)` names a secret outside the program.
 - `(api (get Order) (save Order) ... (typed-clients))` serves a package's
   entities over a transport chosen by what its clients need, the way a
   store's backend is chosen. Three tiles offer it: `http-json` (the
