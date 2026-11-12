@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Selection is now written as a dynamic program on the
+  [dyna](https://github.com/vinodhalaharvi/dyna) library: the alternatives
+  for a need, an algebra that prices one, and dyna to fold them. Nothing
+  it chooses changes; `explain` prints the same text for every example. A
+  new test prices every covering one at a time and checks that the
+  dynamic program finds the same minimum.
 - Every spec shown anywhere on the site is a complete spec with a policy
   in it, including the editor's starting spec. Each of the three
   walkthroughs prints its whole spec twice — the same file with one

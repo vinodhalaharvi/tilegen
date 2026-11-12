@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/vinodhalaharvi/dyna"
 )
 
 // Selection, properly.
@@ -160,14 +162,91 @@ type Rejected struct {
 	Reason string
 }
 
-// solve computes the cheapest legal covering of a need, bottom-up: the
-// children first, then each offer's total, then the cheapest. It is the
-// whole optimization, and it is deliberately small.
+// solve computes the covering of a need, bottom-up. It is a dynamic
+// program in dyna's terms, and deliberately small:
+//
+//   - the state is a need;
+//   - the coalgebra (alternatives) lists every offer of the need's
+//     capability: an illegal one as a leaf carrying its reason, a legal one
+//     as a node whose children are the needs that offer delegates;
+//   - the algebra (covers.Alg) prices one alternative: the offer's own cost,
+//     its chain, and what its children's coverings cost;
+//   - ⊕ (covers.Plus) collects a need's alternatives, in the order offered.
+//
+// conclude then ranks what was collected and lets the policy pick. Because
+// the policy picks at every need, a preference can overturn cost anywhere
+// in the tree, and the cost a parent adds for a child is that of the tile
+// the child will really get.
 func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
-	cov := &Covering{Need: n, By: "auto"}
+	covers := dyna.Algebra[alternative, *found]{
+		Monoid: dyna.Monoid[*found]{
+			Plus: func(a, b *found) *found {
+				if a == nil {
+					return b
+				}
+				if b == nil {
+					return a
+				}
+				a.nothing = a.nothing || b.nothing
+				a.ranked = append(a.ranked, b.ranked...)
+				a.illegal = append(a.illegal, b.illegal...)
+				for tile, cov := range b.byTile {
+					a.byTile[tile] = cov
+				}
+				return a
+			},
+			IsZero: func(f *found) bool { return f == nil },
+		},
+		Alg: func(alt dyna.Node[alternative, *found]) *found {
+			l := alt.Label
+			f := &found{need: l.need, byTile: map[string]*Covering{}}
+			switch {
+			case l.offer == nil:
+				f.nothing = true
+				return f
+			case l.illegal != "":
+				f.illegal = []Rejected{{l.offer.Tile, l.illegal}}
+				return f
+			}
+			total := l.own + l.chainCost
+			var kids []*Covering
+			for _, kid := range alt.Kids {
+				kc, err := kid.conclude(c.Policy)
+				if err != nil {
+					f.illegal = []Rejected{{l.offer.Tile, "one of its own needs cannot be covered: " + err.Error()}}
+					return f
+				}
+				kids = append(kids, kc)
+				total += kc.Score
+			}
+			f.ranked = []Candidate{{Offer: l.offer, Score: total, Own: l.own, Terms: l.terms, Via: l.via}}
+			f.byTile[l.offer.Tile] = &Covering{Need: l.need, Offer: l.offer, Score: total, Own: l.own, Terms: l.terms, Via: l.via, Children: kids}
+			return f
+		},
+	}
+	all, _ := dyna.Dyna(covers, func(n *Need) []dyna.Node[alternative, *Need] { return alternatives(n, c, shape) }, n)
+	return all.conclude(c.Policy)
+}
+
+// An alternative is one offer of a need's capability: legal and priced, or
+// illegal with the reason. A nil offer says nothing offers the capability.
+type alternative struct {
+	need      *Need
+	offer     *Offer
+	illegal   string
+	own       int
+	terms     string
+	via       []Step
+	chainCost int
+}
+
+// alternatives is the coalgebra: every offer of a need's capability, in
+// registration order. Legality comes before cost, and depends only on the
+// spec and the policy.
+func alternatives(n *Need, c *Ctx, shape func(*Need) EntityShape) []dyna.Node[alternative, *Need] {
 	cands := offersOf(n.Capability)
 	if len(cands) == 0 {
-		return nil, fmt.Errorf("%s: nothing offers %s, which %s needs", n.Pos, n.Capability, n.ID)
+		return []dyna.Node[alternative, *Need]{{Label: alternative{need: n}}}
 	}
 	want := n.Want
 	if want == "" {
@@ -181,18 +260,21 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 			required, requiredPref = o.Tile, pref
 		}
 	}
-	byTile := map[string]*Covering{}
+	var out []dyna.Node[alternative, *Need]
+	reject := func(o *Offer, why string) {
+		out = append(out, dyna.Node[alternative, *Need]{Label: alternative{need: n, offer: o, illegal: why}})
+	}
 	for _, o := range cands {
 		if required != "" && o.Tile != required {
 			reason := fmt.Sprintf("the policy requires %s", required)
 			if src := requiredPref.describeSource(); src != "" {
 				reason += " (" + src + ")"
 			}
-			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, reason})
+			reject(o, reason)
 			continue
 		}
 		if why := offerIllegalFor(o, n.Requirements); why != "" {
-			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, why})
+			reject(o, why)
 			continue
 		}
 		if why, avoided := c.Policy.Avoid[o.Tile]; avoided {
@@ -200,7 +282,7 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 			if why != "" {
 				reason += ": " + why
 			}
-			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, reason})
+			reject(o, reason)
 			continue
 		}
 		es := shape(n)
@@ -209,34 +291,46 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 		}
 		via, chainCost, ok := convert(offerForm(o), want, es, c.Policy)
 		if !ok {
-			cov.Illegal = append(cov.Illegal, Rejected{o.Tile,
-				fmt.Sprintf("it produces %s, and no chain converts that to %s", offerForm(o), want)})
+			reject(o, fmt.Sprintf("it produces %s, and no chain converts that to %s", offerForm(o), want))
 			continue
 		}
 		own, terms := c.Policy.score(o.Cost)
-		total := own + chainCost
-
-		// Bottom-up: cover this offer's own needs first, and add them in.
-		var kids []*Covering
-		broken := ""
+		alt := dyna.Node[alternative, *Need]{Label: alternative{need: n, offer: o, own: own, terms: terms, via: via, chainCost: chainCost}}
 		if o.Children != nil {
-			for _, kid := range o.Children(n) {
-				kc, err := solve(kid, c, shape)
-				if err != nil {
-					broken = err.Error()
-					break
-				}
-				kids = append(kids, kc)
-				total += kc.Score
-			}
+			alt.Kids = o.Children(n)
 		}
-		if broken != "" {
-			cov.Illegal = append(cov.Illegal, Rejected{o.Tile, "one of its own needs cannot be covered: " + broken})
-			continue
-		}
-		cov.Ranked = append(cov.Ranked, Candidate{Offer: o, Score: total, Own: own, Terms: terms, Via: via})
-		byTile[o.Tile] = &Covering{Need: n, Offer: o, Score: total, Own: own, Terms: terms, Via: via, Children: kids}
+		out = append(out, alt)
 	}
+	return out
+}
+
+// found is everything solve learned about one need: its legal offers with
+// their totals, and the illegal ones with their reasons.
+type found struct {
+	need    *Need
+	nothing bool // nothing offers the capability at all
+	ranked  []Candidate
+	illegal []Rejected
+	byTile  map[string]*Covering
+
+	cov  *Covering // conclude's answer, kept: a need is concluded once
+	err  error
+	done bool
+}
+
+// conclude ranks a need's legal offers and lets the policy pick one.
+func (f *found) conclude(p *Policy) (*Covering, error) {
+	if f.done {
+		return f.cov, f.err
+	}
+	f.done = true
+	n := f.need
+	if f.nothing {
+		f.err = fmt.Errorf("%s: nothing offers %s, which %s needs", n.Pos, n.Capability, n.ID)
+		return nil, f.err
+	}
+	cov := &Covering{Need: n, By: "auto", Ranked: f.ranked, Illegal: f.illegal}
+	f.cov = cov
 	// Cheapest first; ties break by tile name, so the result never
 	// depends on registration or map order.
 	sort.SliceStable(cov.Ranked, func(i, j int) bool {
@@ -246,10 +340,11 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 		return cov.Ranked[i].Offer.Tile < cov.Ranked[j].Offer.Tile
 	})
 	if len(cov.Ranked) == 0 {
-		return cov, fmt.Errorf("%s: no tile can cover %s (%s)%s", n.Pos, n.ID, n.Capability, rejections(cov.Illegal))
+		f.err = fmt.Errorf("%s: no tile can cover %s (%s)%s", n.Pos, n.ID, n.Capability, rejections(cov.Illegal))
+		return cov, f.err
 	}
-	chosen, why := pickOffer(c.Policy, cov.Ranked)
-	fill := byTile[chosen.Tile]
+	chosen, why := pickOffer(p, cov.Ranked)
+	fill := f.byTile[chosen.Tile]
 	cov.Offer, cov.Score, cov.Own, cov.Terms, cov.Via, cov.Children = fill.Offer, fill.Score, fill.Own, fill.Terms, fill.Via, fill.Children
 	cov.Why = why
 	return cov, nil

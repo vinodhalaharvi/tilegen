@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vinodhalaharvi/dyna"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -2675,6 +2677,59 @@ func TestSolverOptimality(t *testing.T) {
 		}
 		if cov.Score != want {
 			t.Errorf("reqs %v: solve gave %d, the cheapest legal covering is %d", reqs, cov.Score, want)
+		}
+	}
+}
+
+// TestSolverIsTheDynamicProgram: solve's alternatives, folded with a plain
+// minimum-cost algebra, give the same total whether dyna memoises the needs
+// or every covering is unfolded and priced on its own. With no preference
+// in the policy that total is solve's own score: the cheapest legal covering.
+func TestSolverIsTheDynamicProgram(t *testing.T) {
+	withTestRegistry(t,
+		[]*Capability{{Name: "service", Requirements: []string{"durable"}}, {Name: "store", Requirements: []string{"durable"}}, {Name: "cache"}},
+		[]*Offer{
+			{Tile: "thin-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 1}},
+				Children: func(n *Need) []*Need {
+					return []*Need{testNeed(n.ID+".store", "store", n.Requirements...), testNeed(n.ID+".cache", "cache")}
+				}},
+			{Tile: "fat-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 3}},
+				Children: func(n *Need) []*Need { return []*Need{testNeed(n.ID+".cache", "cache")} }},
+			{Tile: "cheap-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 2}},
+				IllegalFor: map[string]string{"durable": "in memory"}},
+			{Tile: "durable-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 20}}},
+			{Tile: "small-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 1}}},
+			{Tile: "big-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 4}}},
+		})
+	c := testCtx()
+	const none = 1 << 30 // no legal covering
+	cheapest := dyna.Algebra[alternative, int]{
+		Monoid: dyna.Monoid[int]{Zero: none, Plus: func(a, b int) int { return min(a, b) }, IsZero: func(x int) bool { return x == none }},
+		Alg: func(alt dyna.Node[alternative, int]) int {
+			if alt.Label.offer == nil || alt.Label.illegal != "" {
+				return none
+			}
+			total := alt.Label.own + alt.Label.chainCost
+			for _, kid := range alt.Kids {
+				if kid == none {
+					return none
+				}
+				total += kid
+			}
+			return total
+		},
+	}
+	coalg := func(n *Need) []dyna.Node[alternative, *Need] { return alternatives(n, c, noShape) }
+	for _, reqs := range [][]string{nil, {"durable"}} {
+		n := testNeed("a.Svc", "service", reqs...)
+		fast, _ := dyna.Dyna(cheapest, coalg, n)
+		slow, coverings := dyna.BruteForce(cheapest, coalg, n)
+		cov, err := solve(n, c, noShape)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if fast != slow || cov.Score != slow {
+			t.Errorf("reqs %v: dyna %d, every one of %d coverings priced %d, solve %d", reqs, fast, coverings, slow, cov.Score)
 		}
 	}
 }
