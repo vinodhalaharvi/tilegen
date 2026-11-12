@@ -11,7 +11,8 @@
       (field TotalCents int64)
       (field PlacedAt time.Time)
       (store get list save
-        (durable))))                  ; must survive a restart
+        (durable)                     ; must survive a restart
+        (cross-process))))            ; and be shared by several instances
 
   (package sessions
     (entity Session
@@ -30,7 +31,8 @@
       (field AvatarURL *string)
       (field DeletedAt *time.Time)    ; nullable: sqlc hands back pgtype.Timestamptz
       (store get save
-        (durable)))))                 ; sqlc's row-mapper would cost more than pgx
+        (durable)
+        (cross-process)))))           ; sqlc's row-mapper would cost more than pgx
 
 (config
   (storage auto))                     ; the default; shown for clarity
