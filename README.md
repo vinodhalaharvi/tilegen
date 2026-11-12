@@ -87,6 +87,7 @@ Two guides go deeper:
 | `(events (event Name (field ...))...)` | event structs, a typed `Bus` interface, and an in-process `LocalBus` |
 | `(http (route GET "/x/{id}" (get X))...)` | a `Handler` and `ServeMux` over the package's stores |
 | `(api (get X) (save X)... (typed-clients))` | a server for those operations over HTTP and JSON, Connect or gRPC, whichever its clients need |
+| `(secrets (secret DatabaseURL)... (rotating))` | a typed `Secrets` interface, read from the environment, mounted files or Vault |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -242,6 +243,54 @@ Fields can be strings, numbers, bools, `[]byte`, `uuid.UUID`, `time.Time`,
 the package's enums, and pointers to those, which become `optional`. An
 enum gets an `UNSPECIFIED` zero value, and a request that leaves one unset
 is an invalid argument rather than a silent default.
+
+### Secrets
+
+```lisp
+(secrets
+  (secret DatabaseURL)
+  (secret SigningKey (doc "signs session tokens."))
+  (secret OAuthClientID (key oauth_client_id)))
+```
+
+generates `<package>/secrets_gen.go`: a `Secrets` interface with one
+method per secret, and its implementation. A spec names secrets and never
+holds one: a value written after the name is an error.
+
+| Requirement | Meaning |
+|---|---|
+| `(rotating)` | a changed secret must be seen without a restart |
+| `(audited)` | every read must be recorded, with who made it |
+
+| Tile | Legal for | Reads |
+|---|---|---|
+| `env-secrets` | no requirement | `DATABASE_URL`, once, when the process starts |
+| `file-secrets` | `rotating` | `<dir>/database-url` on every call, as Kubernetes and Docker mount them |
+| `vault` | `rotating`, `audited` | the key `database_url` at one path of a [Vault](https://www.vaultproject.io) KV v2 mount, kept for a ttl you choose |
+
+With no requirement the environment wins: it needs no dependency and
+nothing to run. Vault is chosen only when `(audited)` asks for what the
+others cannot do, or when the config says `(secrets vault)`.
+
+Nothing here is judgment, so there are no holes. Each constructor reads
+every secret once and reports all the missing ones together, so a
+misconfigured service fails when it starts:
+
+```go
+secrets, err := orders.NewEnvSecrets()
+// orders: secrets not set in the environment: DATABASE_URL, SIGNING_KEY
+
+secrets, err := orders.NewFileSecrets("/run/secrets")
+secrets, err := orders.NewVaultSecrets(ctx, client, "secret", "orders", time.Minute)
+```
+
+The Vault client arrives logged in: how a service proves who it is (a
+token, AppRole, Kubernetes) is decided where the client is made. If Vault
+cannot be reached once a read is in hand, that read keeps being served
+and Vault is asked again on the next call.
+
+`(key ...)` names a secret outside the program where the name splits
+badly: `OAuthClientID` alone would be `O_AUTH_CLIENT_ID`.
 
 ### Implementing any interface
 
@@ -410,6 +459,7 @@ Same spec, different config, different (equally valid) Go:
   (context-first yes)   ; prepend ctx context.Context to interface methods
   (storage auto)        ; auto (cheapest legal per store) | memory | postgres | pgx
   (api auto)            ; auto (cheapest legal for its clients) | http | connect | grpc
+  (secrets auto)        ; auto (cheapest legal) | env | file | vault
   (layout flat))        ; flat | internal
 ```
 
