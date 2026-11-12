@@ -61,6 +61,10 @@ func coveredModules() map[string][]string {
 				add(impl.Import[1], o.Tile)
 			case *Transport:
 				add(impl.Import[1], o.Tile)
+			case *APITransport:
+				for _, p := range impl.Imports {
+					add(p, o.Tile)
+				}
 			}
 		}
 	}

@@ -247,7 +247,7 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 	if err := Validate(nodes, c); err != nil {
 		return nil, err
 	}
-	if c.Lock, err = loadLock(o.Out); err != nil {
+	if c.Lock, c.Pins, err = loadLock(o.Out); err != nil {
 		var stale staleLock
 		if !errors.As(err, &stale) {
 			return nil, err

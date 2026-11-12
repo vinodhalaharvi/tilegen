@@ -169,6 +169,9 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 			if strings.HasPrefix(f, "internal/db/") {
 				hint = "run `sqlc generate` first"
 			}
+			if strings.HasPrefix(f, "gen/") {
+				hint = "run `buf generate` first"
+			}
 			fmt.Fprintf(&b, "\n### %s\n\n(missing: %s)\n", f, hint)
 			continue
 		}
