@@ -309,10 +309,8 @@ func nextSteps(name string, rep *Report, cp *compiled) []byte {
 	b.WriteString("the routing. What tilegen could not know is left as a typed hole, a method\n")
 	b.WriteString("whose body is `panic(\"tilegen:hole ...\")`, with its intent in\n`tilegen.tasks.json`. Fill them with whatever you like.\n\n")
 	b.WriteString("## Next\n\n```sh\n")
-	for _, o := range cp.c.Used {
-		if b2, ok := o.Impl.(*Backend); ok && b2.Generate != "" {
-			fmt.Fprintf(&b, "%s        # %s\n", b2.Generate, b2.GenerateDoc)
-		}
+	for _, st := range toolSteps(cp.c) {
+		fmt.Fprintf(&b, "%s        # %s\n", st.Cmd, st.Doc)
 	}
 	b.WriteString("go mod tidy\ngo build ./...\n```\n\n")
 	fmt.Fprintf(&b, "There are %d open hole(s). `tilegen prompt` writes a self-contained prompt\nfor each one; see https://github.com/vinodhalaharvi/tilegen\n", rep.Tasks)

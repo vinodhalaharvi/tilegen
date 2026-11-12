@@ -25,6 +25,7 @@ their real output, so you can tell at a glance whether your run matched.
 | git | cloning; `-git` | |
 | make | the `make` targets | the targets are one-liners you can run by hand |
 | sqlc | `make demo-postgres`, `make demo-auto` | only for SQL backends: `brew install sqlc`, or [install docs](https://docs.sqlc.dev/en/latest/overview/install.html) |
+| buf and the protoc-gen plugins | `make demo-api` | only for the connect and grpc tiles: `brew install bufbuild/buf/buf`, then `go install` `google.golang.org/protobuf/cmd/protoc-gen-go`, `connectrpc.com/connect/cmd/protoc-gen-connect-go` and `google.golang.org/grpc/cmd/protoc-gen-go-grpc` |
 | gh | `-git` creating a GitHub repo | `gh auth login` first |
 | tmux | `tilegen up/status/down` | only for the workspace commands |
 | graphviz | `tilegen plan -dot \| dot -Tsvg` | only for rendering the plan graph |
@@ -154,6 +155,7 @@ them with `make golden` and read the diff before committing it.
 | `demo-dir` | the same project from a directory of `.sexp` files | |
 | `demo-postgres` | the postgres variant, through sqlc | sqlc |
 | `demo-auto` | per-store backend selection in one project | sqlc |
+| `demo-api` | an api over Connect, then over gRPC | buf, protoc-gen-go, protoc-gen-connect-go, protoc-gen-go-grpc |
 | `dump` | print the S-expression after every pass | |
 | `tidy` | `go mod tidy` | |
 | `clean` | remove `bin/`, `out/`, `coverage.out` | |

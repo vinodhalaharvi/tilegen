@@ -196,6 +196,10 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			if impl.Import[0] != "" {
 				c.Requires[impl.Import[0]] = impl.Import[1]
 			}
+		case *APITransport:
+			for q, imp := range impl.Imports {
+				c.Requires[q] = imp
+			}
 		}
 	}
 

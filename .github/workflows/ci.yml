@@ -29,3 +29,17 @@ jobs:
           sqlc-version: "1.31.1"
       - run: make demo-postgres # sqlc generate, then the result must build and vet
       - run: make demo-auto # per-store selection: memory and postgres-sqlc in one project
+
+  api:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: |
+          go install github.com/bufbuild/buf/cmd/buf@v1.70.0
+          go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.12
+          go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.6.2
+          go install connectrpc.com/connect/cmd/protoc-gen-connect-go@v1.21.1
+      - run: make demo-api # buf lint and generate, then both servers must build and vet
