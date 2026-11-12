@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+## v0.3.1 - 2026-11-12
+
+- Installable with Homebrew: `brew install vinodhalaharvi/tap/tilegen`.
 - Each tile declares the engine it runs on, and tiles that name the same
   one share its server in the whole-project view: both postgres tiles,
   both NATS tiles, and Kafka as a bus and as an inbound edge. A

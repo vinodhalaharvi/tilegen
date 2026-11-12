@@ -1,0 +1,40 @@
+name: release
+
+# Tags main and publishes a GitHub release. Homebrew builds from the tag's
+# source, so there are no binaries to attach. Before running, set
+# `const version` in main.go and add a "## vX.Y.Z" section to CHANGELOG.md.
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release, without the v (e.g. 0.3.1)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: The version in main.go must match
+        env:
+          V: ${{ inputs.version }}
+        run: |
+          grep -qx "const version = \"v$V\"" main.go || { echo "main.go does not say v$V"; exit 1; }
+          grep -q "^## v$V" CHANGELOG.md || { echo "CHANGELOG.md has no section for v$V"; exit 1; }
+      - run: make check
+      - run: make demo
+      - name: Release notes from the changelog
+        env:
+          V: ${{ inputs.version }}
+        run: awk -v h="## v$V" 'index($0, h) == 1 {on = 1; next} /^## / {on = 0} on' CHANGELOG.md > notes.md
+      - name: Create tag and release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          V: ${{ inputs.version }}
+        run: gh release create "v$V" --target "$(git rev-parse HEAD)" --title "tilegen v$V" --notes-file notes.md
