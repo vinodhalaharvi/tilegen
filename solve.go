@@ -75,9 +75,16 @@ type Offer struct {
 	Tile       string // the tile's name in the registry
 	Capability string
 	Doc        string
-	Form       string            // the form its code yields; "" means domain
-	Cost       Cost              // its own cost, before children and chains
-	Requires   []string          // external tools, reported but never a legality test
+	Form       string   // the form its code yields; "" means domain
+	Cost       Cost     // its own cost, before children and chains
+	Requires   []string // external tools, reported but never a legality test
+
+	// Engine is what a project runs or keeps for this tile: a server, a
+	// file, a directory. Tiles on one engine share it, so the
+	// whole-project view charges its operations once. "" means the tile
+	// is its own engine; noEngine means there is nothing to run or keep.
+	Engine string
+
 	IllegalFor map[string]string // requirement -> why it cannot serve it
 
 	// Satisfies is the affirmative half of legality: requirement -> how
