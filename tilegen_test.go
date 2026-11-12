@@ -1610,7 +1610,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by bolt, memory, mongo, postgres-pgx, postgres-sqlc"} {
+		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by badger, bolt, memory, mongo, postgres-pgx, postgres-sqlc, sqlite-sqlc"} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1826,7 +1826,7 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 		t.Error("memory stores must not get tables")
 	}
 	dump := dumpForms(t, read(t, out, ".tilegen/03-concretize.sexp"))
-	for _, want := range []string{`(chosen sqlite-sqlc (score 27) (own 20) (via row-mapper 7 "1 entity") (by auto))`, `(considered postgres-sqlc (score 29) (own 22) (via row-mapper 7 "1 entity"))`,
+	for _, want := range []string{`(chosen sqlite-sqlc (score 27) (own 20) (via row-mapper 7 "1 entity") (by auto))`, `(considered postgres-sqlc (score 44) (own 37) (via row-mapper 7 "1 entity"))`,
 		`(illegal memory "an in-memory map loses its data on restart")`, "(chosen memory (score 12) (by auto))"} {
 		if !dump[want] {
 			t.Errorf("the dump should record %s", want)
@@ -1838,7 +1838,7 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), postgres-sqlc (score 29), mongo (score 41), postgres-pgx (score 45), bolt (score 48), or use auto") {
+	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), badger (score 29), postgres-sqlc (score 44), bolt (score 48), postgres-pgx (score 60), or use auto") {
 		t.Fatalf("got %v", err)
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
@@ -1908,24 +1908,26 @@ func TestNeedsValidation(t *testing.T) {
 
 // TestChainTipsTheChoice: sqlc is cheaper on its own, but its rows must be
 // mapped to domain types; with enums and nullable fields the mapper costs
-// enough that pgx, which scans straight into domain types, wins.
+// enough that pgx, which scans straight into domain types, wins. Both stores
+// are cross-process, so the embedded backends are out and only the two
+// postgres tiles compete.
 func TestChainTipsTheChoice(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
-  (package orders (entity Order (field ID int64) (field Total int64) (store get (durable))))
+  (package orders (entity Order (field ID int64) (field Total int64) (store get (durable) (cross-process))))
   (package profiles
     (enum Plan free pro)
     (entity Profile (field ID int64) (field Plan Plan) (field Nick *string) (field Bio *string) (field Gone *time.Time)
-      (store get (durable)))))`, "")
+      (store get (durable) (cross-process)))))`, "")
 	var out strings.Builder
 	if err := explainCmd([]string{sp}, &out, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	got := out.String()
 	for _, want := range []string{
-		"orders.OrderStore   (store)   needs: durable   chosen by: auto\n  chosen  sqlite-sqlc     score 27",
-		"profiles.ProfileStore   (store)   needs: durable   chosen by: auto\n  chosen  postgres-pgx    score 45",
-		"postgres-sqlc   score 51", "+ row-mapper 29 (1 entity, 1 parsed field, 3 nullable fields)",
+		"orders.OrderStore   (store)   needs: durable, cross-process   chosen by: auto\n  chosen  postgres-sqlc   score 44",
+		"profiles.ProfileStore   (store)   needs: durable, cross-process   chosen by: auto\n  chosen  postgres-pgx    score 60",
+		"postgres-sqlc   score 66", "+ row-mapper 29 (1 entity, 1 parsed field, 3 nullable fields)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("explain missing %q:\n%s", want, got)
@@ -1934,7 +1936,7 @@ func TestChainTipsTheChoice(t *testing.T) {
 	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	read(t, filepath.Join(dir, "out"), "orders/sqlite_order_store.go")
+	read(t, filepath.Join(dir, "out"), "orders/postgres_order_store.go")
 	read(t, filepath.Join(dir, "out"), "profiles/pgx_profile_store.go")
 }
 
@@ -2029,20 +2031,20 @@ func TestLockPinsAChoiceAgainstDrift(t *testing.T) {
 	if !strings.Contains(lock, "(tile orders.OrderStore sqlite-sqlc)") || !strings.Contains(lock, "(tile sessions.SessionStore memory)") {
 		t.Fatalf("lock:\n%s", lock)
 	}
-	// New enum and nullable fields make sqlc's mapper expensive: auto would move to pgx.
+	// New enum and nullable fields make sqlc's mapper expensive: auto would move to badger.
 	heavy := "(field S Status) (field A *string) (field B *string) (field C *time.Time)"
 	lockRun(t, dir, heavy, "", false)
-	if _, err := os.Stat(filepath.Join(out, "orders", "pgx_order_store.go")); err == nil {
+	if _, err := os.Stat(filepath.Join(out, "orders", "badger_order_store.go")); err == nil {
 		t.Fatal("the lock should keep OrderStore where it was")
 	}
 	var ex strings.Builder
 	explainCmd([]string{"-out", out, filepath.Join(dir, "spec.sexp"), "orders.OrderStore"}, &ex, io.Discard)
-	if !strings.Contains(ex.String(), "chosen by: lock") || !strings.Contains(ex.String(), "auto would now pick postgres-pgx (score 45)") {
+	if !strings.Contains(ex.String(), "chosen by: lock") || !strings.Contains(ex.String(), "auto would now pick badger (score 29)") {
 		t.Errorf("explain should show the pin and the drift:\n%s", ex.String())
 	}
 	lockRun(t, dir, heavy, "", true) // -reselect
-	read(t, out, "orders/pgx_order_store.go")
-	if !strings.Contains(read(t, out, "tilegen.lock"), "(tile orders.OrderStore postgres-pgx)") {
+	read(t, out, "orders/badger_order_store.go")
+	if !strings.Contains(read(t, out, "tilegen.lock"), "(tile orders.OrderStore badger)") {
 		t.Error("-reselect should update the lock")
 	}
 }
@@ -2086,11 +2088,13 @@ func TestCheckFlagsAnUnpinnedStore(t *testing.T) {
 
 // ---- policy ----
 
+// polSpec's order store is cross-process, so the embedded backends are out
+// and the two postgres tiles compete: the policy tests are about sqlc vs pgx.
 const polSpec = `(project p (module example.com/p) (go 1.22)
   (package orders
     (enum Status placed paid)
     (entity Order (field ID int64) (field S Status) (field A *string) (field B *string) (field C *time.Time)
-      (store get (durable))))
+      (store get (durable) (cross-process))))
   (package sessions (entity Session (field ID string) (store get))))`
 
 func policyExplain(t *testing.T, policy string) string {
@@ -2769,7 +2773,7 @@ func TestEventBusTransportsCompete(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"fleet.Bus   (event-bus)   needs: cross-process   chosen by: auto\n  chosen  nats-bus",
+		"fleet.Bus   (event-bus)   needs: cross-process   chosen by: auto\n  chosen  nats-core",
 		"illegal local-bus       an in-process bus only reaches handlers in this program",
 		"local.Bus   (event-bus)   needs: none   chosen by: auto\n  chosen  local-bus       score 1",
 	} {
@@ -2781,7 +2785,7 @@ func TestEventBusTransportsCompete(t *testing.T) {
 	if err := run(Options{Spec: sp, Out: o}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	// local-bus generates complete code; nats-bus scaffolds holes.
+	// local-bus generates complete code; nats-core scaffolds holes.
 	if gen := read(t, o, "local/events_gen.go"); !strings.Contains(gen, "type LocalBus struct") || strings.Contains(gen, holePrefix) {
 		t.Errorf("local-bus should generate complete code:\n%s", gen)
 	}
@@ -2804,7 +2808,7 @@ func TestEventBusTransportsCompete(t *testing.T) {
 	if mod := read(t, o, "go.mod"); !strings.Contains(mod, "github.com/nats-io/nats.go v1.37.0") {
 		t.Error("the transport's module should be required")
 	}
-	if lock := read(t, o, "tilegen.lock"); !strings.Contains(lock, "(tile fleet.Bus nats-bus)") || !strings.Contains(lock, "(tile local.Bus local-bus)") {
+	if lock := read(t, o, "tilegen.lock"); !strings.Contains(lock, "(tile fleet.Bus nats-core)") || !strings.Contains(lock, "(tile local.Bus local-bus)") {
 		t.Errorf("both buses should be pinned:\n%s", lock)
 	}
 }
@@ -2989,7 +2993,8 @@ func TestExplainJSON(t *testing.T) {
 		len(orders.Requirements) != 1 || orders.Requirements[0] != "durable" {
 		t.Errorf("coverage: %+v", orders)
 	}
-	if len(orders.Illegal) != 1 || orders.Illegal[0].Tile != "memory" || orders.Illegal[0].Reason == "" {
+	if len(orders.Illegal) != 2 || orders.Illegal[0].Tile != "memory" || orders.Illegal[0].Reason == "" ||
+		orders.Illegal[1].Tile != "mongo" || !strings.HasPrefix(orders.Illegal[1].Reason, "unverified: ") {
 		t.Errorf("rejections should carry their reasons: %+v", orders.Illegal)
 	}
 	var sqlc *CandidateJSON
@@ -3087,7 +3092,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			store = &tiles.Capabilities[i]
 		}
 	}
-	if store == nil || len(store.OfferedBy) != 6 || len(store.Requirements) != 3 {
+	if store == nil || len(store.OfferedBy) != 7 || len(store.Requirements) != 4 {
 		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
 	}
 	for _, tl := range tiles.Tiles {
@@ -3523,7 +3528,7 @@ func TestGenerationIgnoresFilledHoles(t *testing.T) {
 	spec := `(project p (module example.com/p) (go 1.22)
   (require (uuid github.com/google/uuid v1.6.0))
   (package links
-    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable)))
+    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable) (cross-process)))
     (http (route GET "/links/{id}" (get Link)) (route POST "/links" (save Link)))
     (events (event LinkSaved (field LinkID uuid.UUID)))))`
 
@@ -3593,7 +3598,7 @@ func TestPromptNamesAvailableModules(t *testing.T) {
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
   (require (uuid github.com/google/uuid v1.6.0))
   (package links
-    (entity Link (field ID uuid.UUID) (store get save (durable)))
+    (entity Link (field ID uuid.UUID) (store get save (durable) (cross-process)))
     (http (route GET "/links/{id}" (get Link)))))`, "")
 	out := filepath.Join(dir, "out")
 	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
@@ -3788,7 +3793,7 @@ func serveRequest(t *testing.T, method, path, body, contentType string) *http.Re
 const serveSpec = `(project bookmarks (module example.com/bookmarks) (go 1.22)
   (require (uuid github.com/google/uuid v1.6.0))
   (package links
-    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable)))
+    (entity Link (field ID uuid.UUID) (field URL string) (store get list save (durable) (cross-process)))
     (http (route GET "/links" (list Link)) (route GET "/links/{id}" (get Link)))))`
 
 func TestServeGenerateReturnsAZip(t *testing.T) {
