@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- `(api (get Order) (save Order) ... (typed-clients))` serves a package's
+  entities over a transport chosen by what its clients need, the way a
+  store's backend is chosen. Three tiles offer it: `http-json` (the
+  server `(http ...)` generates), `connect`, and `grpc`. The requirements
+  are `(typed-clients)`, `(browser-clients)` and `(grpc-native)`.
+- The `connect` and `grpc` tiles write the `.proto` from the entities,
+  with `buf.yaml` and `buf.gen.yaml`, and a complete server over the
+  package's stores. `buf generate` is the tool step, as `sqlc generate`
+  is for SQL. Validation and error codes are the only holes.
+- Field and enum numbers are pinned in `tilegen.lock`. Reordering never
+  renumbers, a new field takes a number nobody has had, and a removed
+  one is reserved for good.
+- `(config (api grpc))` chooses the tile outright.
+
 ## v0.3.1 - 2026-11-12
 
 - Installable with Homebrew: `brew install vinodhalaharvi/tap/tilegen`.

@@ -265,10 +265,8 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 	fmt.Fprintf(&b, "Module: `%s`\n\n", c.Module)
 	b.WriteString("Scaffolded by tilegen. Files marked `DO NOT EDIT` are regenerated from the spec;\n")
 	b.WriteString("everything else, including this README, is yours.\n\n## Develop\n\n```sh\n")
-	for _, be := range usedBackends(c) {
-		if be.Generate != "" {
-			fmt.Fprintf(&b, "make %-8s # %s\n", generateTarget(be), be.GenerateDoc)
-		}
+	for _, st := range toolSteps(c) {
+		fmt.Fprintf(&b, "make %-8s # %s\n", st.Target(), st.Doc)
 	}
 	b.WriteString("make tidy check\n```\n\nOpen implementation tasks for an LLM are listed in `tilegen.tasks.json`.\n")
 	return b.String()
@@ -276,19 +274,14 @@ func readme(c *Ctx, project *Node, info *RepoInfo) string {
 
 func makefile(c *Ctx) string {
 	var b strings.Builder
-	var gen []*Backend
-	for _, be := range usedBackends(c) {
-		if be.Generate != "" {
-			gen = append(gen, be)
-		}
-	}
+	gen := toolSteps(c)
 	b.WriteString(".PHONY: tidy build vet test check")
-	for _, be := range gen {
-		b.WriteString(" " + generateTarget(be))
+	for _, st := range gen {
+		b.WriteString(" " + st.Target())
 	}
 	b.WriteString("\n\ntidy:\n\tgo mod tidy\n\nbuild:\n\tgo build ./...\n\nvet:\n\tgo vet ./...\n\ntest:\n\tgo test ./...\n\ncheck: vet test\n")
-	for _, be := range gen {
-		fmt.Fprintf(&b, "\n%s:\n\t%s\n", generateTarget(be), be.Generate)
+	for _, st := range gen {
+		fmt.Fprintf(&b, "\n%s:\n\t%s\n", st.Target(), st.Cmd)
 	}
 	return b.String()
 }
@@ -406,17 +399,14 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 		topics = append(topics, t.List[1].Atom)
 	}
 	if mode == "new" {
-		for _, be := range usedBackends(c) {
-			if be.Generate == "" {
-				continue
-			}
-			cmd := strings.Fields(be.Generate)
+		for _, st := range toolSteps(c) {
+			cmd := strings.Fields(st.Cmd)
 			if _, err := exec.LookPath(cmd[0]); err == nil {
 				if err := r.Do(out, cmd[0], cmd[1:]...); err != nil {
 					fmt.Fprintln(log, "warning:", err)
 				}
 			} else {
-				fmt.Fprintf(log, "warning: %s not found; the first commit will not build until you run `make %s tidy`\n", cmd[0], generateTarget(be))
+				fmt.Fprintf(log, "warning: %s not found; the first commit will not build until you run `make %s tidy`\n", cmd[0], st.Target())
 			}
 		}
 		if err := r.Do(out, "go", "mod", "tidy"); err != nil {
@@ -455,7 +445,3 @@ func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) erro
 	}
 	return nil
 }
-
-// generateTarget names the starter Makefile target for a backend's
-// generate step after its tool: sqlc generate -> sqlc.
-func generateTarget(be *Backend) string { return strings.Fields(be.Generate)[0] }
