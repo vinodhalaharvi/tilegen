@@ -26,7 +26,10 @@ type Policy struct {
 	Prefer  map[string]Preference // tile name -> how much, and who says so
 	Avoid   map[string]string     // tile name -> why; never chosen automatically
 	Margin  int                   // how far behind a weak preference may be and still win
-	Pos     Pos
+	// ExtraEngine is what each engine beyond the first costs within one
+	// capability, in the whole-project view: (extra-engine N).
+	ExtraEngine int
+	Pos         Pos
 }
 
 // A Preference is what people want, as opposed to what costs less. Tiles
@@ -129,9 +132,20 @@ func ParsePolicy(n *Node) (*Policy, error) {
 				continue
 			}
 			p.Margin = v
+		case "extra-engine":
+			if len(it.List) != 2 || it.List[1].IsList {
+				bad(it, "expected (extra-engine N), got %s", short(it))
+				continue
+			}
+			v, err := strconv.Atoi(it.List[1].Atom)
+			if err != nil || v < 0 || v > 1000 {
+				bad(it, "extra-engine must be 0 to 1000, got %s", it.List[1].Atom)
+				continue
+			}
+			p.ExtraEngine = v
 		default:
-			bad(it, "policy takes (weights ...), (prefer ...), (avoid ...) and (margin N), got %s%s",
-				short(it), didYouMean(h, []string{"weights", "prefer", "avoid", "margin"}))
+			bad(it, "policy takes (weights ...), (prefer ...), (avoid ...), (margin N) and (extra-engine N), got %s%s",
+				short(it), didYouMean(h, []string{"weights", "prefer", "avoid", "margin", "extra-engine"}))
 		}
 	}
 	return p, errors.Join(errs...)

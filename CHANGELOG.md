@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `tilegen explain -project` compares the choice made need by need with
+  the cheapest for the project as a whole, where a server is paid once per
+  engine, a library once per tile, and each extra engine in a capability
+  costs the policy's new `(extra-engine N)`. It is a report: what tilegen
+  generates does not change.
 - Selection is now written as a dynamic program on the
   [dyna](https://github.com/vinodhalaharvi/dyna) library: the alternatives
   for a need, an algebra that prices one, and dyna to fold them. Nothing
