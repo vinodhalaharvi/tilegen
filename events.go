@@ -90,9 +90,11 @@ func validateEvents(v *validator, n *Node, types map[string]bool) {
 			v.structLike(it, types) // an event is a struct: name, fields, doc
 		case "outbox":
 			validateOutbox(v, it, types)
+		case "inbox":
+			validateInbox(v, n, it, types)
 		default:
 			v.bad(it, "events contain (event Name (field ...)...), (doc ...) and requirements like (durable), got %s%s",
-				short(it), didYouMean(it.Head(), append([]string{"event", "outbox", "doc"}, capabilities["event-bus"].Requirements...)))
+				short(it), didYouMean(it.Head(), append([]string{"event", "outbox", "inbox", "doc"}, capabilities["event-bus"].Requirements...)))
 		}
 	}
 	if count == 0 {

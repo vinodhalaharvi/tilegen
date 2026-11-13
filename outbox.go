@@ -57,11 +57,24 @@ func validateOutbox(v *validator, it *Node, types map[string]bool) {
 
 func selectEventsAndOutbox(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	out, err := selectEvents(m, b, n)
-	if err != nil || n.Find("outbox") == nil {
-		return out, err
+	if err != nil {
+		return nil, err
 	}
-	more, err := selectOutbox(m.C, n)
-	return append(out, more...), err
+	if n.Find("outbox") != nil {
+		more, err := selectOutbox(m.C, n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, more...)
+	}
+	if n.Find("inbox") != nil {
+		more, err := selectInbox(m.C, n)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, more...)
+	}
+	return out, nil
 }
 
 func selectOutbox(c *Ctx, n *Node) ([]*Node, error) {
