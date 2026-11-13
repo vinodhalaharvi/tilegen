@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.2 - 2026-11-12
+
 - `(app)` generates the program: `cmd/<name>/wire_gen.go` with `Deps`,
   `App`, `build` and `Serve`, and a `main.go` scaffolded once. The wiring
   is read back from the constructors the run produces, so it needs no
