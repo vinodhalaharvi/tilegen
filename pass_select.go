@@ -217,6 +217,11 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if repo := n.Find("repo"); repo != nil {
 		out = append(out, selectRepo(c, n, repo)...)
 	}
+	if app := n.Find("app"); app != nil {
+		if c.App = n.List[1].Atom; len(app.List) == 2 {
+			c.App = app.List[1].Atom
+		}
+	}
 	return out, nil
 }
 

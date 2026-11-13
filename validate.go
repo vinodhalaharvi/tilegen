@@ -6,6 +6,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -31,6 +32,7 @@ type Ctx struct {
 	curPkg   string               // package being concretized
 	Lock     map[string]LockEntry // tilegen.lock: pinned backend choices
 	Reselect bool                 // ignore the lock
+	App      string               // (app): the command to wire under cmd/, or ""
 	Pins     map[string]*ProtoPin // tilegen.lock: pinned proto numbers
 	PinsOut  map[string]*ProtoPin // the numbers this run handed out
 	Policy   *Policy              // what this team values (policy.go)
@@ -53,7 +55,7 @@ func (c *Ctx) warn(p Pos, format string, a ...any) {
 
 // The names each context knows, for did-you-mean suggestions.
 var (
-	projectItems = []string{"module", "go", "require", "package", "repo", "doc"}
+	projectItems = []string{"module", "go", "require", "package", "repo", "app", "doc"}
 	packageForms = []string{"entity", "struct", "interface", "implement", "enum", "doc", "llm", "dir"}
 )
 
@@ -154,10 +156,14 @@ func (v *validator) project(p *Node) {
 			v.pkg(it, pkgs)
 		case "repo":
 			v.repo(it)
+		case "app":
+			if len(it.List) > 2 || (len(it.List) == 2 && (it.List[1].IsList || !appName.MatchString(it.List[1].Atom))) {
+				v.bad(it, "expected (app) or (app name), where name is the command to build under cmd/, got %s", short(it))
+			}
 		case "doc":
 			v.shape(it, "(doc ?text)")
 		default:
-			v.bad(it, "unknown project item %s%s (want module, go, require, package, repo, doc)", short(it), didYouMean(it.Head(), projectItems))
+			v.bad(it, "unknown project item %s%s (want module, go, require, package, repo, app, doc)", short(it), didYouMean(it.Head(), projectItems))
 		}
 	}
 	switch {
@@ -536,3 +542,5 @@ func short(n *Node) string {
 	}
 	return s
 }
+
+var appName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
