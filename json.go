@@ -118,7 +118,7 @@ func coverageJSON(cov *Covering) CoverageJSON {
 	}
 	for _, cand := range cov.Ranked {
 		c := CandidateJSON{Tile: cand.Offer.Tile, Score: cand.Score, Own: cand.Own, Terms: cand.Terms}
-		for _, term := range cand.Offer.Cost {
+		for _, term := range cand.priced() {
 			c.Cost = append(c.Cost, TermJSON{Dimension: term.Dim, Value: term.Value,
 				Weight: weightsOf(cov)[term.Dim], Source: term.Source, Note: term.Note})
 		}

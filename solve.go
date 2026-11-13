@@ -157,6 +157,7 @@ type Covering struct {
 // A Candidate is a legal offer with its total cost, for explain.
 type Candidate struct {
 	Offer *Offer
+	Cost  Cost // the offer's cost as this policy sees it: what you already run is not paid for again
 	Score int
 	Own   int
 	Terms string
@@ -226,7 +227,7 @@ func solve(n *Need, c *Ctx, shape func(*Need) EntityShape) (*Covering, error) {
 				kids = append(kids, kc)
 				total += kc.Score
 			}
-			f.ranked = []Candidate{{Offer: l.offer, Score: total, Own: l.own, Terms: l.terms, Via: l.via}}
+			f.ranked = []Candidate{{Offer: l.offer, Cost: l.cost, Score: total, Own: l.own, Terms: l.terms, Via: l.via}}
 			f.byTile[l.offer.Tile] = &Covering{Need: l.need, Offer: l.offer, Score: total, Own: l.own, Terms: l.terms, Via: l.via, Children: kids}
 			return f
 		},
@@ -241,6 +242,7 @@ type alternative struct {
 	need      *Need
 	offer     *Offer
 	illegal   string
+	cost      Cost
 	own       int
 	terms     string
 	via       []Step
@@ -301,8 +303,9 @@ func alternatives(n *Need, c *Ctx, shape func(*Need) EntityShape) []dyna.Node[al
 			reject(o, fmt.Sprintf("it produces %s, and no chain converts that to %s", offerForm(o), want))
 			continue
 		}
-		own, terms := c.Policy.score(o.Cost)
-		alt := dyna.Node[alternative, *Need]{Label: alternative{need: n, offer: o, own: own, terms: terms, via: via, chainCost: chainCost}}
+		cost := c.Policy.priced(o)
+		own, terms := c.Policy.score(cost)
+		alt := dyna.Node[alternative, *Need]{Label: alternative{need: n, offer: o, cost: cost, own: own, terms: terms, via: via, chainCost: chainCost}}
 		if o.Children != nil {
 			alt.Kids = o.Children(n)
 		}

@@ -773,6 +773,7 @@ curl -X POST localhost:8080/explain -d @spec.sexp | jq .
 | `GET /` | the studio: requirements in, choices with their reasons, files, a download |
 | `GET /docs` | three walkthroughs, each spec shown twice with one decision changed |
 | `POST /compile` | the choices, the plan and every file, from one compile, as JSON |
+| `POST /gomods` | what a set of go.mod files show is already in use: engines, known libraries, unknown ones |
 | `POST /generate` | the project as a zip, named for the spec's project |
 | `POST /explain` | which tile covered each need, with scores and rejections |
 | `POST /plan` | what the run makes, in dependency levels |
@@ -963,6 +964,23 @@ Weights price every tile and chain rule, so the same spec gives different
 teams different architectures with no tile edited.
 
 ### The project as a whole
+
+What you already operate is already paid for. A policy can say so, and a
+tile on one of those engines then costs nothing more to run:
+
+```lisp
+(policy (running postgres nats))
+```
+
+```
+  chosen  nats-jetstream  score 35   llm 5·4 + maint 3·3 + dep 4·1 + run 2·1 + ops 0·3
+  cost    nats-jetstream operations: 0 (policy: you already run nats)
+```
+
+The engines are the databases, brokers and vaults tiles run on: `kafka`,
+`mongo`, `nats`, `postgres`, `rabbitmq`, `redis`, `vault`. The studio can
+tick them for you from your services' `go.mod` files: a direct
+requirement on pgx says there is a Postgres somewhere.
 
 Each need is covered on its own, so a cost a project pays once is charged
 for every need: five stores on postgres are priced as five servers.

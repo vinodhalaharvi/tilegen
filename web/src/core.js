@@ -204,10 +204,18 @@ const TG = (() => {
 
   // buildPolicy prices the cost dimensions the way the sliders say. The
   // default weights need no policy at all.
-  function buildPolicy(s) {
+  function buildPolicy(s, running) {
     const w = s.weights || DEFAULT_WEIGHTS;
-    if (Object.keys(DEFAULT_WEIGHTS).every(k => w[k] === DEFAULT_WEIGHTS[k])) return '';
-    return '(policy\n  (weights\n' + Object.keys(DEFAULT_WEIGHTS).map(k => `    (${k} ${w[k]})`).join('\n') + '))\n';
+    const parts = [];
+    if (!Object.keys(DEFAULT_WEIGHTS).every(k => w[k] === DEFAULT_WEIGHTS[k])) {
+      parts.push('  (weights\n' + Object.keys(DEFAULT_WEIGHTS).map(k => `    (${k} ${w[k]})`).join('\n') + ')');
+    }
+    const run = Object.keys(running || {}).filter(e => running[e]).sort();
+    if (run.length) parts.push(`  (running ${run.join(' ')})   ; already operated: nothing more to run`);
+    if (!parts.length) return '';
+    const last = parts.length - 1;
+    parts[last] = parts[last].replace(/^(.*?)(\s*;.*)?$/, (_, a, c) => a + ')' + (c || ''));
+    return '(policy\n' + parts.join('\n') + '\n';
   }
 
   // The phrases the description box listens for. Plain matching, no model:

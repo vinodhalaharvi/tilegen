@@ -34,7 +34,10 @@ async function loadEngine() {
   const { instance } = await WebAssembly.instantiate(bytes, go.importObject);
   go.run(instance);
   await ready;
-  return (spec, policy) => JSON.parse(window.tilegenCompile(spec, '', policy || ''));
+  return {
+    compile: (spec, policy) => JSON.parse(window.tilegenCompile(spec, '', policy || '')),
+    gomods: (files) => JSON.parse(window.tilegenGoMods(...files)),
+  };
 }
 
 // A page served by `tilegen serve` can ask the server instead.
@@ -43,7 +46,8 @@ async function serverEngine() {
   const v = probe.ok ? (await probe.json()).version : '';
   if (!v) throw new Error('no server');
   window.tilegenVersion = v;
-  return async (spec, policy) => (await fetch('compile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ spec, policy }) })).json();
+  const post = async (path, body) => (await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
+  return { compile: (spec, policy) => post('compile', { spec, policy }), gomods: (files) => post('gomods', { files }) };
 }
 
 const copyText = async (text) => { try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; } };
@@ -139,7 +143,57 @@ function Area({ area, state, patch, children, lead }) {
   </div>`;
 }
 
-function Sheet({ state, setState, presetId, setPresetId, paused, resume }) {
+// What the team already operates. A go.mod says so: a direct requirement
+// on pgx means there is a Postgres somewhere. Reading a few of them ticks
+// the engines found, and a tile on one of those costs nothing more to run.
+function Running({ scan, running, setRunning, readGoMods, live }) {
+  const [said, setSaid] = useState('');
+  const [pasting, setPasting] = useState(false);
+  const [pasted, setPasted] = useState('');
+  const found = scan && scan.files;
+  const engines = (scan && scan.engines) || [];
+  const evidence = Object.fromEntries(((found && found.running) || []).map(r => [r.engine, r]));
+  const read = async (texts) => {
+    try { await readGoMods(texts); setSaid(''); } catch (e) { setSaid('Those files could not be read.'); }
+  };
+  const onFiles = async (e) => {
+    const texts = await Promise.all(Array.from(e.target.files || []).map(f => f.text()));
+    e.target.value = '';
+    if (texts.length) read(texts);
+  };
+  const anyOn = engines.some(e => running[e]);
+  return html`<div className=${`card ${anyOn ? '' : 'offstate'}`}>
+    <div className="hd"><${Tile} g="g-app" kind=${anyOn ? '' : 'legal'} /><h3>What you already run</h3></div>
+    <div className="bd">
+      <p className="hint">A database or broker you already operate costs nothing more to run. Tick them, or give tilegen your services' <code>go.mod</code> files and it ticks what they show.</p>
+      <div className="ops g-app" role="group" aria-label="engines already operated">
+        ${engines.map(e => html`<label key=${e} className="op"><input id=${`run-${e}`} type="checkbox" checked=${!!running[e]}
+          onChange=${ev => setRunning(r => ({ ...r, [e]: ev.target.checked }))} /><span>${e}${evidence[e] ? ` · ${evidence[e].in}/${found.modules.length}` : ''}</span></label>`)}
+      </div>
+      <div className="row">
+        <label className="btn ghost filebtn">Read go.mod files<input id="gomod-files" type="file" multiple disabled=${!live} onChange=${onFiles} /></label>
+        <button className="btn ghost" disabled=${!live} onClick=${() => setPasting(p => !p)}>${pasting ? 'Close' : 'Paste one'}</button>
+      </div>
+      ${pasting ? html`<${React.Fragment}>
+        <textarea id="gomod-paste" className="in" style=${{ minHeight: 110, resize: 'vertical' }} spellCheck="false" placeholder=${'module github.com/you/billing\n\nrequire github.com/jackc/pgx/v5 v5.7.2'}
+          value=${pasted} onChange=${e => setPasted(e.target.value)}></textarea>
+        <div className="row"><button className="btn" disabled=${!pasted.trim()} onClick=${() => { read([pasted]); setPasting(false); }}>Read it</button></div>
+      </${React.Fragment}>` : null}
+      ${said ? html`<p className="hint" role="status">${said}</p>` : null}
+      ${found ? html`<div className="gomods">
+        <p className="hint">Read ${found.modules.length} module${found.modules.length === 1 ? '' : 's'}: ${found.modules.map(m => m.split('/').pop()).join(', ') || 'none'}.
+          ${(found.errors || []).length ? ` ${found.errors.length} file${found.errors.length === 1 ? ' was' : 's were'} not a go.mod.` : ''}</p>
+        ${(found.running || []).map(r => html`<div key=${r.engine} className="outrow"><${Tile} g="g-app" /><div><b style=${{ textDecoration: 'none' }}>${r.engine}</b>${" "}
+          <span>because of ${r.modules.join(', ')}; shared by ${r.tiles.join(', ')}</span></div></div>`)}
+        ${(found.running || []).length === 0 && found.modules.length ? html`<p className="hint">Nothing in them is a database or broker tilegen knows.</p>` : null}
+        ${(found.unknown || []).length ? html`<details><summary className="hint">${found.unknown.length} requirement${found.unknown.length === 1 ? '' : 's'} no tile speaks</summary>
+          <p className="mono" style=${{ fontSize: 12, overflowWrap: 'anywhere', color: 'var(--muted)' }}>${found.unknown.map(u => u.module).join(' · ')}</p></details>` : null}
+      </div>` : null}
+    </div>
+  </div>`;
+}
+
+function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, running, setRunning, readGoMods, live }) {
   const patch = useCallback((fn) => { setState(s => { const n = JSON.parse(JSON.stringify(s)); fn(n); return n; }); setPresetId(null); }, [setState, setPresetId]);
   const E = TG.ident(state.entity, 'Item');
   const canSave = state.store.on && state.store.ops.save;
@@ -173,6 +227,7 @@ function Sheet({ state, setState, presetId, setPresetId, paused, resume }) {
             <${Switch} id="on-app" on=${state.app} glaze="g-app" label="generate the program" set=${v => patch(s => { s.app = v; })} /></div>
           ${state.app ? html`<div className="bd"><p className="hint">Adds <code>cmd/${TG.pkgName(state.name)}</code>: every part built in dependency order, and a <code>main.go</code> to start it.</p></div>` : null}
         </div>
+        <${Running} scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${live} />
         <div className="card">
           <div className="hd"><h3>What your team values</h3>
             <button className="btn ghost" disabled=${Object.keys(TG.DEFAULT_WEIGHTS).every(k => state.weights[k] === TG.DEFAULT_WEIGHTS[k])}
@@ -427,7 +482,16 @@ function App({ boot }) {
   const compile = useRef(null);
 
   const built = useMemo(() => TG.buildSpec(state), [state]);
-  const policy = useMemo(() => TG.buildPolicy(state), [state]);
+  const [running, setRunning] = useState(boot.running || {});
+  const [scan, setScan] = useState(null); // what the uploaded go.mod files said
+  const policy = useMemo(() => TG.buildPolicy(state, running), [state, running]);
+  const readGoMods = useCallback(async (files) => {
+    if (!compile.current) return;
+    const r = await compile.current.gomods(files);
+    setScan(prev => ({ ...r, asked: files.length || (prev && prev.asked) || 0, files: files.length ? r : prev }));
+    if (files.length) setRunning(Object.fromEntries((r.running || []).map(x => [x.engine, true])));
+  }, []);
+  useEffect(() => { if (engine.status === 'live') readGoMods([]).catch(() => {}); }, [engine.status]);
   const spec = custom === null ? built : custom;
 
   useEffect(() => {
@@ -444,9 +508,9 @@ function App({ boot }) {
     const t = setTimeout(async () => {
       let r, added = false;
       try {
-        r = await compile.current(spec, policy);
+        r = await compile.current.compile(spec, policy);
         if (r.error && custom === null && TG.NEEDS_SESSION.test(r.error)) { // tilegen says what the chosen tile needs; give it that
-          r = await compile.current(TG.buildSpec(state, { session: true }), policy);
+          r = await compile.current.compile(TG.buildSpec(state, { session: true }), policy);
           added = true;
         }
       } catch (e) { r = { error: String(e && e.message || e) }; }
@@ -460,7 +524,7 @@ function App({ boot }) {
 
   useEffect(() => {
     const hot = window.claude && window.claude.hot;
-    if (hot && hot.snapshot) hot.snapshot(() => ({ state, presetId, custom, tab, open }));
+    if (hot && hot.snapshot) hot.snapshot(() => ({ state, presetId, custom, tab, open, running }));
   });
 
   const shown = result && result.version ? result.version : '';
@@ -477,7 +541,8 @@ function App({ boot }) {
       <span className=${`engine ${engine.status} ${busy ? 'busy' : ''}`} role="status"><i></i>${pill}</span>
     </header>
     <main className="bench">
-      <${Sheet} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} paused=${custom !== null} resume=${() => setCustom(null)} />
+      <${Sheet} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} paused=${custom !== null} resume=${() => setCustom(null)}
+        scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${engine.status === 'live'} />
       <${Decisions} result=${result} error=${error} note=${note} />
       <${Output} result=${result} spec=${built} policy=${policy} custom=${custom} setCustom=${setCustom} tab=${tab} setTab=${setTab} open=${open} setOpen=${setOpen} />
     </main>
