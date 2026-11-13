@@ -33,6 +33,7 @@ type Ctx struct {
 	Lock     map[string]LockEntry // tilegen.lock: pinned backend choices
 	Reselect bool                 // ignore the lock
 	App      string               // (app): the command to wire under cmd/, or ""
+	Extra    []*Offer             // drafts: tiles declared for this compile only
 	Pins     map[string]*ProtoPin // tilegen.lock: pinned proto numbers
 	PinsOut  map[string]*ProtoPin // the numbers this run handed out
 	Policy   *Policy              // what this team values (policy.go)

@@ -43,6 +43,7 @@ type Options struct {
 	JSON       bool // print structured output instead of a report
 	AllowHoles bool // with Check: open holes are not a failure
 	Runner     Runner
+	Tiles      string // (tile ...) drafts given with the spec, as text
 }
 
 func main() {
@@ -51,6 +52,12 @@ func main() {
 	}
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "key":
+			if err := keyCmd(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "serve":
 			if err := serveCmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -243,6 +250,9 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 		return nil, err
 	}
 	c := &Ctx{Cfg: cfg, Strict: o.Strict, Policy: pol}
+	if c.Extra, err = parseDrafts(o.Tiles); err != nil {
+		return nil, err
+	}
 	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
 		return nil, err
 	}
@@ -261,6 +271,15 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 	c.Reselect = o.Reselect
 	if err := errors.Join(coverAll(project, c), checkReserved(project, c)); err != nil {
 		return nil, err
+	}
+	var drafted []string
+	for _, id := range sortedKeys(c.Cover) {
+		if cov := c.Cover[id]; cov.Offer.Draft {
+			drafted = append(drafted, id+": "+cov.Offer.Tile)
+		}
+	}
+	if len(drafted) > 0 { // decided, and that is as far as a draft goes
+		return nil, &draftsChosen{cp: &compiled{nodes: nodes, stages: stages, c: c, o: o, ws: ws}, needs: drafted}
 	}
 	for _, p := range Pipeline {
 		if nodes, err = p.Run(c, nodes); err != nil {

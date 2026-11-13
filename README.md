@@ -774,13 +774,74 @@ curl -X POST localhost:8080/explain -d @spec.sexp | jq .
 | `GET /docs` | three walkthroughs, each spec shown twice with one decision changed |
 | `POST /compile` | the choices, the plan and every file, from one compile, as JSON |
 | `POST /gomods` | what a set of go.mod files show is already in use: engines, known libraries, unknown ones |
+| `POST /draft` | Claude's draft tile for each module given; needs a key, and a server on this machine only |
 | `POST /generate` | the project as a zip, named for the spec's project |
 | `POST /explain` | which tile covered each need, with scores and rejections |
 | `POST /plan` | what the run makes, in dependency levels |
 | `GET /tiles` | the registry: capabilities, offers, costs |
 
-It accepts a raw S-expression body, or JSON with `spec`, `config`, `policy`
-and `name` fields.
+It accepts a raw S-expression body, or JSON with `spec`, `config`, `policy`,
+`name` and `tiles` fields.
+
+### Tools tilegen has no tile for
+
+A team's stack is rarely only what tilegen ships tiles for. A **draft**
+declares one more tool for a single compile:
+
+```lisp
+(tile cockroachdb
+  (offers store)
+  (doc "distributed SQL that speaks the Postgres protocol")
+  (module github.com/cockroachdb/cockroach-go/v2)
+  (engine cockroachdb)
+  (satisfies (durable) "a write is replicated to a quorum before it is acknowledged")
+  (satisfies (cross-process) "any number of clients connect to the cluster")
+  (illegal-when (no-broker) "it is a cluster to run")
+  (cost (llm-work 4 "plain SQL through pgx") (maintenance 3) (dependency 2) (runtime 2)
+        (operations 7 "at least three nodes, and their upgrades")))
+```
+
+It says what the tool is for and what it costs, which is all selection
+needs, so it takes part in every decision and explanation: "would the
+thing we already use win here, and what would it rule out?" It cannot
+generate code. When a draft wins a need, tilegen reports the decision and
+stops; the project comes when that tile is built into tilegen.
+
+A draft is held to a stricter rule than a built-in tile, because nothing
+has run it. It wins only what it claims (a requirement it does not
+mention is unverified), and it pays `uncertainty` for being unproven. In
+the studio a draft lasts for the visit: write one under "What you already
+run", or let Claude write the first version.
+
+### Asking Claude to draft a tile
+
+A go.mod says a team uses a library. It does not say what the library is
+for, what it can promise or what it costs to run. That is judgment, so
+it is the one place the studio can use an LLM, and only if you turn it
+on:
+
+```sh
+tilegen key set       # prompts for an Anthropic API key and stores it in the OS keychain
+tilegen serve         # with a key set, listens on 127.0.0.1:8080 only
+```
+
+Give the studio your go.mod files, tick "Also ask Claude what these
+are", and each requirement no tile speaks comes back as a draft to read,
+edit and tick, or as one line saying it is not that kind of tool.
+
+- **Optional.** Without a key the option is greyed out with the reason,
+  and everything else works.
+- **The key stays on your machine.** The server reads it from
+  `ANTHROPIC_API_KEY` or the keychain and makes the call; it is never
+  sent to the page. `tilegen key remove` deletes it.
+- **Never on a public server.** Drafting is refused unless the server
+  listens on this machine only.
+- **What is sent:** the module paths and versions you asked about, and
+  tilegen's own prompt. Nothing else from your go.mod or your spec.
+- **Checked, then yours to check.** A draft passes the same parser as
+  one written by hand, and goes back once with the reason if it fails.
+  It is still Claude's reading of a library: read it before you tick it.
+- `TILEGEN_MODEL` picks the model; the default is `claude-sonnet-5-5`.
 
 **It executes nothing.** Generation writes into a plan in memory, which the
 service zips directly, so no file is written and no command runs: no git,

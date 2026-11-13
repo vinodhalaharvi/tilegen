@@ -85,6 +85,12 @@ type Offer struct {
 	// is its own engine; noEngine means there is nothing to run or keep.
 	Engine string
 
+	// Draft marks a tile declared for one compile (drafts.go): it takes
+	// part in selection and has no generator. Module is the library it
+	// was drafted from, if any.
+	Draft  bool
+	Module string
+
 	IllegalFor map[string]string // requirement -> why it cannot serve it
 
 	// Satisfies is the affirmative half of legality: requirement -> how
@@ -253,7 +259,7 @@ type alternative struct {
 // registration order. Legality comes before cost, and depends only on the
 // spec and the policy.
 func alternatives(n *Need, c *Ctx, shape func(*Need) EntityShape) []dyna.Node[alternative, *Need] {
-	cands := offersOf(n.Capability)
+	cands := c.offersFor(n.Capability)
 	if len(cands) == 0 {
 		return []dyna.Node[alternative, *Need]{{Label: alternative{need: n}}}
 	}

@@ -180,6 +180,10 @@ select.in { padding-right: 4px; }
 .filebtn:has(input:focus-visible) { outline: 2px solid var(--g-store); outline-offset: 2px; }
 .gomods { display: flex; flex-direction: column; gap: 6px; border-top: 1px dashed var(--line); padding-top: 10px; }
 .gomods details summary { cursor: pointer; }
+.draft { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; background: var(--raised); }
+.draftmark { font: 600 10px/1 var(--font-mono); font-style: normal; letter-spacing: .06em; text-transform: uppercase; padding: 2px 5px; border-radius: 4px; background: var(--g-events); color: #1b1300; vertical-align: 1px; }
+.callout.draftwin { border-color: var(--g-events); background: color-mix(in oklab, var(--g-events) 14%, var(--surface)); }
+.callout.draftwin h3 { color: var(--ink); }
 .x { border: 0; background: none; color: var(--muted); width: 28px; height: 28px; border-radius: 6px; font-size: 16px; line-height: 1; }
 .x:hover { background: var(--wash); color: var(--ink); }
 
