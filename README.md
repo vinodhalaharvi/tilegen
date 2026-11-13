@@ -10,6 +10,18 @@ Deterministic structure (module, types, interfaces, signatures, wiring, SQL)
 is compiled. Only method bodies are left open, each with a contract, an
 intent, and constraints.
 
+**Why it exists.** In our opinion it is better to use LLMs not to generate
+code, but to write code that generates code: deterministically, as far as
+possible, before handing off to an LLM to fill the holes.
+
+**What it costs.** tilegen runs entirely on your machine. There is no server
+and no subscription, and your code is never uploaded. Generating a project
+spends no LLM tokens, whether you generate one or a thousand. Tokens are spent
+only if you choose to fill the holes with an LLM, and then with your own key.
+
+Site, film and a studio that runs in the browser:
+<https://tilegen.vinodhalaharvi.com/>
+
 ```mermaid
 flowchart LR
   S[spec.sexp] --> V[parse + validate]
@@ -1281,6 +1293,25 @@ waiting to be written.
   Code-Generator Generator* (iburg, 1992).
 - Go's own compiler rewrites SSA with S-expression rules in
   `src/cmd/compile/internal/ssa/_gen/*.rules`, compiled to Go by rulegen.
+
+## Help wanted
+
+The idea holds up: requirements go in, a priced choice of tools comes out,
+and the project builds. The next step is coverage, with as many tiles as
+possible for the databases, brokers and clouds people actually run. tilegen
+is actively looking for people to use it, test it and extend it, and
+collaborators are welcome.
+
+- **Use it.** Describe a service you are about to start, or one you already
+  run, and see whether tilegen chooses what you would have.
+- **Test it.** Open an issue where a choice is wrong, a cost is off, a refusal
+  is unclear, or generated code does not build.
+- **Write a tile.** There is no tile yet for MySQL, DynamoDB, SQS or Google
+  Pub/Sub, among many others. [Writing a tile](#writing-a-tile) and
+  [docs/TILES.md](docs/TILES.md) say how; a tile states what a tool
+  guarantees, what rules it out and what it costs.
+
+Issues and pull requests: <https://github.com/vinodhalaharvi/tilegen/issues>
 
 ## Status
 
