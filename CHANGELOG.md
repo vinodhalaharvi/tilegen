@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.3.4 - 2026-11-13
+
+- Studio: `Clear all` unticks every requirement and keeps the service,
+  its fields and the weights. The brief box says that it ticks on top of
+  what is already ticked.
+- Studio: "at once" in a brief no longer ticks sign-in.
+
 ## v0.3.3 - 2026-11-13
 
 - Drafts: a `(tile NAME (offers CAPABILITY) ...)` form given with a

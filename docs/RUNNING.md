@@ -89,7 +89,7 @@ Either install the binary:
 
 ```sh
 go install github.com/vinodhalaharvi/tilegen@latest
-tilegen -version        # tilegen v0.3.3
+tilegen -version        # tilegen v0.3.4
 ```
 
 `go install` puts it in `$(go env GOPATH)/bin`, which needs to be on your
@@ -117,7 +117,7 @@ make build          # go build -trimpath -o bin/tilegen .
 ```
 
 ```
-tilegen v0.3.3
+tilegen v0.3.4
 ```
 
 Then run what CI runs, which is a gofmt check, `go vet` and the test suite:
