@@ -23,6 +23,7 @@ func init() {
 			"durable":         "a committed transaction is on disk before COMMIT returns",
 			"cross-process":   "a server other processes connect to over the network",
 			"lookup-by-field": "a WHERE clause, and an index when you add one",
+			"outbox":          "the entity's row and the event's row are written in one transaction",
 		},
 		Cost: Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "the LLM writes only row-to-domain mapping; sqlc writes the queries"},

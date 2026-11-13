@@ -30,6 +30,9 @@ func init() {
 		IllegalWhen: map[string]string{
 			"cross-process": "a sqlite file serves one process; another would need its own connection to the same disk",
 		},
+		Unverified: map[string]string{
+			"outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one",
+		},
 		Satisfies: map[string]string{
 			"durable":         "the database is a file on disk, and a committed transaction is in it",
 			"lookup-by-field": "a WHERE clause, and an index when you add one",

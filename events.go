@@ -55,7 +55,7 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "events",
 		Pass: Select,
-		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEvents,
+		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEventsAndOutbox,
 			Produces: "event-bus", Doc: "event structs, a typed Bus interface, and an in-process LocalBus",
 			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateEvents,
@@ -74,6 +74,10 @@ func validateEvents(v *validator, n *Node, types map[string]bool) {
 	}
 	count := 0
 	for _, it := range n.Args() {
+		if it.IsList && len(it.List) == 1 && it.Head() == "outbox" {
+			v.bad(it, "(outbox Entity) names the entity saved together with its events, as in (outbox Order)")
+			continue
+		}
 		if it.IsList && len(it.List) == 1 {
 			validateRequirements("event-bus", []string{it.Head()}, it, v)
 			continue
@@ -84,9 +88,11 @@ func validateEvents(v *validator, n *Node, types map[string]bool) {
 		case "event":
 			count++
 			v.structLike(it, types) // an event is a struct: name, fields, doc
+		case "outbox":
+			validateOutbox(v, it, types)
 		default:
 			v.bad(it, "events contain (event Name (field ...)...), (doc ...) and requirements like (durable), got %s%s",
-				short(it), didYouMean(it.Head(), append([]string{"event", "doc"}, capabilities["event-bus"].Requirements...)))
+				short(it), didYouMean(it.Head(), append([]string{"event", "outbox", "doc"}, capabilities["event-bus"].Requirements...)))
 		}
 	}
 	if count == 0 {

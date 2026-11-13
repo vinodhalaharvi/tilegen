@@ -13,6 +13,7 @@ func init() {
 		IllegalWhen: map[string]string{
 			"durable":       "an in-memory map loses its data on restart",
 			"cross-process": "the map lives in this process's heap; another process has its own, empty one",
+			"outbox":        "nothing is committed, so there is no transaction for an event to share",
 		},
 		Satisfies: map[string]string{
 			"lookup-by-field": "a scan over the map: correct at any size, slow at a large one",

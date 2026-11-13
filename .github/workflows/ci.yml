@@ -30,6 +30,7 @@ jobs:
           sqlc-version: "1.31.1"
       - run: make demo-postgres # sqlc generate, then the result must build and vet
       - run: make demo-auto # per-store selection: memory and postgres-sqlc in one project
+      - run: make demo-outbox # an entity and its events in one transaction
 
   api:
     runs-on: ubuntu-latest
