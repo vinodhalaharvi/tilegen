@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.3.3 - 2026-11-13
+
 - Drafts: a `(tile NAME (offers CAPABILITY) ...)` form given with a
   compile declares a tool tilegen has no tile for. It takes part in every
   decision and explanation and generates nothing: when a draft wins,
