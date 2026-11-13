@@ -4481,6 +4481,40 @@ func TestServeStudio(t *testing.T) {
 	if res := serveRequest(t, "GET", "/assets/", "", ""); res.StatusCode != 404 {
 		t.Errorf("assets are files, not a listing: got %d", res.StatusCode)
 	}
+	// The diagram library is fetched on demand, from the binary too.
+	if !strings.Contains(page, `window.TILEGEN_MERMAID = "assets/`+studioDiagrams+`"`) {
+		t.Error("the page should be told where the diagram library is")
+	}
+	res = serveRequest(t, "GET", "/assets/"+studioDiagrams, "", "")
+	if n, _ := io.Copy(io.Discard, res.Body); res.StatusCode != 200 || n < 1<<20 {
+		t.Errorf("the diagram library is not served whole: %d, %d bytes", res.StatusCode, n)
+	}
+}
+
+func TestTilesJSONSaysWhatIsBehindATile(t *testing.T) {
+	// The studio shows what is behind a tile from this catalogue: what it
+	// guarantees and why, the engine it needs, and where each cost comes from.
+	out := tilesJSON(Registry())
+	by := map[string]TileJSON{}
+	for _, tj := range out.Tiles {
+		if tj.Pass == "select" {
+			by[tj.Name] = tj
+		}
+	}
+	pg := by["postgres-sqlc"]
+	if pg.Engine != "postgres" || pg.Satisfies["durable"] == "" || pg.CostNotes["operations"] == "" || pg.IllegalWhen["no-broker"] == "" {
+		t.Errorf("postgres-sqlc: %+v", pg)
+	}
+	if by["nats-jetstream"].Engine != "nats" || by["vault"].Satisfies["audited"] == "" {
+		t.Errorf("nats-jetstream %+v, vault %+v", by["nats-jetstream"], by["vault"])
+	}
+	for _, c := range out.Capabilities {
+		for _, name := range c.OfferedBy {
+			if _, ok := by[name]; !ok {
+				t.Errorf("%s offers %s, which the catalogue does not describe", c.Name, name)
+			}
+		}
+	}
 }
 
 func TestServeCompileIsEverythingAtOnce(t *testing.T) {

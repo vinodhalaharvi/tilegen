@@ -26,6 +26,9 @@ var studioLibs = []string{
 	"highlight.min.js", "hljs-protobuf.min.js", "hljs-lisp.min.js", "jszip.min.js",
 }
 
+// studioDiagrams draws the Architecture view.
+const studioDiagrams = "mermaid.min.js"
+
 // studioFonts are the faces the stylesheet names, with the weights each
 // file carries.
 var studioFonts = []struct{ family, file, weight string }{
@@ -53,6 +56,9 @@ var studio = sync.OnceValue(func() []byte {
 	for _, l := range studioLibs {
 		libs.WriteString(`<script src="assets/` + l + `"></script>` + "\n")
 	}
+	// The diagram library is large, so the page fetches it only when the
+	// Architecture view is opened; this says where it is.
+	libs.WriteString(`<script>window.TILEGEN_MERMAID = "assets/` + studioDiagrams + `";</script>` + "\n")
 	// The served page has nothing recorded to open on: the server answers
 	// before a reader could notice.
 	page := src("page.html")
