@@ -29,7 +29,10 @@ type Policy struct {
 	// ExtraEngine is what each engine beyond the first costs within one
 	// capability, in the whole-project view: (extra-engine N).
 	ExtraEngine int
-	Pos         Pos
+	// Running is the engines the team already operates: (running postgres
+	// nats). A tile on one of them costs nothing more to operate.
+	Running map[string]bool
+	Pos     Pos
 }
 
 // A Preference is what people want, as opposed to what costs less. Tiles
@@ -143,9 +146,22 @@ func ParsePolicy(n *Node) (*Policy, error) {
 				continue
 			}
 			p.ExtraEngine = v
+		case "running":
+			known := engines()
+			for _, a := range it.Args() {
+				if a.IsList || !contains(known, a.Atom) {
+					bad(a, "(running ...) names engines you already operate, which are %s; got %s%s",
+						strings.Join(known, ", "), short(a), didYouMean(a.Atom, known))
+					continue
+				}
+				if p.Running == nil {
+					p.Running = map[string]bool{}
+				}
+				p.Running[a.Atom] = true
+			}
 		default:
-			bad(it, "policy takes (weights ...), (prefer ...), (avoid ...), (margin N) and (extra-engine N), got %s%s",
-				short(it), didYouMean(h, []string{"weights", "prefer", "avoid", "margin", "extra-engine"}))
+			bad(it, "policy takes (weights ...), (prefer ...), (avoid ...), (margin N), (extra-engine N) and (running ...), got %s%s",
+				short(it), didYouMean(h, []string{"weights", "prefer", "avoid", "margin", "extra-engine", "running"}))
 		}
 	}
 	return p, errors.Join(errs...)
@@ -235,6 +251,63 @@ func (p *Policy) checkTileNames() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// priced is an offer's cost as this policy sees it. An engine the team
+// already runs is already paid for: a tile on it adds nothing to operate,
+// which is the honest reason an existing Postgres beats a new SQLite.
+func (p *Policy) priced(o *Offer) Cost {
+	e := engineOf(o)
+	if e == "" || !p.Running[e] {
+		return o.Cost
+	}
+	out := make(Cost, len(o.Cost))
+	copy(out, o.Cost)
+	for i, t := range out {
+		if t.Dim == "operations" && t.Value > 0 {
+			out[i] = CostTerm{Dim: t.Dim, Value: 0, Source: "policy", Note: "you already run " + e}
+		}
+	}
+	return out
+}
+
+// operated reports whether a tile's engine is something to operate: a
+// database, a broker or a vault that has to be run, as opposed to a
+// library linked into the program. A tile says so by declaring an
+// operations cost.
+func operated(o *Offer) bool {
+	if o.Capability == "auth" || o.Capability == "api" {
+		return false // a scheme or a protocol has upkeep, but there is no server of that name to run
+	}
+	for _, t := range o.Cost {
+		if t.Dim == "operations" && t.Value > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// engines lists every engine a registered tile runs on and someone has to
+// operate.
+func engines() []string {
+	seen := map[string]bool{}
+	for _, capability := range capabilityNames() {
+		for _, o := range offersOf(capability) {
+			if e := engineOf(o); e != "" && operated(o) {
+				seen[e] = true
+			}
+		}
+	}
+	return sortedKeys(seen)
+}
+
+// priced is the candidate's cost as it was scored; a candidate built
+// without one has its offer's.
+func (c Candidate) priced() Cost {
+	if c.Cost != nil {
+		return c.Cost
+	}
+	return c.Offer.Cost
 }
 
 // score prices a cost under this policy.

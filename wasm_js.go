@@ -26,6 +26,16 @@ func wasmMain() bool {
 		b, _ := json.Marshal(tilesJSON(Registry()))
 		return string(b)
 	}))
+	js.Global().Set("tilegenGoMods", js.FuncOf(func(_ js.Value, args []js.Value) any {
+		var files []string
+		for _, a := range args {
+			if a.Type() == js.TypeString {
+				files = append(files, a.String())
+			}
+		}
+		b, _ := json.Marshal(scanGoMods(files))
+		return string(b)
+	}))
 	js.Global().Set("tilegenVersion", version)
 	if ready := js.Global().Get("tilegenReady"); ready.Type() == js.TypeFunction {
 		ready.Invoke()
