@@ -1197,7 +1197,7 @@ waiting to be written.
 
 ## Status
 
-v0.3.1. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
+v0.3.2. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
 every attempt, and replacing declared LLM costs with measured ones. See
 [ROADMAP.md](ROADMAP.md).
 
