@@ -119,6 +119,11 @@ func Emit(nodes []*Node, out string, c *Ctx, apply bool) (*Report, error) {
 		r.stageBy(lockFile, "", lockText(c.Cover, c.PinsOut))
 	}
 	r.by = ""
+	if c.App != "" {
+		if err := emitWiring(c, r); err != nil {
+			return nil, err
+		}
+	}
 	r.Produced["tilegen.tasks.json"] = true
 	sweep(out, r)
 	if err := emitTasks(tasks, out, c, r); err != nil {

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `(app)` generates the program: `cmd/<name>/wire_gen.go` with `Deps`,
+  `App`, `build` and `Serve`, and a `main.go` scaffolded once. The wiring
+  is read back from the constructors the run produces, so it needs no
+  per-tile knowledge and follows constructors edited by hand. What
+  nothing in the project supplies becomes a field of `Deps`.
 - `(inbox Event Field)` inside `(events ...)` makes a handler take effect
   once per event, however many times it is delivered: the record that it
   ran is committed with the handler's own writes. It puts an `inbox`
