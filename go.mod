@@ -4,8 +4,13 @@ go 1.26.0
 
 require (
 	golang.org/x/mod v0.41.0
-	golang.org/x/term v0.46.0
 	golang.org/x/tools v0.50.0
+)
+
+require (
+	al.essio.dev/pkg/shellescape v1.5.1 // indirect
+	github.com/danieljoos/wincred v1.2.2 // indirect
+	github.com/godbus/dbus/v5 v5.1.0 // indirect
 )
 
 require (
@@ -18,11 +23,13 @@ require (
 	github.com/google/flatbuffers v25.2.10+incompatible // indirect
 	github.com/klauspost/compress v1.18.0 // indirect
 	github.com/vinodhalaharvi/dyna v0.0.0-20261107141753-1d06f7db3279
+	github.com/zalando/go-keyring v0.2.6
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel v1.41.0 // indirect
 	go.opentelemetry.io/otel/metric v1.41.0 // indirect
 	go.opentelemetry.io/otel/trace v1.41.0 // indirect
 	golang.org/x/sync v0.23.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
+	golang.org/x/term v0.46.0
 	google.golang.org/protobuf v1.36.7 // indirect
 )

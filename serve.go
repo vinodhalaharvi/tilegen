@@ -51,9 +51,21 @@ func serveCmd(args []string, log io.Writer) error {
 		Addr:              *addr,
 		Handler:           srvMux,
 		ReadHeaderTimeout: 5 * time.Second,
-		WriteTimeout:      maxSpecTimeout + 10*time.Second,
+		WriteTimeout:      maxDraftTimeout + 10*time.Second,
 	}
+	// With a key set and no address asked for, listen on this machine
+	// only: the key is then usable, and never spent for anyone else.
+	if key, _ := anthropicKey(); key != "" && !flagGiven(fs, "addr") && os.Getenv("PORT") == "" {
+		*addr = "127.0.0.1:8080"
+		srv.Addr = *addr
+	}
+	serveLoopback = isLoopback(*addr)
 	fmt.Fprintf(log, "tilegen %s serving on %s\n", version, *addr)
+	if st := llmStatus(); st.Enabled {
+		fmt.Fprintf(log, "asking Claude to draft tiles is on (%s)\n", st.Model)
+	} else {
+		fmt.Fprintf(log, "asking Claude to draft tiles is off: %s\n", st.Why)
+	}
 	return srv.ListenAndServe()
 }
 
@@ -72,9 +84,18 @@ func serveMux() http.Handler {
 	mux.HandleFunc("POST /compile", handleAll)
 	mux.HandleFunc("POST /gomods", handleGoMods)
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(w, map[string]string{"version": version})
+		respondJSON(w, map[string]any{"version": version, "llm": llmStatus()})
 	})
-	return withLimits(mux)
+	// Asking Claude takes longer than compiling a spec, so it has its own
+	// deadline; everything else keeps the short one.
+	limited, draft := withLimits(mux), withTimeout(http.HandlerFunc(handleDraft), maxDraftTimeout)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/draft" {
+			draft.ServeHTTP(w, r)
+			return
+		}
+		limited.ServeHTTP(w, r)
+	})
 }
 
 func defaultAddr() string {
@@ -86,10 +107,14 @@ func defaultAddr() string {
 
 // withLimits caps every request body and gives every handler a deadline,
 // so a hostile spec cannot hold a worker open or exhaust memory.
-func withLimits(h http.Handler) http.Handler {
+func withLimits(h http.Handler) http.Handler { return withTimeout(h, maxSpecTimeout) }
+
+// withTimeout is withLimits with the deadline given: asking Claude takes
+// longer than compiling a spec.
+func withTimeout(h http.Handler, d time.Duration) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r.Body = http.MaxBytesReader(w, r.Body, maxSpecBytes)
-		ctx, cancel := context.WithTimeout(r.Context(), maxSpecTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), d)
 		defer cancel()
 		w.Header().Set("X-Tilegen-Version", version)
 		h.ServeHTTP(w, r.WithContext(ctx))
@@ -103,6 +128,7 @@ type specRequest struct {
 	Config string `json:"config,omitempty"`
 	Policy string `json:"policy,omitempty"`
 	Name   string `json:"name,omitempty"`
+	Tiles  string `json:"tiles,omitempty"` // (tile ...) drafts for this compile only
 }
 
 // readSpec accepts either JSON or a raw S-expression body, so curl with a
@@ -148,7 +174,7 @@ func compileRequest(req specRequest) (*compiled, error) {
 	if err := checkSpecSize(forms); err != nil {
 		return nil, err
 	}
-	return compileForms(forms, Options{Out: "project", Name: req.Name}, io.Discard)
+	return compileForms(forms, Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
 }
 
 // checkSpecSize rejects a spec too large to be a person's, before any
@@ -346,6 +372,10 @@ type everything struct {
 	Files   map[string]string `json:"files,omitempty"`
 	Holes   int               `json:"holes"`
 	Next    []string          `json:"next,omitempty"` // the commands that make it build, in order
+	// Drafted is the needs a draft tile won ("orders.OrderStore: cockroachdb").
+	// The choices are reported; there are no files, because a draft has
+	// no generator.
+	Drafted []string `json:"drafted,omitempty"`
 }
 
 func compileAll(req specRequest) (out everything) {
@@ -356,6 +386,11 @@ func compileAll(req specRequest) (out everything) {
 		}
 	}()
 	cp, err := compileRequest(req)
+	var won *draftsChosen
+	if errors.As(err, &won) {
+		out.Name, out.Explain, out.Drafted = projectName(won.cp), explainJSON(won.cp, nil), won.needs
+		return out
+	}
 	if err != nil {
 		out.Error = err.Error()
 		return out
@@ -387,4 +422,11 @@ func handleAll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, compileAll(req))
+}
+
+// flagGiven reports whether a flag was set on the command line.
+func flagGiven(fs *flag.FlagSet, name string) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == name })
+	return given
 }

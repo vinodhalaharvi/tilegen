@@ -14,7 +14,7 @@ import (
 func wasmMain() bool {
 	js.Global().Set("tilegenCompile", js.FuncOf(func(_ js.Value, args []js.Value) any {
 		req := specRequest{}
-		for i, dst := range []*string{&req.Spec, &req.Config, &req.Policy} {
+		for i, dst := range []*string{&req.Spec, &req.Config, &req.Policy, &req.Tiles} {
 			if i < len(args) && args[i].Type() == js.TypeString {
 				*dst = args[i].String()
 			}

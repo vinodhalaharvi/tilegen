@@ -64,6 +64,7 @@ type CoverageJSON struct {
 
 type CandidateJSON struct {
 	Tile  string      `json:"tile"`
+	Draft bool        `json:"draft,omitempty"` // declared for this compile; it has no generator
 	Score int         `json:"score"`
 	Own   int         `json:"own"`
 	Terms string      `json:"terms"`
@@ -117,7 +118,7 @@ func coverageJSON(cov *Covering) CoverageJSON {
 		out.Position = cov.Need.Pos.String()
 	}
 	for _, cand := range cov.Ranked {
-		c := CandidateJSON{Tile: cand.Offer.Tile, Score: cand.Score, Own: cand.Own, Terms: cand.Terms}
+		c := CandidateJSON{Tile: cand.Offer.Tile, Draft: cand.Offer.Draft, Score: cand.Score, Own: cand.Own, Terms: cand.Terms}
 		for _, term := range cand.priced() {
 			c.Cost = append(c.Cost, TermJSON{Dimension: term.Dim, Value: term.Value,
 				Weight: weightsOf(cov)[term.Dim], Source: term.Source, Note: term.Note})
