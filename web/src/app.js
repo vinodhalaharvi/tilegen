@@ -35,19 +35,25 @@ async function loadEngine() {
   go.run(instance);
   await ready;
   return {
-    compile: (spec, policy) => JSON.parse(window.tilegenCompile(spec, '', policy || '')),
+    compile: (spec, policy, tiles) => JSON.parse(window.tilegenCompile(spec, '', policy || '', tiles || '')),
     gomods: (files) => JSON.parse(window.tilegenGoMods(...files)),
+    llm: { enabled: false, why: 'this page runs tilegen by itself, with no key: start `tilegen serve` on your machine to ask Claude' },
   };
 }
 
 // A page served by `tilegen serve` can ask the server instead.
 async function serverEngine() {
   const probe = await fetch('version');
-  const v = probe.ok ? (await probe.json()).version : '';
-  if (!v) throw new Error('no server');
-  window.tilegenVersion = v;
+  const info = probe.ok ? await probe.json().catch(() => ({})) : {};
+  if (!info.version) throw new Error('no server');
+  window.tilegenVersion = info.version;
   const post = async (path, body) => (await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })).json();
-  return { compile: (spec, policy) => post('compile', { spec, policy }), gomods: (files) => post('gomods', { files }) };
+  return {
+    compile: (spec, policy, tiles) => post('compile', { spec, policy, tiles }),
+    gomods: (files) => post('gomods', { files }),
+    draft: (modules) => post('draft', { modules }),
+    llm: info.llm || { enabled: false, why: 'this server does not offer it' },
+  };
 }
 
 const copyText = async (text) => { try { await navigator.clipboard.writeText(text); return true; } catch (e) { return false; } };
@@ -146,7 +152,7 @@ function Area({ area, state, patch, children, lead }) {
 // What the team already operates. A go.mod says so: a direct requirement
 // on pgx means there is a Postgres somewhere. Reading a few of them ticks
 // the engines found, and a tile on one of those costs nothing more to run.
-function Running({ scan, running, setRunning, readGoMods, live }) {
+function Running({ scan, running, setRunning, readGoMods, live, llm, drafts, setDrafts, askClaude }) {
   const [said, setSaid] = useState('');
   const [pasting, setPasting] = useState(false);
   const [pasted, setPasted] = useState('');
@@ -186,14 +192,60 @@ function Running({ scan, running, setRunning, readGoMods, live }) {
         ${(found.running || []).map(r => html`<div key=${r.engine} className="outrow"><${Tile} g="g-app" /><div><b style=${{ textDecoration: 'none' }}>${r.engine}</b>${" "}
           <span>because of ${r.modules.join(', ')}; shared by ${r.tiles.join(', ')}</span></div></div>`)}
         ${(found.running || []).length === 0 && found.modules.length ? html`<p className="hint">Nothing in them is a database or broker tilegen knows.</p>` : null}
-        ${(found.unknown || []).length ? html`<details><summary className="hint">${found.unknown.length} requirement${found.unknown.length === 1 ? '' : 's'} no tile speaks</summary>
-          <p className="mono" style=${{ fontSize: 12, overflowWrap: 'anywhere', color: 'var(--muted)' }}>${found.unknown.map(u => u.module).join(' · ')}</p></details>` : null}
       </div>` : null}
+      <${Drafts} found=${found} llm=${llm} drafts=${drafts} setDrafts=${setDrafts} askClaude=${askClaude} />
     </div>
   </div>`;
 }
 
-function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, running, setRunning, readGoMods, live }) {
+// Tiles for this visit. Claude drafts one for each library tilegen does not
+// know; a person reads it, changes what is wrong, and decides whether it
+// takes part. Nothing counts until it is ticked.
+function Drafts({ found, llm, drafts, setDrafts, askClaude }) {
+  const [use, setUse] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [said, setSaid] = useState('');
+  const unknown = ((found && found.unknown) || []).slice(0, 25);
+  const ask = async () => {
+    setBusy(true); setSaid('');
+    try {
+      const r = await askClaude(unknown.map(u => ({ module: u.module, version: u.version })));
+      const n = r.drafts.filter(d => d.tile).length;
+      setSaid(`${n} draft${n === 1 ? '' : 's'} from ${r.model}. Read each one before you tick it: it is Claude's reading of the library, and nothing has run it.`);
+    } catch (e) { setSaid(String(e.message || e)); }
+    setBusy(false);
+  };
+  const patch = (id, change) => setDrafts(ds => ds.map(d => d.id === id ? { ...d, ...change } : d));
+  return html`<div className="gomods">
+    ${unknown.length ? html`<${React.Fragment}>
+      <p className="hint">${found.unknown.length} requirement${found.unknown.length === 1 ? '' : 's'} no tile speaks:
+        <span className="mono" style=${{ overflowWrap: 'anywhere' }}> ${found.unknown.map(u => u.module).join(' · ')}</span></p>
+      <label className="ck g-app" htmlFor="use-claude">
+        <input id="use-claude" type="checkbox" checked=${use && llm.enabled} disabled=${!llm.enabled} onChange=${e => setUse(e.target.checked)} />
+        <span>Also ask Claude what these are, and draft a tile for each
+          <small className="hint" style=${{ display: 'block' }}>${llm.enabled
+            ? `Sends ${unknown.length} module name${unknown.length === 1 ? '' : 's'} and version${unknown.length === 1 ? '' : 's'} to Anthropic, using the key on this machine. One request each.`
+            : 'Off: ' + llm.why + '.'}</small></span><code>optional</code></label>
+      ${use && llm.enabled ? html`<div className="row"><button className="btn" disabled=${busy} onClick=${ask}>${busy ? 'Asking Claude…' : `Ask about ${unknown.length}`}</button></div>` : null}
+    </${React.Fragment}>` : null}
+    ${said ? html`<p className="hint" role="status">${said}</p>` : null}
+    ${drafts.map(d => html`<div key=${d.id} className="draft">
+      <div className="row"><b className="mono" style=${{ fontSize: 12, overflowWrap: 'anywhere', flex: 1 }}>${d.module || 'your tile'}</b>
+        <button className="x" aria-label="discard this draft" onClick=${() => setDrafts(ds => ds.filter(x => x.id !== d.id))}>×</button></div>
+      ${d.note ? html`<p className="hint">${d.note}</p>` : null}
+      ${d.text || !d.note ? html`<${React.Fragment}>
+        <textarea id=${`draft-${d.id}`} className="in" spellCheck="false" aria-label=${`draft tile for ${d.module}`} style=${{ minHeight: 150, resize: 'vertical', whiteSpace: 'pre', fontSize: 12 }}
+          value=${d.text} onChange=${e => patch(d.id, { text: e.target.value })}></textarea>
+        <label className="ck g-app" htmlFor=${`draft-on-${d.id}`}><input id=${`draft-on-${d.id}`} type="checkbox" checked=${d.on} onChange=${e => patch(d.id, { on: e.target.checked })} />
+          <span>Let it take part in the decisions</span><code>draft</code></label>
+      </${React.Fragment}>` : null}
+    </div>`)}
+    <div className="row"><button className="btn ghost" onClick=${() => setDrafts(ds => ds.concat({ id: 'mine-' + Date.now(), module: '', on: false, note: '',
+      text: '(tile my-store\n  (offers store)\n  (doc "what it is")\n  (satisfies (durable) "how")\n  (cost (llm-work 4) (maintenance 3) (dependency 2) (runtime 1) (operations 0)))' }))}>Write a tile yourself</button></div>
+  </div>`;
+}
+
+function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, running, setRunning, readGoMods, live, llm, drafts, setDrafts, askClaude }) {
   const patch = useCallback((fn) => { setState(s => { const n = JSON.parse(JSON.stringify(s)); fn(n); return n; }); setPresetId(null); }, [setState, setPresetId]);
   const E = TG.ident(state.entity, 'Item');
   const canSave = state.store.on && state.store.ops.save;
@@ -227,7 +279,8 @@ function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, r
             <${Switch} id="on-app" on=${state.app} glaze="g-app" label="generate the program" set=${v => patch(s => { s.app = v; })} /></div>
           ${state.app ? html`<div className="bd"><p className="hint">Adds <code>cmd/${TG.pkgName(state.name)}</code>: every part built in dependency order, and a <code>main.go</code> to start it.</p></div>` : null}
         </div>
-        <${Running} scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${live} />
+        <${Running} scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${live}
+          llm=${llm} drafts=${drafts} setDrafts=${setDrafts} askClaude=${askClaude} />
         <div className="card">
           <div className="hd"><h3>What your team values</h3>
             <button className="btn ghost" disabled=${Object.keys(TG.DEFAULT_WEIGHTS).every(k => state.weights[k] === TG.DEFAULT_WEIGHTS[k])}
@@ -282,7 +335,7 @@ function Need({ c }) {
       ${notes.length ? html`<p className="why">${notes.map(t => t.note[0].toUpperCase() + t.note.slice(1)).join('. ')}.</p>` : null}
       <div className="cands">
         ${c.candidates.map(x => html`<div key=${x.tile} className=${`cand ${x.tile === c.chosen ? 'win' : ''}`}>
-          <${Tile} g=${glaze} kind=${x.tile === c.chosen ? '' : 'legal'} /><span className="nm">${x.tile}</span>
+          <${Tile} g=${glaze} kind=${x.tile === c.chosen ? '' : 'legal'} /><span className="nm">${x.tile}${x.draft ? html` <em className="draftmark">draft</em>` : null}</span>
           <${Bar} cost=${x.cost || []} max=${max} /><span className="sc">${x.score}</span></div>`)}
       </div>
       ${(c.illegal || []).length ? html`<div className="outs"><h4>Ruled out</h4>
@@ -296,6 +349,7 @@ function Need({ c }) {
 // why each tile is out.
 function Refusal({ error }) {
   const m = error.match(/no tile can cover (\S+) \(([^)]+)\)\n([\s\S]*)/);
+  if (/^tiles\.sexp/.test(error)) return html`<div className="callout"><h3>A draft tile has a mistake</h3><pre>${error.replace(/tiles\.sexp:/g, 'line ')}</pre></div>`;
   if (!m) return html`<div className="callout"><h3>tilegen cannot build this yet</h3><pre>${error}</pre></div>`;
   const rows = m[3].split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf(': '); return i < 0 ? null : [l.slice(0, i), l.slice(i + 2)]; }).filter(Boolean);
   return html`<div className="callout">
@@ -314,6 +368,11 @@ function Decisions({ result, error, note }) {
       <p>Each need goes to the cheapest tile that can do everything asked of it. The rest are shown with the reason they lost.</p></header>
     ${error ? html`<${Refusal} error=${error} />` : null}
     ${note ? html`<div className="note">${note}</div>` : null}
+    ${result && (result.drafted || []).length ? html`<div className="callout draftwin">
+      <h3>A draft won, so there is no project yet</h3>
+      <ul>${result.drafted.map(d => html`<li key=${d}><b>${d.split(': ')[1]}</b> would cover ${d.split(': ')[0].split('.').pop()}</li>`)}</ul>
+      <p className="hint" style=${{ color: 'inherit' }}>The decision and its reasons below are real. A draft says what a tool is for and what it costs; it has no generator, so tilegen cannot write code for it until that tile is built in. Untick the draft to get the project from the tiles tilegen has.</p>
+    </div>` : null}
     <div className=${error ? 'stale' : ''} style=${{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div className="summary">
         <span><b>${cov.length}</b>decision${cov.length === 1 ? '' : 's'}</span>
@@ -460,6 +519,7 @@ function Output({ result, spec, policy, custom, setCustom, tab, setTab, open, se
       <p>Real Go, SQL and protobuf, written by tilegen in this page as you tick. Filled tiles are regenerated every run; outlined ones are yours to finish.</p></header>
     <div className="tabs" role="tablist">${tabs.map(([id, label, n]) => html`<button key=${id} role="tab" className="tab" aria-selected=${tab === id} onClick=${() => setTab(id)}>${label}${n ? html`<small>${n}</small>` : null}</button>`)}</div>
     ${!result ? html`<p className="hint">Nothing generated yet.</p>`
+      : !Object.keys(result.files).length && tab !== 'spec' ? html`<p className="note">No files: a draft tile was chosen, and a draft cannot generate code. The middle pane says which.</p>`
       : tab === 'files' ? html`<${Files} result=${result} open=${open} setOpen=${setOpen} />`
       : tab === 'spec' ? html`<${Spec} spec=${spec} policy=${policy} custom=${custom} setCustom=${setCustom} />`
       : html`<${Build} result=${result} spec=${custom === null ? spec : custom} openFile=${p => { setOpen(p); setTab('files'); }} />`}
@@ -492,6 +552,19 @@ function App({ boot }) {
     if (files.length) setRunning(Object.fromEntries((r.running || []).map(x => [x.engine, true])));
   }, []);
   useEffect(() => { if (engine.status === 'live') readGoMods([]).catch(() => {}); }, [engine.status]);
+  // Drafts last for this visit only: tiles declared here, by hand or by
+  // Claude, that take part in the decisions and generate nothing.
+  const [drafts, setDrafts] = useState([]); // { id, module, text, on, note }
+  const tiles = useMemo(() => drafts.filter(d => d.on && d.text.trim()).map(d => d.text.trim()).join('\n\n'), [drafts]);
+  const askClaude = useCallback(async (modules) => {
+    const r = await compile.current.draft(modules);
+    if (r.error) throw new Error(r.error);
+    setDrafts(prev => {
+      const keep = prev.filter(d => !modules.some(m => m.module === d.module));
+      return keep.concat(r.drafts.map((d, i) => ({ id: Date.now() + '-' + i, module: d.module, text: d.tile || '', on: false, note: d.not_tile ? 'Not a tile: ' + d.not_tile : (d.error || '') })));
+    });
+    return r;
+  }, []);
   const spec = custom === null ? built : custom;
 
   useEffect(() => {
@@ -508,19 +581,19 @@ function App({ boot }) {
     const t = setTimeout(async () => {
       let r, added = false;
       try {
-        r = await compile.current.compile(spec, policy);
+        r = await compile.current.compile(spec, policy, tiles);
         if (r.error && custom === null && TG.NEEDS_SESSION.test(r.error)) { // tilegen says what the chosen tile needs; give it that
-          r = await compile.current.compile(TG.buildSpec(state, { session: true }), policy);
+          r = await compile.current.compile(TG.buildSpec(state, { session: true }), policy, tiles);
           added = true;
         }
       } catch (e) { r = { error: String(e && e.message || e) }; }
       setBusy(false);
       if (r.error) { setError(r.error.replace(/^(spec|config|policy)\.sexp:\d+:\d+: /, '')); return; }
-      setError(''); setResult(r);
+      setError(''); setResult({ ...r, files: r.files || {} });
       setNote(added ? 'Signing in this way keeps sessions in a store, so a Session entity was added to the spec. tilegen asked for it by name.' : '');
     }, 140);
     return () => clearTimeout(t);
-  }, [spec, policy, engine.status]);
+  }, [spec, policy, tiles, engine.status]);
 
   useEffect(() => {
     const hot = window.claude && window.claude.hot;
@@ -542,7 +615,8 @@ function App({ boot }) {
     </header>
     <main className="bench">
       <${Sheet} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} paused=${custom !== null} resume=${() => setCustom(null)}
-        scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${engine.status === 'live'} />
+        scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${engine.status === 'live'}
+        llm=${(compile.current && compile.current.llm) || { enabled: false, why: 'starting' }} drafts=${drafts} setDrafts=${setDrafts} askClaude=${askClaude} />
       <${Decisions} result=${result} error=${error} note=${note} />
       <${Output} result=${result} spec=${built} policy=${policy} custom=${custom} setCustom=${setCustom} tab=${tab} setTab=${setTab} open=${open} setOpen=${setOpen} />
     </main>

@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- Drafts: a `(tile NAME (offers CAPABILITY) ...)` form given with a
+  compile declares a tool tilegen has no tile for. It takes part in every
+  decision and explanation and generates nothing: when a draft wins,
+  tilegen reports the choice and stops. A draft wins only what it
+  claims, and pays uncertainty for never having run.
+- `tilegen serve` can ask Claude to draft a tile for each go.mod
+  requirement no tile speaks (`POST /draft`). Every draft passes the
+  same checks as one written by hand, and is sent back once with the
+  reason if it fails. It is off unless a key is set and the server
+  listens on this machine only.
+- `tilegen key set | remove | status` keeps an Anthropic API key in the
+  operating system's keychain. `ANTHROPIC_API_KEY` is used first when
+  set. The key is never sent to the page.
 - `(running postgres nats)` in a policy names the engines a team already
   operates. A tile on one of them costs nothing more to operate, which
   `explain` shows as `ops 0` with the reason.
