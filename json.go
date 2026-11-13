@@ -205,6 +205,11 @@ type TileJSON struct {
 	Requires    []string          `json:"requires,omitempty"`
 	IllegalWhen map[string]string `json:"illegal_when,omitempty"`
 	Covers      []string          `json:"covers,omitempty"`
+	Engine      string            `json:"engine,omitempty"`
+	Module      string            `json:"module,omitempty"`
+	Satisfies   map[string]string `json:"satisfies,omitempty"`
+	Unverified  map[string]string `json:"unverified,omitempty"`
+	CostNotes   map[string]string `json:"cost_notes,omitempty"`
 }
 
 func tilesJSON(rows []TileInfo) TilesJSON {
@@ -218,7 +223,8 @@ func tilesJSON(rows []TileInfo) TilesJSON {
 		out.Capabilities = append(out.Capabilities, cj)
 	}
 	for _, t := range rows {
-		tj := TileJSON{Name: t.Name, Pass: t.Pass, Doc: t.Doc, Produces: t.Produces, Requires: t.Requires, IllegalWhen: t.IllegalWhen}
+		tj := TileJSON{Name: t.Name, Pass: t.Pass, Doc: t.Doc, Produces: t.Produces, Requires: t.Requires, IllegalWhen: t.IllegalWhen,
+			Engine: t.Engine, Module: t.Module, Satisfies: t.Satisfies, Unverified: t.Unverified}
 		if t.Form != domainForm {
 			tj.Form = t.Form
 		}
@@ -226,6 +232,12 @@ func tilesJSON(rows []TileInfo) TilesJSON {
 			tj.Cost = map[string]int{}
 			for _, c := range t.Cost {
 				tj.Cost[c.Dim] = c.Value
+				if c.Note != "" {
+					if tj.CostNotes == nil {
+						tj.CostNotes = map[string]string{}
+					}
+					tj.CostNotes[c.Dim] = c.Note
+				}
 			}
 		}
 		for _, n := range t.Covers {

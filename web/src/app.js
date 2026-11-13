@@ -37,6 +37,7 @@ async function loadEngine() {
   return {
     compile: (spec, policy, tiles) => JSON.parse(window.tilegenCompile(spec, '', policy || '', tiles || '')),
     gomods: (files) => JSON.parse(window.tilegenGoMods(...files)),
+    tiles: async () => JSON.parse(window.tilegenTiles()),
     llm: { enabled: false, why: 'this page runs tilegen by itself, with no key: start `tilegen serve` on your machine to ask Claude' },
   };
 }
@@ -52,6 +53,7 @@ async function serverEngine() {
     compile: (spec, policy, tiles) => post('compile', { spec, policy, tiles }),
     gomods: (files) => post('gomods', { files }),
     draft: (modules) => post('draft', { modules }),
+    tiles: async () => (await fetch('tiles', { headers: { Accept: 'application/json' } })).json(),
     llm: info.llm || { enabled: false, why: 'this server does not offer it' },
   };
 }
@@ -74,7 +76,7 @@ function Switch({ id, on, set, glaze, label }) {
 }
 
 // ---------- 1 · the requirement sheet ----------
-function Brief({ state, setState, presetId, setPresetId }) {
+function Brief({ state, setState, presetId, setPresetId, off, setOff }) {
   const [text, setText] = useState('');
   const hits = useMemo(() => TG.match(text), [text]);
   const pending = hits.filter(h => {
@@ -83,11 +85,11 @@ function Brief({ state, setState, presetId, setPresetId }) {
     if (h.what === 'watch') return !state.api.watch;
     return !state[h.area].reqs[h.what];
   });
-  const isClear = useMemo(() => JSON.stringify(TG.clear(state)) === JSON.stringify(state), [state]);
+  const isClear = useMemo(() => JSON.stringify(TG.clear(state)) === JSON.stringify(state) && !Object.keys(off).some(t => off[t]), [state, off]);
   const label = (h) => h.what === 'on' ? AREAS[h.area].title.toLowerCase() : h.what;
   return html`<div className="card brief">
     <div className="hd"><h3>Start from a brief</h3>
-      <button className="btn ghost small" disabled=${isClear} onClick=${() => { setState(s => TG.clear(s)); setPresetId(null); }}>Clear all</button></div>
+      <button className="btn ghost small" disabled=${isClear} onClick=${() => { setState(s => TG.clear(s)); setPresetId(null); setOff({}); }}>Clear all</button></div>
     <div className="bd">
       <div className="presets" role="group" aria-label="Example briefs">
         ${TG.PRESETS.map(p => html`<button key=${p.id} className="chip" aria-pressed=${presetId === p.id}
@@ -247,7 +249,7 @@ function Drafts({ found, llm, drafts, setDrafts, askClaude }) {
   </div>`;
 }
 
-function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, running, setRunning, readGoMods, live, llm, drafts, setDrafts, askClaude }) {
+function Sheet({ state, setState, presetId, setPresetId, off, setOff, paused, resume, scan, running, setRunning, readGoMods, live, llm, drafts, setDrafts, askClaude }) {
   const patch = useCallback((fn) => { setState(s => { const n = JSON.parse(JSON.stringify(s)); fn(n); return n; }); setPresetId(null); }, [setState, setPresetId]);
   const E = TG.ident(state.entity, 'Item');
   const canSave = state.store.on && state.store.ops.save;
@@ -257,7 +259,7 @@ function Sheet({ state, setState, presetId, setPresetId, paused, resume, scan, r
     ${paused ? html`<div className="note">You edited the spec by hand, so these boxes are paused. <button className="btn ghost" onClick=${resume}>Go back to the boxes</button></div>` : null}
     <div style=${paused ? { opacity: .45, pointerEvents: 'none' } : null}>
       <div style=${{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        <${Brief} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} />
+        <${Brief} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} off=${off} setOff=${setOff} />
         <${Service} state=${state} patch=${patch} />
         <${Area} area="store" state=${state} patch=${patch} lead=${html`<div className="ops g-store" role="group" aria-label="store operations">
           ${['get', 'list', 'save', 'delete'].map(o => html`<label key=${o} className="op"><input id=${`op-${o}`} type="checkbox" checked=${!!state.store.ops[o]}
@@ -312,7 +314,7 @@ function Bar({ cost, max }) {
   </div>`;
 }
 
-function Need({ c }) {
+function Need({ c, inspect }) {
   const glaze = 'g-' + c.capability;
   const max = Math.max(...c.candidates.map(x => x.score), 1);
   const short = c.need.split('.').pop();
@@ -325,7 +327,7 @@ function Need({ c }) {
     <div className="hd">
       <div className="who">
         <span className="cap">${CAP_LABEL[c.capability] || c.capability}</span>
-        <div className="chosen flip" key=${c.chosen}><${Tile} g=${glaze} /><strong>${c.chosen}</strong></div>
+        <button className="chosen flip tlink" key=${c.chosen} title="What is behind this tile" onClick=${() => inspect(c.chosen)}><${Tile} g=${glaze} /><strong>${c.chosen}</strong></button>
         <span className="name">${short} · ${how}</span>
       </div>
       <div className="score">${c.score}<small>cost</small></div>
@@ -337,11 +339,11 @@ function Need({ c }) {
       ${notes.length ? html`<p className="why">${notes.map(t => t.note[0].toUpperCase() + t.note.slice(1)).join('. ')}.</p>` : null}
       <div className="cands">
         ${c.candidates.map(x => html`<div key=${x.tile} className=${`cand ${x.tile === c.chosen ? 'win' : ''}`}>
-          <${Tile} g=${glaze} kind=${x.tile === c.chosen ? '' : 'legal'} /><span className="nm">${x.tile}${x.draft ? html` <em className="draftmark">draft</em>` : null}</span>
+          <${Tile} g=${glaze} kind=${x.tile === c.chosen ? '' : 'legal'} /><button className="nm tlink" onClick=${() => inspect(x.tile)}>${x.tile}${x.draft ? html` <em className="draftmark">draft</em>` : null}</button>
           <${Bar} cost=${x.cost || []} max=${max} /><span className="sc">${x.score}</span></div>`)}
       </div>
       ${(c.illegal || []).length ? html`<div className="outs"><h4>Ruled out</h4>
-        ${c.illegal.map(x => html`<div key=${x.tile} className="outrow"><${Tile} kind="out" /><div><b>${x.tile}</b><span>${x.reason}</span></div></div>`)}
+        ${c.illegal.map(x => html`<div key=${x.tile} className="outrow"><${Tile} kind="out" /><div><button className="tlink" onClick=${() => inspect(x.tile)}><b>${x.tile}</b></button><span>${x.reason}</span></div></div>`)}
       </div>` : null}
     </div>
   </article>`;
@@ -349,26 +351,283 @@ function Need({ c }) {
 
 // A refusal is an answer too: tilegen says which need nothing can cover and
 // why each tile is out.
-function Refusal({ error }) {
+function Refusal({ error, off, setOff }) {
+  const no = Object.keys(off).filter(t => off[t]).sort();
+  const backOn = no.length ? html`<div className="backon"><span>Switched off by you:</span>${no.map(t => html`<button key=${t} className="btn ghost small" onClick=${() => setOff(o => ({ ...o, [t]: false }))}>Switch ${t} back on</button>`)}</div>` : null;
   const m = error.match(/no tile can cover (\S+) \(([^)]+)\)\n([\s\S]*)/);
   if (/^tiles\.sexp/.test(error)) return html`<div className="callout"><h3>A draft tile has a mistake</h3><pre>${error.replace(/tiles\.sexp:/g, 'line ')}</pre></div>`;
-  if (!m) return html`<div className="callout"><h3>tilegen cannot build this yet</h3><pre>${error}</pre></div>`;
+  if (!m) return html`<div className="callout"><h3>tilegen cannot build this yet</h3><pre>${error}</pre>${backOn}</div>`;
   const rows = m[3].split('\n').map(l => l.trim()).filter(Boolean).map(l => { const i = l.indexOf(': '); return i < 0 ? null : [l.slice(0, i), l.slice(i + 2)]; }).filter(Boolean);
   return html`<div className="callout">
     <h3>Nothing can do all of that for ${m[1].split('.').pop()}</h3>
     <p className="hint" style=${{ color: 'inherit' }}>These requirements contradict each other. Untick one and a tile becomes legal again.</p>
     <ul>${rows.map(([t, why]) => html`<li key=${t}><b>${t}</b> ${why.replace(/^unverified: /, '')}</li>`)}</ul>
+    ${backOn}
   </div>`;
 }
 
-function Decisions({ result, error, note }) {
+// What an LLM would have been paid to write the same files. Tokens are
+// estimated at four characters each; the price is Claude Sonnet 5.5 output.
+const USD_PER_MTOK = 10;
+function saving(result) {
+  if (!result) return { tokens: 0, usd: 0 };
+  let chars = 0;
+  for (const p of Object.keys(result.files)) chars += result.files[p].length;
+  const tokens = Math.round(chars / 4);
+  return { tokens, usd: tokens * USD_PER_MTOK / 1e6 };
+}
+const money = (n) => n >= 100 ? '$' + Math.round(n) : '$' + n.toFixed(2);
+
+// ---------- every tile, and where it stands ----------
+// index answers, for a tile name: what it is, and what happened to it in
+// each need of its capability. chosen | legal | out | off | idle.
+function tileIndex(result, catalogue, off) {
+  const by = {};
+  const at = (name, cap) => by[name] || (by[name] = { name, cap, info: null, uses: [] });
+  const info = Object.fromEntries(((catalogue && catalogue.tiles) || []).filter(t => t.pass === 'select').map(t => [t.name, t]));
+  const caps = ((catalogue && catalogue.capabilities) || []).slice().sort((a, b) => CAP_ORDER.indexOf(a.name) - CAP_ORDER.indexOf(b.name));
+  for (const cap of caps) for (const name of cap.offered_by || []) if (CAP_LABEL[cap.name] && !by[name]) at(name, cap.name).info = info[name] || null;
+  for (const c of result ? result.explain.coverage : []) {
+    for (const x of c.candidates) at(x.tile, c.capability).uses.push({ c, cand: x, status: x.tile === c.chosen ? 'chosen' : 'legal', behind: x.score - c.score });
+    for (const x of c.illegal || []) at(x.tile, c.capability).uses.push({ c, status: 'out', reason: x.reason });
+  }
+  for (const t of Object.values(by)) {
+    const has = (st) => t.uses.some(u => u.status === st);
+    t.status = off[t.name] ? 'off' : has('chosen') ? 'chosen' : has('legal') ? 'legal' : has('out') ? 'out' : 'idle';
+  }
+  return by;
+}
+const STATUS_SAYS = { chosen: 'chosen', legal: 'can do it, costs more', out: 'ruled out', off: 'switched off', idle: 'not asked for' };
+const CAP_ORDER = ['api', 'auth', 'event-bus', 'store', 'secrets', 'transport'];
+
+function Wall({ index, inspect }) {
+  const caps = CAP_ORDER.filter(cap => Object.values(index).some(t => t.cap === cap));
+  const rank = { chosen: 0, legal: 1, off: 2, out: 3, idle: 4 };
+  return html`<div className="wall">
+    <div className="legend"><span><${Tile} g="g-app" />chosen</span><span><${Tile} g="g-app" kind="legal" />can do it, costs more</span><span><${Tile} kind="out" />ruled out or switched off</span></div>
+    ${caps.map(cap => {
+      const tiles = Object.values(index).filter(t => t.cap === cap).sort((a, b) => rank[a.status] - rank[b.status] || a.name.localeCompare(b.name));
+      const asked = tiles.some(t => t.status !== 'idle' && t.status !== 'off');
+      return html`<section key=${cap} className=${`shelf g-${cap} ${asked ? '' : 'unasked'}`}>
+        <h3>${CAP_LABEL[cap]}<small>${asked ? `${tiles.filter(t => t.status === 'chosen' || t.status === 'legal').length} of ${tiles.length} can do what you asked` : 'not part of this design'}</small></h3>
+        <div className="slabs">${tiles.map(t => {
+          const use = t.uses.find(u => u.status === 'chosen') || t.uses.find(u => u.status === 'legal');
+          return html`<button key=${t.name} className=${`slab ${t.status}`} onClick=${() => inspect(t.name)} aria-label=${`${t.name}: ${STATUS_SAYS[t.status]}`}>
+            <${Tile} g=${'g-' + cap} kind=${t.status === 'chosen' ? '' : t.status === 'legal' ? 'legal' : t.status === 'idle' ? 'legal' : 'out'} />
+            <b>${t.name}</b>
+            <span>${use ? `cost ${use.cand.score}` : STATUS_SAYS[t.status]}</span>
+          </button>`;
+        })}</div>
+      </section>`;
+    })}
+    ${caps.length ? null : html`<p className="hint">The tile catalogue is not available here.</p>`}
+  </div>`;
+}
+
+// ---------- what is behind one tile ----------
+function Inspector({ name, index, result, error, off, setOff, running, weights, go, back, canBack, close, openFile }) {
+  const t = index[name];
+  const ref = useRef(null);
+  useEffect(() => { if (ref.current) { ref.current.scrollTop = 0; ref.current.focus(); } }, [name]);
+  if (!t) return null;
+  const info = t.info || {}, glaze = 'g-' + t.cap;
+  const used = t.uses.find(u => u.status === 'chosen') || t.uses.find(u => u.status === 'legal');
+  const terms = used ? used.cand.cost || [] : DIMS.map(([d]) => ({ dimension: d, value: (info.cost || {})[d] || 0, weight: weights[d], note: (info.cost_notes || {})[d] || '' }));
+  const chain = used ? used.cand.chain || [] : [];
+  const total = used ? used.cand.score : terms.reduce((n, x) => n + x.value * x.weight, 0);
+  const most = Math.max(...terms.map(x => x.value * x.weight), 1);
+  const asked = new Set(t.uses.flatMap(u => u.c.requirements || []));
+  const facts = result ? fileFacts(result) : { by: {}, tasks: {} };
+  const files = Object.keys(facts.by).filter(p => facts.by[p] === name).sort();
+  const sibs = Object.values(index).filter(x => x.cap === t.cap && x.name !== name).sort((a, b) => a.name.localeCompare(b.name));
+  const alias = (info.covers || []).map(c => (c.match(/^\(alias (.+)\)$/) || [])[1]).filter(Boolean);
+  const list = (obj) => Object.keys(obj || {}).sort();
+  return html`<div className="scrim" onClick=${close}>
+    <aside ref=${ref} tabIndex="-1" className=${`drawer ${glaze}`} role="dialog" aria-modal="true" aria-label=${`tile ${name}`} onClick=${e => e.stopPropagation()}>
+      <div className="dh">
+        <button className="btn ghost small" disabled=${!canBack} onClick=${back} aria-label="back">← Back</button>
+        <span className="crumb">${CAP_LABEL[t.cap]} <i>›</i> ${name}</span>
+        <button className="btn ghost small" onClick=${close} aria-label="close">Close</button>
+      </div>
+      <div className="hero">
+        <${Tile} g=${glaze} kind=${t.status === 'chosen' ? '' : t.status === 'legal' || t.status === 'idle' ? 'legal' : 'out'} />
+        <div><h3>${name}</h3><span className=${`pill ${t.status}`}>${STATUS_SAYS[t.status]}</span>${used && used.cand.draft ? html`<span className="pill">draft</span>` : null}</div>
+        <div className="score">${total}<small>cost</small></div>
+      </div>
+      ${info.doc ? html`<p className="doc">${info.doc[0].toUpperCase() + info.doc.slice(1)}.</p>` : null}
+      <label className="allow" htmlFor="tile-allow">
+        <${Switch} id="tile-allow" on=${!off[name]} glaze=${glaze} label=${`tilegen may choose ${name}`} set=${v => setOff(o => ({ ...o, [name]: !v }))} />
+        <span><b>tilegen may choose this tile</b><small>${off[name] ? 'Switched off: the policy now says (avoid ' + name + ').' : 'Switch it off and tilegen decides again without it.'}</small></span>
+      </label>
+
+      ${error ? html`<div className="note">With the current ticks and switches nothing can cover every need, so what follows is the last design that worked.</div>` : null}
+      ${t.uses.length ? html`<section><h4>${error ? 'In the last design' : 'In this design'}</h4>
+        ${t.uses.map(u => html`<div key=${u.c.need} className=${`use ${u.status}`}>
+          <b>${u.c.need.split('.').pop()}</b>
+          ${u.status === 'chosen' ? html`<span>Chosen at cost ${u.cand.score}${u.c.candidates.length > 1 ? `, ${Math.min(...u.c.candidates.filter(x => x.tile !== name).map(x => x.score)) - u.cand.score} cheaper than the next` : ', the only tile that can do it'}.</span>`
+            : u.status === 'legal' ? html`<span>Can do it at cost ${u.cand.score}, ${u.behind} more than <button className="tlink" onClick=${() => go(u.c.chosen)}>${u.c.chosen}</button>.</span>`
+            : html`<span>${u.reason[0].toUpperCase() + u.reason.slice(1)}.</span>`}
+        </div>`)}</section>` : html`<section><h4>In this design</h4><p className="hint">Nothing in the spec asks for ${CAP_LABEL[t.cap].toLowerCase()}, so this tile is not in play.</p></section>`}
+
+      <section><h4>What it costs<small>value × your weight</small></h4>
+        <div className="costs">${terms.map(x => html`<${React.Fragment} key=${x.dimension}>
+          <span className="dim"><i style=${{ background: `var(${DIM_VAR[x.dimension] || '--d-dep'})` }}></i>${(DIMS.find(d => d[0] === x.dimension) || [0, x.dimension])[1]}</span>
+          <span className="meter"><i style=${{ width: `${(x.value * x.weight / most) * 100}%`, background: `var(${DIM_VAR[x.dimension] || '--d-dep'})` }}></i></span>
+          <span className="num">${x.value} × ${x.weight} = <b>${x.value * x.weight}</b></span>
+          ${x.note ? html`<span className="note2">${x.note}</span>` : null}
+        </${React.Fragment}>`)}
+        ${chain.map(x => html`<${React.Fragment} key=${x.rule}>
+          <span className="dim"><i style=${{ background: 'var(--d-llm)' }}></i>${x.rule}</span><span className="meter"></span><span className="num">+ <b>${x.score}</b></span>
+          <span className="note2">What comes with it: the ${x.rule} tile${x.detail ? ', for ' + x.detail : ''}.</span>
+        </${React.Fragment}>`)}</div></section>
+
+      ${list(info.satisfies).length ? html`<section><h4>What it guarantees</h4>
+        ${list(info.satisfies).map(r => html`<div key=${r} className=${`fact ${asked.has(r) ? 'asked' : ''}`}><code>${r}</code><span>${info.satisfies[r]}${asked.has(r) ? html` <em>you asked for this</em>` : null}</span></div>`)}</section>` : null}
+      ${list(info.illegal_when).length ? html`<section><h4>Ruled out when you ask for</h4>
+        ${list(info.illegal_when).map(r => html`<div key=${r} className=${`fact no ${asked.has(r) ? 'asked' : ''}`}><code>${r}</code><span>${info.illegal_when[r]}</span></div>`)}</section>` : null}
+      ${list(info.unverified).length ? html`<section><h4>Claimed, never proven</h4>
+        ${list(info.unverified).map(r => html`<div key=${r} className="fact"><code>${r}</code><span>${info.unverified[r]}</span></div>`)}</section>` : null}
+
+      ${engineOf(info) || (info.requires || []).length || info.module || alias.length ? html`<section><h4>What it needs</h4>
+        ${engineOf(info) ? html`<div className="fact"><code>${info.engine}</code><span>${running[info.engine] ? 'An engine your team already runs, so it costs nothing more to operate.' : 'An engine that has to be running.'}</span></div>` : null}
+        ${(info.requires || []).map(r => html`<div key=${r} className="fact"><code>${r}</code><span>A tool on your machine at build time.</span></div>`)}
+        ${info.module ? html`<div className="fact"><code>${info.module}</code><span>The Go module it uses.</span></div>` : null}
+        ${alias.length ? html`<div className="fact"><code>${alias.join(', ')}</code><span>Also answers to this name in a config.</span></div>` : null}
+      </section>` : null}
+
+      ${files.length ? html`<section><h4>What it wrote</h4>
+        <div className="wrote">${files.map(p => html`<button key=${p} className="holerow" onClick=${() => { openFile(p); close(); }}><b>${p}</b>
+          <span>${(facts.tasks[p] || []).length ? `${facts.tasks[p].length} hole${facts.tasks[p].length > 1 ? 's' : ''} left open` : 'complete'}</span></button>`)}</div></section>` : null}
+
+      ${sibs.length ? html`<section><h4>Other ${CAP_LABEL[t.cap].toLowerCase()} tiles</h4>
+        <div className="sibs">${sibs.map(x => html`<button key=${x.name} className=${`slab mini ${x.status}`} onClick=${() => go(x.name)}>
+          <${Tile} g=${glaze} kind=${x.status === 'chosen' ? '' : x.status === 'legal' || x.status === 'idle' ? 'legal' : 'out'} /><b>${x.name}</b><span>${STATUS_SAYS[x.status]}</span></button>`)}</div></section>` : null}
+    </aside>
+  </div>`;
+}
+
+// ---------- the design as a diagram ----------
+// The picture is drawn from the decisions: one box per need with the tile
+// that covers it, and a cylinder per engine that has to be running.
+const TRANSPORT_SAYS = { 'http-json': 'HTTP and JSON', connect: 'Connect', grpc: 'gRPC' };
+const engineOf = (info) => info && info.engine && info.engine !== 'none' ? info.engine : '';
+function diagram(result, index, running, dir) {
+  const cov = result ? result.explain.coverage : [];
+  const out = ['flowchart ' + (dir || 'LR')], ids = {}, engines = {}, edges = [], pkgs = {};
+  const q = (text) => '"' + String(text).replace(/"/g, "'") + '"';
+  cov.forEach((c, i) => { ids[c.need] = 'n' + i; (pkgs[c.need.split('.')[0]] = pkgs[c.need.split('.')[0]] || []).push(c); });
+  const pkgNames = Object.keys(pkgs).sort();
+  const anyAPI = cov.some(c => c.capability === 'api');
+  if (anyAPI) out.push('  clients(["Clients"]):::edge');
+  pkgNames.forEach((pkg, pi) => {
+    const of = (cap) => pkgs[pkg].filter(c => c.capability === cap);
+    out.push(`  subgraph p${pi}[${q('package ' + pkg)}]`);
+    for (const c of pkgs[pkg]) out.push(`    ${ids[c.need]}[${q(`<b>${c.need.split('.').pop()}</b><br/>${c.chosen}`)}]:::${c.capability.replace('-', '')}`);
+    out.push('  end');
+    const has = (c, r) => (c.requirements || []).includes(r);
+    for (const api of of('api')) {
+      edges.push(`  clients -->|${q(TRANSPORT_SAYS[api.chosen] || api.chosen)}| ${ids[api.need]}`);
+      if (has(api, 'streaming')) edges.push(`  ${ids[api.need]} -.->|${q('live events')}| clients`);
+      for (const a of of('auth')) edges.push(`  ${ids[api.need]} -->|${q('checks the caller')}| ${ids[a.need]}`);
+      for (const s of of('store')) edges.push(`  ${ids[api.need]} -->|${q('reads and writes')}| ${ids[s.need]}`);
+      for (const b of of('event-bus')) if (!of('store').some(s => has(s, 'outbox'))) edges.push(`  ${ids[api.need]} -->|${q('publishes')}| ${ids[b.need]}`);
+    }
+    for (const s of of('store')) for (const b of of('event-bus')) {
+      if (has(s, 'outbox')) edges.push(`  ${ids[s.need]} -->|${q('outbox relay')}| ${ids[b.need]}`);
+      if (has(s, 'inbox')) edges.push(`  ${ids[b.need]} -->|${q('inbox: once per event')}| ${ids[s.need]}`);
+    }
+  });
+  for (const c of cov) {
+    const e = engineOf(index[c.chosen] && index[c.chosen].info);
+    if (!e) continue;
+    if (!engines[e]) { engines[e] = 'e' + Object.keys(engines).length; out.push(`  ${engines[e]}[(${q(`<b>${e}</b><br/>${running[e] ? 'already running' : 'to operate'}`)})]:::engine`); }
+    edges.push(`  ${ids[c.need]} --> ${engines[e]}`);
+  }
+  return { text: out.concat(edges).join('\n'), nodes: Object.fromEntries(cov.map(c => [ids[c.need], c.chosen])) };
+}
+
+// Mermaid is large, so it is fetched the first time the diagram is shown.
+let mermaidLoading = null;
+const loadMermaid = () => mermaidLoading || (mermaidLoading = new Promise((resolve, reject) => {
+  if (window.mermaid) return resolve();
+  const el = document.createElement('script');
+  el.src = window.TILEGEN_MERMAID || 'mermaid.js';
+  el.onload = () => window.mermaid ? resolve() : reject(new Error('not loaded'));
+  el.onerror = () => { mermaidLoading = null; reject(new Error('not loaded')); };
+  document.head.appendChild(el);
+}));
+
+function Drawing({ d, inspect }) {
+  const [svg, setSvg] = useState('');
+  const [failed, setFailed] = useState('');
+  const box = useRef(null);
+  useEffect(() => {
+    let live = true;
+    loadMermaid().then(() => {
+      if (!live) return;
+      const css = getComputedStyle(document.documentElement), v = (n) => css.getPropertyValue(n).trim();
+      const paint = (cap, g) => `classDef ${cap} fill:${v('--raised')},stroke:${v(g)},stroke-width:2px,color:${v('--ink')}`;
+      const text = d.text + '\n  ' + [paint('api', '--g-api'), paint('auth', '--g-auth'), paint('eventbus', '--g-events'), paint('store', '--g-store'), paint('secrets', '--g-secrets'), paint('transport', '--g-app'),
+        `classDef engine fill:${v('--wash')},stroke:${v('--muted')},color:${v('--ink')}`, `classDef edge fill:${v('--ink')},stroke:${v('--ink')},color:${v('--bg')}`].join('\n  ');
+      window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', fontFamily: v('--font-body'),
+        themeVariables: { primaryColor: v('--raised'), primaryTextColor: v('--ink'), primaryBorderColor: v('--line'), lineColor: v('--muted'), clusterBkg: v('--surface'), clusterBorder: v('--line'), edgeLabelBackground: v('--bg'), fontSize: '15px' },
+        flowchart: { curve: 'basis', padding: 14, htmlLabels: true, useMaxWidth: true } });
+      return window.mermaid.render('blueprint-' + (++drawn), text).then(r => { if (live) { setSvg(r.svg); setFailed(''); } });
+    }).catch(e => { if (live) setFailed(window.mermaid ? 'The diagram could not be drawn: ' + (e && e.message || e) : 'The diagram library did not load here, so this is the diagram as text.'); });
+    return () => { live = false; };
+  }, [d.text]);
+  useEffect(() => {
+    if (!box.current) return;
+    for (const g of box.current.querySelectorAll('g.node')) {
+      const key = Object.keys(d.nodes).find(k => new RegExp('(^|-)' + k + '(-|$)').test(g.id));
+      if (!key) continue;
+      g.style.cursor = 'pointer'; g.setAttribute('tabindex', '0'); g.setAttribute('role', 'button'); g.setAttribute('aria-label', 'tile ' + d.nodes[key]);
+      g.onclick = () => inspect(d.nodes[key]);
+      g.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); inspect(d.nodes[key]); } };
+    }
+  }, [svg]);
+  return html`<${React.Fragment}>
+    ${failed ? html`<div className="note">${failed}</div>` : null}
+    ${svg && !failed ? html`<div className="sheet" ref=${box} dangerouslySetInnerHTML=${{ __html: svg }}></div>` : failed ? html`<pre className="code plain">${d.text}</pre>` : html`<div className="sheet"><p className="hint">Drawing…</p></div>`}
+  </${React.Fragment}>`;
+}
+let drawn = 0;
+
+function Blueprint({ result, index, running, inspect }) {
+  const tall = useMemo(() => diagram(result, index, running, 'TB'), [result, index, running]);
+  const wide = useMemo(() => diagram(result, index, running, 'LR'), [result, index, running]);
+  const [big, setBig] = useState(false);
+  const [said, setSaid] = useState('');
+  useEffect(() => {
+    if (!big) return;
+    const key = (e) => { if (e.key === 'Escape') setBig(false); };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, [big]);
+  if (!result || !result.explain.coverage.length) return html`<p className="hint">Nothing to draw yet.</p>`;
+  return html`<div className="blueprint">
+    <p className="hint">Drawn from the decisions: each box is a need and the tile covering it, each cylinder an engine that has to be running. Select a box to see what is behind it.</p>
+    <${Drawing} d=${tall} inspect=${inspect} />
+    <div className="row"><button className="btn ghost small" onClick=${() => setBig(true)}>Full screen</button>
+      <button className="btn ghost small" onClick=${async () => setSaid(await copyText(wide.text) ? 'Copied' : 'Select the text to copy it')}>Copy as Mermaid</button>${said ? html`<span className="hint" role="status">${said}</span>` : null}</div>
+    ${big ? html`<div className="scrim top wideview" onClick=${() => setBig(false)}>
+      <div className="blueprint bigsheet" role="dialog" aria-modal="true" aria-label="architecture" onClick=${e => e.stopPropagation()}>
+        <div className="row"><b>Architecture</b><span style=${{ flex: 1 }}></span><button className="btn ghost small" onClick=${() => setBig(false)}>Close</button></div>
+        <${Drawing} d=${wide} inspect=${(n) => { setBig(false); inspect(n); }} />
+      </div></div>` : null}
+  </div>`;
+}
+
+function Decisions({ result, error, note, view, setView, index, inspect, running, off, setOff }) {
   const cov = result ? result.explain.coverage : [];
   const files = result ? Object.keys(result.files).length : 0;
   const total = cov.reduce((n, c) => n + c.score, 0);
+  const saved = useMemo(() => saving(result), [result]);
+  const views = [['decisions', 'Decisions', cov.length], ['tiles', 'Tiles', Object.keys(index).length], ['map', 'Architecture', null]];
   return html`<section id="decide" className="pane decisions">
     <header><span className="step">2</span><h2>What tilegen chose, and why</h2>
       <p>Each need goes to the cheapest tile that can do everything asked of it. The rest are shown with the reason they lost.</p></header>
-    ${error ? html`<${Refusal} error=${error} />` : null}
+    ${error ? html`<${Refusal} error=${error} off=${off} setOff=${setOff} />` : null}
     ${note ? html`<div className="note">${note}</div>` : null}
     ${result && (result.drafted || []).length ? html`<div className="callout draftwin">
       <h3>A draft won, so there is no project yet</h3>
@@ -382,10 +641,59 @@ function Decisions({ result, error, note }) {
         <span><b>${files}</b>files</span>
         <span><b>${result ? result.holes : 0}</b>holes left open</span>
       </div>
-      <div className="legend" aria-label="what the cost bars are made of">${DIMS.map(([k, label, v]) => html`<span key=${k}><i style=${{ background: `var(${v})` }}></i>${label}</span>`)}</div>
-      ${cov.map(c => html`<${Need} key=${c.need} c=${c} />`)}
+      ${saved.tokens ? html`<div className="saved" title=${`${saved.tokens.toLocaleString()} tokens, estimated at four characters each, at $${USD_PER_MTOK} per million output tokens (Claude Sonnet 5.5)`}>
+        <strong>${money(saved.usd)} saved</strong>
+        <span>every run: about <b>${saved.tokens.toLocaleString()}</b> tokens of code written by the compiler, not bought from an LLM at $${USD_PER_MTOK} per million.</span>
+      </div>` : null}
+      <div className="tabs" role="tablist">${views.map(([id, label, n]) => html`<button key=${id} role="tab" className="tab" aria-selected=${view === id} onClick=${() => setView(id)}>${label}${n ? html`<small>${n}</small>` : null}</button>`)}</div>
+      ${view === 'tiles' ? html`<${Wall} index=${index} inspect=${inspect} />`
+        : view === 'map' ? html`<${Blueprint} result=${result} index=${index} running=${running} inspect=${inspect} />`
+        : html`<${React.Fragment}>
+          <div className="legend" aria-label="what the cost bars are made of">${DIMS.map(([k, label, v]) => html`<span key=${k}><i style=${{ background: `var(${v})` }}></i>${label}</span>`)}</div>
+          ${cov.map(c => html`<${Need} key=${c.need} c=${c} inspect=${inspect} />`)}
+        </${React.Fragment}>`}
     </div>
   </section>`;
+}
+
+// ---------- find anything: ⌘K ----------
+function Palette({ items, close }) {
+  const [q, setQ] = useState('');
+  const [at, setAt] = useState(0);
+  const listRef = useRef(null);
+  const words = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const found = useMemo(() => {
+    const hit = items.filter(it => (it.always || words.length) && (!it.needsQuery || q.trim().length > 1) && words.every(w => it.hay.includes(w)));
+    const score = (it) => (words.length && it.label.toLowerCase().startsWith(words[0]) ? 0 : 1);
+    return hit.sort((a, b) => a.order - b.order || score(a) - score(b)).slice(0, 60);
+  }, [q, items]);
+  useEffect(() => { setAt(0); }, [q]);
+  useEffect(() => { const el = listRef.current && listRef.current.querySelector('[aria-selected="true"]'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); }, [at, found]);
+  const run = (it) => { if (!it) return; close(); it.run(); };
+  const key = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setAt(i => Math.min(found.length - 1, i + 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setAt(i => Math.max(0, i - 1)); }
+    else if (e.key === 'Enter') { e.preventDefault(); run(found[at]); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  };
+  let last = '';
+  return html`<div className="scrim top" onClick=${close}>
+    <div className="palette" role="dialog" aria-modal="true" aria-label="search" onClick=${e => e.stopPropagation()}>
+      <input id="palette-q" autoFocus className="pq" value=${q} placeholder="Search tiles, requirements, files, the spec and the policy" aria-label="search"
+        role="combobox" aria-expanded="true" aria-controls="palette-list" onChange=${e => setQ(e.target.value)} onKeyDown=${key} />
+      <div id="palette-list" className="plist" role="listbox" ref=${listRef}>
+        ${found.length === 0 ? html`<p className="hint pad">Nothing matches “${q}”.</p>` : null}
+        ${found.map((it, i) => {
+          const head = it.group !== last ? html`<div key=${'g' + it.group} className="pgroup">${it.group}</div>` : null;
+          last = it.group;
+          return html`<${React.Fragment} key=${it.id}>${head}<button role="option" aria-selected=${i === at} className="pitem" onMouseMove=${() => setAt(i)} onClick=${() => run(it)}>
+            ${it.glaze !== undefined ? html`<${Tile} g=${it.glaze} kind=${it.kind || ''} />` : html`<span className="pdot"></span>`}
+            <span className="pl">${it.label}</span><span className="ps">${it.sub || ''}</span></button></${React.Fragment}>`;
+        })}
+      </div>
+      <div className="pfoot"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
+    </div>
+  </div>`;
 }
 
 // ---------- 3 · the output ----------
@@ -546,7 +854,13 @@ function App({ boot }) {
   const built = useMemo(() => TG.buildSpec(state), [state]);
   const [running, setRunning] = useState(boot.running || {});
   const [scan, setScan] = useState(null); // what the uploaded go.mod files said
-  const policy = useMemo(() => TG.buildPolicy(state, running), [state, running]);
+  const [off, setOff] = useState(boot.off || {}); // tiles switched off by hand
+  const policy = useMemo(() => TG.buildPolicy(state, running, off), [state, running, off]);
+  const [view, setView] = useState(boot.view || 'decisions');
+  const [catalogue, setCatalogue] = useState(null);
+  const [trail, setTrail] = useState([]); // tiles opened in the inspector, newest last
+  const [finding, setFinding] = useState(false);
+  const inspect = useCallback((name) => setTrail(t => t[t.length - 1] === name ? t : t.concat(name)), []);
   const readGoMods = useCallback(async (files) => {
     if (!compile.current) return;
     const r = await compile.current.gomods(files);
@@ -572,7 +886,11 @@ function App({ boot }) {
   useEffect(() => {
     let live = true;
     serverEngine().then(fn => ({ fn, where: 'server' })).catch(() => loadEngine().then(fn => ({ fn, where: 'page' })))
-      .then(({ fn, where }) => { if (live) { compile.current = fn; setEngine({ status: 'live', where, version: window.tilegenVersion || '' }); } })
+      .then(({ fn, where }) => {
+        if (!live) return;
+        compile.current = fn; setEngine({ status: 'live', where, version: window.tilegenVersion || '' });
+        fn.tiles().then(c => { if (live && c && c.tiles) setCatalogue(c); }).catch(() => {});
+      })
       .catch(() => { if (live) setEngine({ status: 'off' }); });
     return () => { live = false; };
   }, []);
@@ -599,8 +917,54 @@ function App({ boot }) {
 
   useEffect(() => {
     const hot = window.claude && window.claude.hot;
-    if (hot && hot.snapshot) hot.snapshot(() => ({ state, presetId, custom, tab, open, running }));
+    if (hot && hot.snapshot) hot.snapshot(() => ({ state, presetId, custom, tab, open, running, off, view }));
   });
+
+  const index = useMemo(() => tileIndex(result, catalogue, off), [result, catalogue, off]);
+  useEffect(() => {
+    const key = (e) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'k') { e.preventDefault(); setFinding(f => !f); }
+      else if (e.key === 'Escape') { setFinding(false); setTrail([]); }
+    };
+    window.addEventListener('keydown', key);
+    return () => window.removeEventListener('keydown', key);
+  }, []);
+  const openFile = (p) => { setOpen(p); setTab('files'); const el = document.getElementById('code'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); };
+  const showView = (v) => { setView(v); const el = document.getElementById('decide'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); };
+  const items = useMemo(() => {
+    if (!finding) return [];
+    const out = [];
+    const add = (group, order, id, label, sub, run, more) => out.push({ group, order, id: group + ':' + id, label, sub, run, hay: (label + ' ' + (sub || '') + ' ' + group + ' ' + ((more && more.words) || '')).toLowerCase(), ...(more || {}) });
+    for (const t of Object.values(index).sort((a, b) => a.name.localeCompare(b.name))) {
+      add('Tiles', 1, t.name, t.name, `${CAP_LABEL[t.cap]} · ${STATUS_SAYS[t.status]}`, () => inspect(t.name),
+        { glaze: 'g-' + t.cap, kind: t.status === 'chosen' ? '' : t.status === 'out' || t.status === 'off' ? 'out' : 'legal', always: true, words: (t.info && t.info.doc) || '' });
+    }
+    for (const area of Object.keys(TG.SHEET)) for (const r of TG.SHEET[area]) {
+      const on = state[area].on && !!state[area].reqs[r.req];
+      add('Requirements', 2, area + r.req, r.say, `${AREAS[area].title} · ${r.req} · ${on ? 'ticked' : 'not ticked'}`, () => {
+        setCustom(null); setPresetId(null);
+        setState(s => { const n = JSON.parse(JSON.stringify(s)); if (on) n[area].reqs[r.req] = false; else { n[area].on = true; n[area].reqs[r.req] = true; } return n; });
+      }, { glaze: AREAS[area].glaze, kind: on ? '' : 'legal', always: true });
+    }
+    for (const [area, key, say] of [['events', 'outbox', 'Saved and published, or neither'], ['events', 'inbox', 'Delivered twice, handled once'], ['api', 'watch', 'Clients watch events as a live stream']]) {
+      const on = !!state[area][key];
+      add('Requirements', 2, area + key, say, `${AREAS[area].title} · ${key} · ${on ? 'ticked' : 'not ticked'}`, () => {
+        setCustom(null); setPresetId(null);
+        setState(s => on ? { ...s, [area]: { ...s[area], [key]: false } } : TG.apply(s, [{ area: 'events', what: 'on' }, { area, what: 'on' }, { area, what: key }]));
+      }, { glaze: AREAS[area].glaze, kind: on ? '' : 'legal', always: true });
+    }
+    for (const p of TG.PRESETS) add('Briefs', 3, p.id, p.title, p.brief, () => { setState(JSON.parse(JSON.stringify(p.state))); setPresetId(p.id); setCustom(null); }, { always: true });
+    add('Go to', 4, 'decisions', 'Decisions', 'why each tile won', () => showView('decisions'), { always: true });
+    add('Go to', 4, 'tiles', 'Tiles', 'every tile and where it stands', () => showView('tiles'), { always: true });
+    add('Go to', 4, 'map', 'Architecture', 'the design as a diagram', () => showView('map'), { always: true });
+    add('Go to', 4, 'spec', 'Spec and policy', 'what tilegen was given', () => { openFile(open); setTab('spec'); }, { always: true });
+    add('Go to', 4, 'build', 'Build it', 'download and next steps', () => { openFile(open); setTab('build'); }, { always: true });
+    add('Go to', 4, 'clear', 'Clear all', 'untick every requirement', () => { setState(s => TG.clear(s)); setPresetId(null); setOff({}); }, { always: true });
+    for (const p of Object.keys((result && result.files) || {}).sort()) add('Files', 5, p, p.split('/').pop(), p, () => openFile(p));
+    const lines = (text, where) => text.split('\n').forEach((l, i) => { if (l.trim() && !/^\s*;/.test(l)) add(where, 6, where + i, l.trim(), `${where.toLowerCase()} · line ${i + 1}`, () => { openFile(open); setTab('spec'); }, { needsQuery: true }); });
+    lines(spec, 'Spec'); lines(policy, 'Policy');
+    return out;
+  }, [finding, index, state, result, spec, policy, open]);
 
   const shown = result && result.version ? result.version : '';
   const pill = engine.status === 'live' ? `tilegen ${engine.version || shown} · running ${engine.where === 'server' ? 'on this machine' : 'in this page'}`
@@ -612,16 +976,20 @@ function App({ boot }) {
         <h1 className="wordmark">tilegen <span>studio</span></h1>
       </div>
       <p className="thesis"><b>Say what must be true.</b> tilegen picks the tools that can do it at the lowest cost, writes the Go, and shows its reasoning.</p>
+      <button className="chip find" onClick=${() => setFinding(true)} aria-label="search">Search <kbd>${/Mac|iPhone|iPad/.test(navigator.platform || '') ? '⌘K' : 'Ctrl K'}</kbd></button>
       ${engine.where === 'server' ? html`<a className="chip" href="docs">Docs</a>` : null}
       <span className=${`engine ${engine.status} ${busy ? 'busy' : ''}`} role="status"><i></i>${pill}</span>
     </header>
     <main className="bench">
-      <${Sheet} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} paused=${custom !== null} resume=${() => setCustom(null)}
+      <${Sheet} state=${state} setState=${setState} presetId=${presetId} setPresetId=${setPresetId} off=${off} setOff=${setOff} paused=${custom !== null} resume=${() => setCustom(null)}
         scan=${scan} running=${running} setRunning=${setRunning} readGoMods=${readGoMods} live=${engine.status === 'live'}
         llm=${(compile.current && compile.current.llm) || { enabled: false, why: 'starting' }} drafts=${drafts} setDrafts=${setDrafts} askClaude=${askClaude} />
-      <${Decisions} result=${result} error=${error} note=${note} />
+      <${Decisions} result=${result} error=${error} note=${note} view=${view} setView=${setView} index=${index} inspect=${inspect} running=${running} off=${off} setOff=${setOff} />
       <${Output} result=${result} spec=${built} policy=${policy} custom=${custom} setCustom=${setCustom} tab=${tab} setTab=${setTab} open=${open} setOpen=${setOpen} />
     </main>
+    ${trail.length ? html`<${Inspector} name=${trail[trail.length - 1]} index=${index} result=${result} error=${error} off=${off} setOff=${setOff} running=${running} weights=${state.weights}
+      go=${inspect} back=${() => setTrail(t => t.slice(0, -1))} canBack=${trail.length > 1} close=${() => setTrail([])} openFile=${openFile} />` : null}
+    ${finding ? html`<${Palette} items=${items} close=${() => setFinding(false)} />` : null}
     <nav className="dock" aria-label="sections">
       <a href="#require"><b>1</b>Require</a><a href="#decide"><b>2</b>Decide</a><a href="#code"><b>3</b>Get the code</a>
     </nav>

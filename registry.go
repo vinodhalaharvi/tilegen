@@ -171,6 +171,7 @@ type TileInfo struct {
 	Covers                    []*Node // the pattern(s) it matches
 	Requires                  []string
 	Cost                      Cost
+	Engine, Module            string // for backends: what has to be running, and the Go module used
 }
 
 // Registry lists every tile: the pass rules in order, then the backends.
@@ -191,7 +192,8 @@ func Registry() []TileInfo {
 			}
 			out = append(out, TileInfo{Name: o.Tile, Pass: "select", Covers: covers, Produces: capability,
 				Doc: o.Doc, Requires: o.Requires, Cost: o.Cost, IllegalWhen: o.IllegalFor,
-				Satisfies: o.Satisfies, Unverified: o.Unverified, Form: offerForm(o)})
+				Satisfies: o.Satisfies, Unverified: o.Unverified, Form: offerForm(o),
+				Engine: o.Engine, Module: o.Module})
 		}
 	}
 	for _, ch := range chains {

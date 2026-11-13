@@ -59,6 +59,33 @@ globalThis.tilegenReady = () => {
     check('random sheet ' + i, s, running).error ? refused++ : built++;
   }
 
+  // Switching tiles off: every tile alone on every brief, then all of a
+  // capability at once. The chosen tile must never be one switched off.
+  const catalogue = JSON.parse(globalThis.tilegenTiles());
+  const offered = catalogue.capabilities.flatMap(c => c.offered_by);
+  if (offered.length < 10) fail('the catalogue lists too few tiles', String(offered.length));
+  const avoid = (label, s, off) => {
+    const policy = TG.buildPolicy(s, {}, off);
+    let r = JSON.parse(globalThis.tilegenCompile(TG.buildSpec(s), '', policy));
+    if (r.error && TG.NEEDS_SESSION.test(r.error)) r = JSON.parse(globalThis.tilegenCompile(TG.buildSpec(s, { session: true }), '', policy));
+    const msg = (r.error || '').replace(/^(spec|config|policy)\.sexp:\d+:\d+: /, '');
+    if (r.error && !REFUSALS.some(re => re.test(msg))) fail(label, r.error + '\n' + policy);
+    if (!r.error) for (const c of r.explain.coverage) if (off[c.chosen]) fail(label, c.need + ' still went to ' + c.chosen);
+    return r;
+  };
+  for (const p of TG.PRESETS) {
+    for (const t of offered) avoid(`${p.id}: without ${t}`, p.state, { [t]: true });
+    for (const c of catalogue.capabilities) avoid(`${p.id}: without any ${c.name}`, p.state, Object.fromEntries(c.offered_by.map(t => [t, true])));
+    // Switching the winner off moves the choice or refuses; switching it back restores it.
+    const first = avoid(p.id, p.state, {});
+    for (const c of first.explain.coverage) {
+      const r = avoid(`${p.id}: without the winner ${c.chosen}`, p.state, { [c.chosen]: true });
+      if (!r.error && r.explain.coverage.find(x => x.need === c.need).chosen === c.chosen) fail(`${p.id}: ${c.chosen} was switched off and still won`, '');
+      const back = avoid(p.id, p.state, { [c.chosen]: false });
+      if (JSON.stringify(back.explain.coverage.map(x => x.chosen)) !== JSON.stringify(first.explain.coverage.map(x => x.chosen))) fail(`${p.id}: switching ${c.chosen} back on did not restore the design`, '');
+    }
+  }
+
   // Clearing unticks every requirement and keeps what was typed.
   for (const p of TG.PRESETS) {
     const c = TG.clear(p.state), b = TG.blank();
