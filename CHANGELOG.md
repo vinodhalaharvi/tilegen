@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- `(running postgres nats)` in a policy names the engines a team already
+  operates. A tile on one of them costs nothing more to operate, which
+  `explain` shows as `ops 0` with the reason.
+- `POST /gomods` reads go.mod files and says which engines their direct
+  requirements show are in use, which requirements a tile speaks, and
+  which none does. The studio's "What you already run" card uses it to
+  tick engines from the files you give it.
 - `tilegen serve` opens on the studio: tick what the system must do, see
   each need go to a tile with the cost of every alternative and the
   reason each other tile was ruled out, read every generated file, and

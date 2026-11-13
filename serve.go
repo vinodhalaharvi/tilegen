@@ -70,6 +70,7 @@ func serveMux() http.Handler {
 	mux.HandleFunc("POST /plan", handleSpec(planJSONFor))
 	mux.HandleFunc("POST /generate", handleGenerate)
 	mux.HandleFunc("POST /compile", handleAll)
+	mux.HandleFunc("POST /gomods", handleGoMods)
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, map[string]string{"version": version})
 	})
