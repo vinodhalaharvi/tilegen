@@ -21,7 +21,7 @@ func init() {
 		// have, but a constraint a heavy one fails. Without it nothing ever
 		// rules out the most capable answer, and the most capable answer is
 		// usually the most expensive thing to run.
-		Requirements: []string{"durable", "cross-process", "lookup-by-field", "no-broker", "outbox"},
+		Requirements: []string{"durable", "cross-process", "lookup-by-field", "no-broker", "outbox", "inbox"},
 	})
 	RegisterCapability(&Capability{
 		Name: "event-bus",
@@ -43,7 +43,7 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 		out = append(out, &Need{
 			ID:           pkgName + "." + e.List[1].Atom + "Store",
 			Capability:   "store",
-			Requirements: append(append(requirementsOf(store), lookupRequirements(store)...), outboxRequirements(pkg, e.List[1].Atom)...),
+			Requirements: append(append(append(requirementsOf(store), lookupRequirements(store)...), outboxRequirements(pkg, e.List[1].Atom)...), inboxRequirements(pkg)...),
 			Pos:          store.Pos,
 			Node:         store,
 			Data:         e,

@@ -20,7 +20,18 @@
       (field Cents int64)
       (store get list save))
 
+    (entity Balance
+      (field ID string)
+      (field Cents int64)
+      (store get save))
+
     (events
       (event PaymentTaken (field ID uuid.UUID) (field Cents int64))
       (event PaymentRefunded (field ID uuid.UUID))
-      (outbox Payment))))
+      (outbox Payment)
+
+      ; The other half: a relay delivers at least once, so a handler may
+      ; see a PaymentTaken twice. (inbox PaymentTaken ID) makes it take
+      ; effect once: two deliveries with the same ID are one event. That
+      ; puts BalanceStore, which the handler writes, on Postgres too.
+      (inbox PaymentTaken ID))))
