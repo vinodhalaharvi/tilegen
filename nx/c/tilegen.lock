@@ -1,0 +1,31 @@
+; tilegen.lock: the tile each need got, pinned. Commit this file.
+; To choose again, delete a line or run tilegen with -reselect.
+(lock
+  (tile orders.API connect)
+  (tile orders.CustomerStore memory)
+  (tile orders.OrderStore memory)
+  (proto orders.Customer
+    (number ID 1)
+    (number Email 2)
+    (number Tier 3)
+    (number ReferredBy 4)
+    (number Visits 5)
+    (number Credit 6)
+    (number Avatar 7)
+    (number Active 8))
+  (proto orders.Order
+    (number ID 1)
+    (number CustomerEmail 2)
+    (number TotalCents 3)
+    (number Quantity 4)
+    (number Status 5)
+    (number Note 6)
+    (number PlacedAt 7)
+    (number ShippedAt 8))
+  (proto orders.Status
+    (number pending 1)
+    (number paid 2)
+    (number shipped 3))
+  (proto orders.Tier
+    (number standard 1)
+    (number gold 2)))
