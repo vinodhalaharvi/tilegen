@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- `tilegen serve` opens on the studio: tick what the system must do, see
+  each need go to a tile with the cost of every alternative and the
+  reason each other tile was ruled out, read every generated file, and
+  download the project. The page, its libraries and its typefaces are in
+  the binary, so it works with no network. The earlier walkthroughs are
+  at `/docs`.
+- `POST /compile` returns the choices, the plan and every file from one
+  compile.
+- tilegen builds for `js/wasm`, where it is one function from a spec to
+  that same answer, so the compiler can run in a browser page.
+- Files are finished the same way where the `go` command is absent (a
+  browser, an image without Go) as where it is present: unused imports
+  dropped, standard-library ones added, grouped as goimports groups
+  them.
+
 ## v0.3.2 - 2026-11-12
 
 - `(app)` generates the program: `cmd/<name>/wire_gen.go` with `Deps`,
