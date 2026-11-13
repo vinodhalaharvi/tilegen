@@ -80,7 +80,7 @@ func (r *Report) finalize() {
 	for _, rel := range r.order {
 		disk, err := os.ReadFile(r.path(rel))
 		switch {
-		case errors.Is(err, fs.ErrNotExist):
+		case errors.Is(err, fs.ErrNotExist), errors.Is(err, errors.ErrUnsupported): // nothing there, or (in a browser) no disk at all
 			r.New = append(r.New, rel)
 		case err != nil || !bytes.Equal(disk, r.staged[rel]):
 			r.Changed = append(r.Changed, rel)
