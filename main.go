@@ -20,7 +20,7 @@ import (
 
 //go:generate go run gen_std.go
 
-const version = "v0.3.4"
+const version = "v0.3.5"
 
 // Pipeline is the ordered list of local tiling passes. Each maps
 // S-expressions to S-expressions; run with -dump to see every stage.
