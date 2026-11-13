@@ -18,6 +18,9 @@ func init() {
 		IllegalWhen: map[string]string{
 			"no-broker": "a postgres to run, with backups, connections and upgrades",
 		},
+		Unverified: map[string]string{
+			"outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one",
+		},
 		Satisfies: map[string]string{
 			"durable":         "a committed transaction is on disk before COMMIT returns",
 			"cross-process":   "a server other processes connect to over the network",

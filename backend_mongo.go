@@ -22,6 +22,7 @@ func init() {
 			"lookup-by-field": "a filter on any field, and an index when you add one",
 		},
 		Unverified: map[string]string{
+			"outbox":  "a multi-document transaction needs a replica set, and this tile does not generate one",
 			"durable": "a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it",
 		},
 		Cost: Cost{
