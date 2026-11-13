@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tilegen Studio</title>
+<style>
+/*FONTS*/
+/*STYLE*/
+</style>
+</head>
+<body>
+<div id="root"><p id="boot" style="padding:24px;font:15px/1.5 system-ui,sans-serif">Starting Tilegen Studio…</p></div>
+<script>
+// If the page cannot start, say why where it can be read, instead of staying blank.
+window.addEventListener('error', function (e) {
+  var b = document.getElementById('boot');
+  if (b) b.textContent = 'Tilegen Studio could not start: ' + (e.message || 'a script failed to load') + (e.filename ? ' (' + e.filename.split('/').pop() + ')' : '');
+}, true);
+</script>
+<!--LIBS-->
+<script>
+/*CORE*/
+</script>
+<script>
+const RECORDED = /*RECORDED*/;
+</script>
+<script>
+/*APP*/
+</script>
+</body>
+</html>

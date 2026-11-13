@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -3981,10 +3982,10 @@ func TestServeWritesNothing(t *testing.T) {
 }
 
 func TestServeIndex(t *testing.T) {
-	res := serveRequest(t, "GET", "/", "", "")
+	res := serveRequest(t, "GET", "/docs", "", "")
 	b, _ := io.ReadAll(res.Body)
 	if res.StatusCode != 200 || !strings.Contains(string(b), "<title>tilegen") {
-		t.Fatalf("index: %d", res.StatusCode)
+		t.Fatalf("docs: %d", res.StatusCode)
 	}
 	if !strings.Contains(string(b), version) {
 		t.Error("the page should show the version")
@@ -4447,5 +4448,115 @@ func TestGenerateSaysWhatToRunNext(t *testing.T) {
 	}
 	if got := nextLine(&Ctx{}, "out", none); got != "next: cd out && go mod tidy && go build ./..." {
 		t.Errorf("no tools, no tool steps: %q", got)
+	}
+}
+
+func TestServeStudio(t *testing.T) {
+	// The page the service opens on is whole in the binary: its own source,
+	// every library it loads, and its typefaces. Nothing is fetched from
+	// anywhere else, so it works with no network.
+	res := serveRequest(t, "GET", "/", "", "")
+	b, _ := io.ReadAll(res.Body)
+	page := string(b)
+	if res.StatusCode != 200 || !strings.Contains(page, "<title>Tilegen Studio</title>") {
+		t.Fatalf("studio: %d", res.StatusCode)
+	}
+	for _, marker := range []string{"/*STYLE*/", "/*CORE*/", "/*APP*/", "/*RECORDED*/", "/*FONTS*/", "<!--LIBS-->"} {
+		if strings.Contains(page, marker) {
+			t.Errorf("the page still has the placeholder %s", marker)
+		}
+	}
+	if strings.Contains(page, "https://") && strings.Contains(page, `src="https://`) {
+		t.Error("the served page must not load scripts from another host")
+	}
+	for _, m := range regexp.MustCompile(`(?:src|url\()="?(assets/[^")]+)`).FindAllStringSubmatch(page, -1) {
+		res := serveRequest(t, "GET", "/"+m[1], "", "")
+		if n, _ := io.Copy(io.Discard, res.Body); res.StatusCode != 200 || n == 0 {
+			t.Errorf("the page refers to %s, which the server does not have (%d)", m[1], res.StatusCode)
+		}
+	}
+	if len(studioLibs) == 0 || !strings.Contains(page, `src="assets/`+studioLibs[0]+`"`) {
+		t.Error("the page should load its libraries from the binary")
+	}
+	if res := serveRequest(t, "GET", "/assets/", "", ""); res.StatusCode != 404 {
+		t.Errorf("assets are files, not a listing: got %d", res.StatusCode)
+	}
+}
+
+func TestServeCompileIsEverythingAtOnce(t *testing.T) {
+	// The page asks one question and gets the choices, the plan and every
+	// file from one compile, so what it shows cannot disagree with itself.
+	spec := `(project notes (module example.com/notes) (go 1.22) (app)
+  (package notes (entity Note (field ID string) (field Text string) (store get save (durable)))
+    (api (get Note) (save Note) (typed-clients))))`
+	res := serveRequest(t, "POST", "/compile", `{"spec":`+strconv.Quote(spec)+`}`, "application/json")
+	var got struct {
+		Version string
+		Error   string
+		Name    string
+		Holes   int
+		Next    []string
+		Files   map[string]string
+		Explain struct {
+			Coverage []struct{ Need, Chosen string }
+		}
+	}
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || got.Error != "" {
+		t.Fatalf("compile: %v %s", err, got.Error)
+	}
+	if got.Version != version || got.Name != "notes" || got.Holes == 0 || len(got.Explain.Coverage) != 2 {
+		t.Errorf("unexpected answer: %+v", got)
+	}
+	for _, f := range []string{"notes/notes_gen.go", "notes/api_gen.go", "proto/notes/v1/notes.proto", "cmd/notes/wire_gen.go", "tilegen.lock", "GENERATED.md"} {
+		if got.Files[f] == "" {
+			t.Errorf("no %s in the answer", f)
+		}
+	}
+	if strings.Join(got.Next, "; ") != "buf generate; sqlc generate; go mod tidy; go build ./..." {
+		t.Errorf("next steps: %v", got.Next)
+	}
+	// A spec tilegen refuses is an answer, not a failure of the request.
+	res = serveRequest(t, "POST", "/compile", `{"spec":"(project p (module example.com/p) (go 1.22) (package a (entity X (field ID string) (store get (durable) (no-broker) (cross-process)))))"}`, "application/json")
+	got.Error = ""
+	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || res.StatusCode != 200 || !strings.Contains(got.Error, "no tile can cover a.XStore") {
+		t.Errorf("a refusal should come back as the error field: %d %v %q", res.StatusCode, err, got.Error)
+	}
+}
+
+func TestImportsWithoutTheToolchainMatchGoimports(t *testing.T) {
+	// In a browser, or an image with no Go, a file is finished without the
+	// go command. It must come out the same as when goimports does it.
+	specs, _ := filepath.Glob("examples/*/spec.sexp")
+	if len(specs) < 5 {
+		t.Fatalf("found %d example specs", len(specs))
+	}
+	files := 0
+	for _, sp := range specs {
+		with, without := t.TempDir(), t.TempDir()
+		if err := run(Options{Spec: sp, Out: with}, io.Discard); err != nil {
+			t.Fatal(sp, err)
+		}
+		noToolchain = true
+		err := run(Options{Spec: sp, Out: without}, io.Discard)
+		noToolchain = false
+		if err != nil {
+			t.Fatal(sp, err)
+		}
+		filepath.WalkDir(with, func(p string, d fs.DirEntry, _ error) error {
+			if d.IsDir() || !strings.HasSuffix(p, ".go") {
+				return nil
+			}
+			rel, _ := filepath.Rel(with, p)
+			a, _ := os.ReadFile(p)
+			b, _ := os.ReadFile(filepath.Join(without, rel))
+			files++
+			if !bytes.Equal(a, b) {
+				t.Errorf("%s: %s differs without the toolchain", sp, rel)
+			}
+			return nil
+		})
+	}
+	if files < 40 {
+		t.Errorf("compared only %d files", files)
 	}
 }

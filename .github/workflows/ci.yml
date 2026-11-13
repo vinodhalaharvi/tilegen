@@ -16,6 +16,7 @@ jobs:
       - run: make check
       - run: make demo # generated project must build and vet
       - run: make demo-dir # same project from a directory of .sexp files
+      - run: GOOS=js GOARCH=wasm go build -o /dev/null . # the compiler also runs in a browser page
       - run: make demo-secrets # env, file and vault secrets must each build and vet
       - run: make demo-app # the wired program must build, and refuse to start unconfigured
 

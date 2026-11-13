@@ -61,7 +61,9 @@ func serveCmd(args []string, log io.Writer) error {
 // so a test exercises exactly what a request meets.
 func serveMux() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /", handleIndex)
+	mux.HandleFunc("GET /", handleStudio)
+	mux.Handle("GET /assets/", studioAssets())
+	mux.HandleFunc("GET /docs", handleIndex)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
 	mux.HandleFunc("GET /tiles", handleTiles)
 	mux.HandleFunc("POST /explain", handleSpec(explainJSON))
