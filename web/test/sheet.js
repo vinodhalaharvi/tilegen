@@ -59,6 +59,18 @@ globalThis.tilegenReady = () => {
     check('random sheet ' + i, s, running).error ? refused++ : built++;
   }
 
+  // Clearing unticks every requirement and keeps what was typed.
+  for (const p of TG.PRESETS) {
+    const c = TG.clear(p.state), b = TG.blank();
+    for (const k of ['name', 'module', 'entity', 'fields', 'weights']) if (JSON.stringify(c[k]) !== JSON.stringify(p.state[k])) fail('clear changed ' + k + ' of ' + p.id, '');
+    for (const k of ['store', 'api', 'auth', 'app']) if (JSON.stringify(c[k]) !== JSON.stringify(b[k])) fail('clear left ' + k + ' of ' + p.id, '');
+    if (c.events.on || c.events.outbox || c.events.inbox || Object.keys(c.events.reqs).length || c.secrets.on || Object.keys(c.secrets.reqs).length) fail('clear left ticks in ' + p.id, '');
+    if (JSON.stringify(TG.clear(c)) !== JSON.stringify(c)) fail('clear is not idempotent for ' + p.id, '');
+    check('clear: ' + p.id, c, {});
+  }
+  // "at once" on its own says nothing about sign-in.
+  if (TG.match('several instances run at once').some(h => h.area === 'auth')) fail('"at once" ticked sign-in', '');
+
   // The phrase box only ticks boxes, so whatever it reads must also hold.
   for (const text of ['payments must never be lost, several instances, audited, exactly once', 'kiosk, one box, ordered', 'browser and mobile, SSO, leaver locked out at once', 'grpc with jwt, keys rotate', 'live updates, rebuild from history, save and publish atomically']) {
     const hits = TG.match(text);
