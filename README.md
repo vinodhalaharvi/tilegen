@@ -88,6 +88,7 @@ Two guides go deeper:
 | `(http (route GET "/x/{id}" (get X))...)` | a `Handler` and `ServeMux` over the package's stores |
 | `(api (get X) (save X)... (typed-clients))` | a server for those operations over HTTP and JSON, Connect or gRPC, whichever its clients need |
 | `(secrets (secret DatabaseURL)... (rotating))` | a typed `Secrets` interface, read from the environment, mounted files or Vault |
+| `(events ... (outbox Order))` | an `Order` and its events saved in one transaction, and a relay that publishes them |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -172,6 +173,43 @@ two holes and exercises every route, checking 200, 404 for a missing
 record, 400 for an unparsable id, for failed validation and for unknown
 fields, 204 on delete, 405 for the wrong method and 404 for an unknown
 path.
+
+### Outbox: save and publish, or neither
+
+"Save the order and publish the event atomically" is one line in the
+package's events:
+
+```lisp
+(events
+  (event OrderPlaced (field OrderID uuid.UUID))
+  (outbox Order))
+```
+
+No bus can commit together with a database. So the event is written to a
+table in the same transaction as the order, and a relay publishes it from
+there. `(outbox Order)` therefore becomes an `outbox` requirement on
+`OrderStore`, and selection answers it: of the store tiles only
+`postgres-sqlc` generates one, and `tilegen explain` says why each of the
+others is out. Nothing in the spec has to name a database.
+
+It generates the `<package>_outbox` table and its queries, and
+`<package>/outbox_gen.go`, with no holes:
+
+```go
+ob := orders.NewOutbox(pool)
+err := ob.SaveOrderAndPublishOrderPlaced(ctx, order, orders.OrderPlaced{OrderID: order.ID})
+// the order and the event are both committed, or neither is
+
+relay := orders.NewOutboxRelay(pool, bus)
+go relay.Run(ctx, func(err error) { log.Print(err) })
+```
+
+The save runs the store's own `Save` inside the transaction. The relay
+publishes to whichever bus was chosen, oldest first, and deletes an event
+once the bus has taken it. A crash between the two publishes it again:
+delivery is at least once, so handlers must tolerate a repeat. One relay
+keeps events in the order they were recorded; several can run at once and
+share the work, giving that order up.
 
 ### APIs: HTTP, Connect or gRPC
 

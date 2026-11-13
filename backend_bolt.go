@@ -23,6 +23,9 @@ func init() {
 			"cross-process":   "bbolt takes an exclusive lock on the file; a second process cannot open it",
 			"lookup-by-field": "a bucket has one key; a secondary index would be written and repaired by hand",
 		},
+		Unverified: map[string]string{
+			"outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one",
+		},
 		Satisfies: map[string]string{
 			"durable":   "one memory-mapped file; a committed write transaction is fsynced before it returns",
 			"no-broker": "a file and a library; there is no server",

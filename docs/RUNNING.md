@@ -157,6 +157,7 @@ them with `make golden` and read the diff before committing it.
 | `demo-auto` | per-store backend selection in one project | sqlc |
 | `demo-api` | an api over Connect, then over gRPC | buf, protoc-gen-go, protoc-gen-connect-go, protoc-gen-go-grpc |
 | `demo-secrets` | secrets from the environment, files and Vault | none |
+| `demo-outbox` | an entity and its events in one transaction | sqlc |
 | `dump` | print the S-expression after every pass | |
 | `tidy` | `go mod tidy` | |
 | `clean` | remove `bin/`, `out/`, `coverage.out` | |

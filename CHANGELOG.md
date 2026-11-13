@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `(outbox Order)` inside `(events ...)` saves an `Order` and records
+  its events in one transaction, and generates a relay that publishes
+  them to the bus at least once. It puts an `outbox` requirement on the
+  entity's store, which `postgres-sqlc` satisfies, so the store is
+  chosen by it. No holes.
 - Generating ends with the commands that make the tree build, tools
   first: `next: cd out && sqlc generate && go mod tidy && go build ./...`.
   Running `go mod tidy` before sqlc or buf made Go look for the missing
