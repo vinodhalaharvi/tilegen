@@ -211,11 +211,9 @@ const TG = (() => {
       parts.push('  (weights\n' + Object.keys(DEFAULT_WEIGHTS).map(k => `    (${k} ${w[k]})`).join('\n') + ')');
     }
     const run = Object.keys(running || {}).filter(e => running[e]).sort();
-    if (run.length) parts.push(`  (running ${run.join(' ')})   ; already operated: nothing more to run`);
+    if (run.length) parts.push('  ; already operated, so nothing more to run\n' + `  (running ${run.join(' ')})`);
     if (!parts.length) return '';
-    const last = parts.length - 1;
-    parts[last] = parts[last].replace(/^(.*?)(\s*;.*)?$/, (_, a, c) => a + ')' + (c || ''));
-    return '(policy\n' + parts.join('\n') + '\n';
+    return '(policy\n' + parts.join('\n') + ')\n';
   }
 
   // The phrases the description box listens for. Plain matching, no model:
