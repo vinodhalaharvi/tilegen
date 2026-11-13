@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -375,6 +376,9 @@ func run(o Options, log io.Writer) error {
 	if cp.ws != nil && cp.ws.Session != "" {
 		fmt.Fprintf(log, "run `tilegen up %s` to open the %s session (%d window(s))\n", o.Spec, cp.ws.Session, len(cp.ws.Windows))
 	}
+	if !o.Git { // -git runs these itself
+		fmt.Fprintln(log, nextLine(c, o.Out, exec.LookPath))
+	}
 	switch {
 	case o.Git:
 		return gitFinish(o.Out, mode, gitRepo, c, o.Runner, log)
@@ -564,4 +568,24 @@ func workspaceHint(l *Linked) string {
 		return ""
 	}
 	return " (the workspace is there, so `tilegen up` still works)"
+}
+
+// nextLine is the line that turns a generated tree into a building one.
+// The tools come first: until sqlc or buf has written its package, Go
+// looks for it on the network and reports a repository that is not there.
+func nextLine(c *Ctx, out string, look func(string) (string, error)) string {
+	cmds := []string{"cd " + out}
+	var missing []string
+	for _, st := range toolSteps(c) {
+		cmds = append(cmds, st.Cmd)
+		if _, err := look(st.Target()); err != nil {
+			missing = append(missing, st.Target())
+		}
+	}
+	cmds = append(cmds, "go mod tidy", "go build ./...")
+	s := "next: " + strings.Join(cmds, " && ")
+	if len(missing) > 0 {
+		s += "\n      install first: " + strings.Join(missing, ", ") + " (`tilegen tiles` lists what each tile needs)"
+	}
+	return s
 }

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Generating ends with the commands that make the tree build, tools
+  first: `next: cd out && sqlc generate && go mod tidy && go build ./...`.
+  Running `go mod tidy` before sqlc or buf made Go look for the missing
+  package on the network and report a repository that does not exist.
 - `(secrets (secret DatabaseURL)... )` generates a typed `Secrets`
   interface and its implementation, with no holes. Three tiles offer it:
   `env-secrets`, the default; `file-secrets`, for `(rotating)`; and

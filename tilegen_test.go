@@ -4419,3 +4419,33 @@ func TestTileSpecDeclaresItsEngine(t *testing.T) {
 		t.Errorf("a second (engine ...) should be reported: %v", err)
 	}
 }
+
+func TestGenerateSaysWhatToRunNext(t *testing.T) {
+	// A sqlc project does not build until sqlc has written its package,
+	// and Go's own error for that is about a repository it cannot find.
+	// So the last thing generate prints is the commands, tools first.
+	out := t.TempDir()
+	sp, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22)
+  (package notes (entity Note (field ID string) (store get save (durable)))))`, "")
+	var log strings.Builder
+	if err := run(Options{Spec: sp, Out: out}, &log); err != nil {
+		t.Fatal(err)
+	}
+	want := "next: cd " + out + " && sqlc generate && go mod tidy && go build ./...\n"
+	if !strings.Contains(log.String(), want) {
+		t.Errorf("want %q in:\n%s", want, log.String())
+	}
+	c := &Ctx{}
+	for _, o := range offersOf("store") {
+		if o.Tile == "sqlite-sqlc" {
+			c.Used = append(c.Used, o)
+		}
+	}
+	none := func(string) (string, error) { return "", os.ErrNotExist }
+	if got := nextLine(c, "out", none); !strings.Contains(got, "install first: sqlc") {
+		t.Errorf("a missing tool should be named: %q", got)
+	}
+	if got := nextLine(&Ctx{}, "out", none); got != "next: cd out && go mod tidy && go build ./..." {
+		t.Errorf("no tools, no tool steps: %q", got)
+	}
+}
