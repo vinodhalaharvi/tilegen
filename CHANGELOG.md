@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- `(inbox Event Field)` inside `(events ...)` makes a handler take effect
+  once per event, however many times it is delivered: the record that it
+  ran is committed with the handler's own writes. It puts an `inbox`
+  requirement on every store in the package, which `postgres-sqlc`
+  satisfies. With `(outbox ...)`, delivery is at least once and the
+  effect exactly once. No holes.
 - `(watch Event)` in `(api ...)` is a server-streaming RPC fed by the
   package's bus, for the `connect` and `grpc` tiles. It needs a stream,
   so it rules out `http-json`. `NewAPIServer` takes the `Bus` when
