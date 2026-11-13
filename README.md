@@ -755,16 +755,24 @@ it works in CI either way.
 ## As a service
 
 `tilegen serve` answers over HTTP: a spec in, a scaffolded project out.
+Open it in a browser and it is the studio: tick what the system must do
+("data survives a restart", "a browser calls it directly"), and watch each
+need go to a tile, with the cost of every alternative and the reason each
+other tile was ruled out. Every generated file is there to read, and the
+project downloads as a zip. The page is in the binary, libraries and
+typefaces included, so it works with no network.
 
 ```sh
-tilegen serve                     # or PORT=8080, which Cloud Run sets
+tilegen serve                     # then open http://localhost:8080
 curl -X POST localhost:8080/generate --data-binary @spec.sexp -o project.zip
 curl -X POST localhost:8080/explain -d @spec.sexp | jq .
 ```
 
 | Route | What it does |
 |---|---|
-| `GET /` | a page: a spec on the left, the tile choices on the right, a download button |
+| `GET /` | the studio: requirements in, choices with their reasons, files, a download |
+| `GET /docs` | three walkthroughs, each spec shown twice with one decision changed |
+| `POST /compile` | the choices, the plan and every file, from one compile, as JSON |
 | `POST /generate` | the project as a zip, named for the spec's project |
 | `POST /explain` | which tile covered each need, with scores and rejections |
 | `POST /plan` | what the run makes, in dependency levels |

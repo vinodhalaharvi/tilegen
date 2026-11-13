@@ -11,10 +11,6 @@ import (
 // single binary and works offline.
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
-	if r.URL.Path != "/" {
-		http.NotFound(w, r)
-		return
-	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	page := strings.ReplaceAll(indexHTML, "__VERSION__", version)
 	page = strings.ReplaceAll(page, "__TILES__", template.HTMLEscapeString(tilesDoc()))
