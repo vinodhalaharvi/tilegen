@@ -152,7 +152,7 @@ func loadLock(out string) (map[string]LockEntry, map[string]*ProtoPin, error) {
 func readLock(out string) (map[string]LockEntry, map[string]*ProtoPin, error) {
 	path := filepath.Join(out, lockFile)
 	src, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, errors.ErrUnsupported) { // no file, or (in a browser) no file system
 		return nil, nil, nil
 	}
 	if err != nil {

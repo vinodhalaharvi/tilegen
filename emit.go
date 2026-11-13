@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/format"
@@ -165,7 +166,7 @@ func emitGoMod(n *Node, out string, r *Report) error {
 		if f, err = modfile.Parse(p, data, nil); err != nil {
 			return err
 		}
-	} else if !os.IsNotExist(err) {
+	} else if !os.IsNotExist(err) && !errors.Is(err, errors.ErrUnsupported) { // in a browser there is no disk to hold one
 		return err
 	}
 	if err := f.AddModuleStmt(n.Text("module")); err != nil {
@@ -235,14 +236,17 @@ func finishGo(n *Node, full, rel, src string) ([]byte, error) {
 	if err := format.Node(&buf, fset, af); err != nil {
 		return nil, err
 	}
+	if noToolchain {
+		return fixImports(rel, buf.Bytes())
+	}
 	final, err := imports.Process(full, buf.Bytes(), &imports.Options{Comments: true, TabIndent: true, TabWidth: 8})
 	if err != nil {
 		// goimports needs the go command to resolve imports it has to
 		// guess at. tilegen does not guess: every import was added above
 		// from the spec, so when the toolchain is absent (the HTTP
 		// service runs in an image without one) gofmt alone is enough.
-		if strings.Contains(err.Error(), "go command required") {
-			return buf.Bytes(), nil
+		if strings.Contains(err.Error(), "go command required") || strings.Contains(err.Error(), "not implemented on js") {
+			return fixImports(rel, buf.Bytes())
 		}
 		return nil, fmt.Errorf("goimports %s: %v", rel, err)
 	}

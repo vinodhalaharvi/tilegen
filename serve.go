@@ -67,6 +67,7 @@ func serveMux() http.Handler {
 	mux.HandleFunc("POST /explain", handleSpec(explainJSON))
 	mux.HandleFunc("POST /plan", handleSpec(planJSONFor))
 	mux.HandleFunc("POST /generate", handleGenerate)
+	mux.HandleFunc("POST /compile", handleAll)
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
 		respondJSON(w, map[string]string{"version": version})
 	})
@@ -329,4 +330,58 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+}
+
+// everything is one spec compiled once: the choices and why, the plan, and
+// every file, as the page shows them together.
+type everything struct {
+	Version string            `json:"version"`
+	Error   string            `json:"error,omitempty"`
+	Name    string            `json:"name,omitempty"`
+	Explain any               `json:"explain,omitempty"`
+	Plan    any               `json:"plan,omitempty"`
+	Files   map[string]string `json:"files,omitempty"`
+	Holes   int               `json:"holes"`
+	Next    []string          `json:"next,omitempty"` // the commands that make it build, in order
+}
+
+func compileAll(req specRequest) (out everything) {
+	out.Version = version
+	defer func() { // a page must get an answer, even to a spec that finds a bug
+		if r := recover(); r != nil {
+			out = everything{Version: version, Error: fmt.Sprintf("tilegen stopped unexpectedly on this spec (a bug in tilegen): %v", r)}
+		}
+	}()
+	cp, err := compileRequest(req)
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	rep, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	if err != nil {
+		out.Error = err.Error()
+		return out
+	}
+	out.Name = projectName(cp)
+	out.Explain, out.Plan = explainJSON(cp, rep), planJSONFor(cp, rep)
+	out.Files = map[string]string{}
+	for rel, data := range rep.PlanFiles() {
+		out.Files[rel] = string(data)
+	}
+	out.Files["GENERATED.md"] = string(nextSteps(out.Name, rep, cp))
+	out.Holes = rep.Tasks
+	for _, st := range toolSteps(cp.c) {
+		out.Next = append(out.Next, st.Cmd)
+	}
+	out.Next = append(out.Next, "go mod tidy", "go build ./...")
+	return out
+}
+
+func handleAll(w http.ResponseWriter, r *http.Request) {
+	req, err := readSpec(r)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	respondJSON(w, compileAll(req))
 }
