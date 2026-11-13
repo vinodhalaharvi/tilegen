@@ -44,6 +44,7 @@ type PkgScope struct {
 	Name, Dir string
 	Structs   map[string]*Node
 	Ifaces    map[string]*Node
+	Events    map[string]*Node // the package's (event ...) forms, by name
 }
 
 func (c *Ctx) warn(p Pos, format string, a ...any) {

@@ -222,7 +222,7 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 
 func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	name := b.Atom("name")
-	scope := &PkgScope{Name: name, Dir: n.Text("dir"), Structs: map[string]*Node{}, Ifaces: map[string]*Node{}}
+	scope := &PkgScope{Name: name, Dir: n.Text("dir"), Structs: map[string]*Node{}, Ifaces: map[string]*Node{}, Events: map[string]*Node{}}
 	var items []*Node
 	doc := ""
 	for _, it := range b.Rest("items") {
@@ -236,6 +236,10 @@ func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			scope.Structs[it.List[1].Atom] = it
 		case "interface":
 			scope.Ifaces[it.List[1].Atom] = it
+		case "events":
+			for _, ev := range it.FindAll("event") {
+				scope.Events[ev.List[1].Atom] = ev
+			}
 		}
 		items = append(items, it)
 	}
