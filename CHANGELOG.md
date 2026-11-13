@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## v0.3.5 - 2026-11-13
+
+- Studio: search with Cmd+K or Ctrl+K across tiles, requirements, briefs,
+  files, and the lines of the spec and the policy.
+- Studio: a Tiles view of every tile and where it stands, and a panel for
+  what is behind one: its costs and where they come from, what it
+  guarantees, what rules it out, what it needs and what it wrote.
+- Studio: a tile can be switched off, which writes `(avoid TILE)` into the
+  policy, and switched back on from the refusal if nothing else can cover
+  the need.
+- Studio: an Architecture view drawn from the decisions with Mermaid,
+  which is served from the binary.
+- Studio: what an LLM would have charged to write the same files.
+- `tilegen tiles -json` and `GET /tiles` give each tile's engine, module,
+  guarantees, unverified claims and cost notes.
+
 ## v0.3.4 - 2026-11-13
 
 - Studio: `Clear all` unticks every requirement and keeps the service,
