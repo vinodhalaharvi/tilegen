@@ -235,6 +235,15 @@ chosen, the way a store's backend is:
 | `connect` | `typed-clients`, `browser-clients` | a `.proto` and a [Connect](https://connectrpc.com) server, which also answers gRPC and gRPC-Web clients |
 | `grpc` | `typed-clients`, `grpc-native` | the same `.proto` and a grpc-go server |
 
+`(watch OrderShipped)` adds a server-streaming RPC fed by the package's
+bus: a client receives every `OrderShipped` published from the moment its
+call returns, until it goes away. A watch needs a stream, so it rules out
+`http-json` by itself. The server subscribes on the `Bus` interface, so
+whichever bus tile was chosen is what feeds it. Publishing never waits
+for a client: one that falls 64 events behind is disconnected with
+"resource exhausted" and reconnects. Who may see an event is the one
+hole, `allowOrderShipped(ctx, e) bool`.
+
 With no requirement the cheapest wins, which is `http-json`. Asking for a
 browser and for grpc-go at once is refused with the reason: a browser
 cannot speak gRPC. `tilegen explain` shows the choice, and `(api grpc)` in

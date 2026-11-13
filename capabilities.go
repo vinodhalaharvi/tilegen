@@ -80,7 +80,7 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 		out = append(out, &Need{
 			ID:           pkgName + ".API",
 			Capability:   "api",
-			Requirements: requirementsOf(a),
+			Requirements: append(requirementsOf(a), watchRequirements(a)...),
 			Pos:          a.Pos,
 			Node:         a,
 		})

@@ -43,7 +43,13 @@
       (field Active bool)
       (store get save))
 
+    (events
+      (event OrderShipped (field OrderID uuid.UUID) (field At time.Time)))
+
+    ; (watch OrderShipped) is a server-streaming RPC fed by the bus: a
+    ; client sees every OrderShipped from the moment its call returns.
     (api
       (get Order) (list Order) (save Order) (delete Order)
       (get Customer) (save Customer)
+      (watch OrderShipped)
       (typed-clients))))
