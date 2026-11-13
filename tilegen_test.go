@@ -4373,7 +4373,7 @@ func TestEnginesAreDeclaredByTiles(t *testing.T) {
 	v := projectViewOf(t, `(project p (module example.com/p) (go 1.22)
   (package alerts (events (cross-process) (event Fired (field ID int64))))
   (package audit (events (cross-process) (replay) (event Logged (field ID int64)))))`, "(policy (extra-engine 10))")
-	if v.Today[0].Tile != "nats-core" || v.Today[1].Tile != "redis-streams" || enginesIn(v.Today) != "nats, redis-streams" {
+	if v.Today[0].Tile != "nats-core" || v.Today[1].Tile != "redis-streams" || enginesIn(v.Today) != "nats, redis" {
 		t.Fatalf("need by need should be two brokers, got %+v", v.Today)
 	}
 	if v.Best[0].Tile != "redis-streams" || v.Best[1].Tile != "redis-streams" || v.TodayTotal != 81 || v.BestTotal != 65 {

@@ -48,6 +48,7 @@ func init() {
 
 	RegisterOffer(&Offer{
 		Tile:       "redis-streams",
+		Engine:     "redis",
 		Capability: "event-bus",
 		Doc:        "Redis Streams: an append-only log with consumer groups",
 		IllegalFor: map[string]string{
