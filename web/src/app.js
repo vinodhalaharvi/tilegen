@@ -83,16 +83,18 @@ function Brief({ state, setState, presetId, setPresetId }) {
     if (h.what === 'watch') return !state.api.watch;
     return !state[h.area].reqs[h.what];
   });
+  const isClear = useMemo(() => JSON.stringify(TG.clear(state)) === JSON.stringify(state), [state]);
   const label = (h) => h.what === 'on' ? AREAS[h.area].title.toLowerCase() : h.what;
   return html`<div className="card brief">
-    <div className="hd"><h3>Start from a brief</h3></div>
+    <div className="hd"><h3>Start from a brief</h3>
+      <button className="btn ghost small" disabled=${isClear} onClick=${() => { setState(s => TG.clear(s)); setPresetId(null); }}>Clear all</button></div>
     <div className="bd">
       <div className="presets" role="group" aria-label="Example briefs">
         ${TG.PRESETS.map(p => html`<button key=${p.id} className="chip" aria-pressed=${presetId === p.id}
           onClick=${() => { setState(JSON.parse(JSON.stringify(p.state))); setPresetId(p.id); setText(''); }}>${p.title}</button>`)}
       </div>
       ${presetId && !text ? html`<p className="hint">${TG.PRESETS.find(p => p.id === presetId).brief}</p>` : null}
-      <label className="hint" htmlFor="brief-text">Or say it in your own words. Known phrases tick the boxes below; nothing is guessed.</label>
+      <label className="hint" htmlFor="brief-text">Or say it in your own words. Known phrases tick the boxes below, on top of what is already ticked; nothing is guessed.</label>
       <textarea id="brief-text" value=${text} placeholder="Orders must never be lost. Several instances. Staff sign in with SSO and a leaver is locked out at once."
         onChange=${e => setText(e.target.value)}></textarea>
       ${text.trim() ? html`<div className="hits">
