@@ -52,6 +52,21 @@ const TG = (() => {
   });
   const DEFAULT_WEIGHTS = blank().weights;
 
+  // clear unticks every requirement and keeps what the user typed: the
+  // service, its fields, the event and secret names, and the weights.
+  const clear = (s) => {
+    const b = blank();
+    return {
+      ...s,
+      store: b.store,
+      events: { ...b.events, name: s.events.name },
+      api: b.api,
+      auth: b.auth,
+      secrets: { ...b.secrets, names: s.secrets.names },
+      app: b.app,
+    };
+  };
+
   const set = (...names) => Object.fromEntries(names.map(n => [n, true]));
   const make = (patch) => {
     const s = blank();
@@ -238,7 +253,7 @@ const TG = (() => {
     [/\brest\b|\bhttp\b|json api|\bapi\b|endpoint/i, [['api', 'on']]],
     [/sign.?in|log.?in|authenticat|\bauth\b|\bsso\b|staff|users? must/i, [['auth', 'on']]],
     [/\bsso\b|identity provider|\bidp\b|okta|entra|azure ad|google workspace|oidc/i, [['auth', 'on'], ['auth', 'third-party-idp']]],
-    [/revok|log.?out|leaver|locked out|cut off|at once/i, [['auth', 'on'], ['auth', 'revocable']]],
+    [/revok|log.?out|leaver|locked out|cut off/i, [['auth', 'on'], ['auth', 'revocable']]],
     [/expir|lapse|time.?out/i, [['auth', 'on'], ['auth', 'expiring']]],
     [/without a network call|offline verif|stateless token|\bjwt\b/i, [['auth', 'on'], ['auth', 'offline-verify']]],
     [/secret|credential|password|api key|signing key|database url/i, [['secrets', 'on']]],
@@ -273,6 +288,6 @@ const TG = (() => {
     return s;
   }
 
-  return { NEEDS_SESSION, TYPES, SHEET, PRESETS, DEFAULT_WEIGHTS, blank, buildSpec, buildPolicy, match, apply, ident, pkgName, secretList };
+  return { NEEDS_SESSION, TYPES, SHEET, PRESETS, DEFAULT_WEIGHTS, blank, clear, buildSpec, buildPolicy, match, apply, ident, pkgName, secretList };
 })();
 if (typeof module !== 'undefined') module.exports = TG;
