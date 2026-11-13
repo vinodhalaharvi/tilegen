@@ -25,6 +25,7 @@ func init() {
 		},
 		Unverified: map[string]string{
 			"outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one",
+			"inbox":  "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one",
 		},
 		Satisfies: map[string]string{
 			"durable":   "one memory-mapped file; a committed write transaction is fsynced before it returns",

@@ -127,3 +127,69 @@ func TestNoOutboxNoRequirement(t *testing.T) {
 		t.Error("a store that asks for nothing stays on memory")
 	}
 }
+
+func inboxSpec(entities, events string) string {
+	return `(project ledger (module example.com/ledger) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package ledger
+    ` + entities + `
+    (events (event PaymentTaken (field ID uuid.UUID) (field Cents int64)) ` + events + `)))`
+}
+
+func TestInboxHandlesAnEventOnce(t *testing.T) {
+	// The handler's writes and the record that it ran are one transaction,
+	// so every store in the package has to be able to join it: (inbox ...)
+	// alone moves both stores to Postgres.
+	out := t.TempDir()
+	two := "(entity Payment (field ID uuid.UUID) (store get save)) (entity Balance (field ID string) (field Cents int64) (store get save))"
+	sp, _ := writeSpec(t, t.TempDir(), inboxSpec(two, "(inbox PaymentTaken ID)"), "")
+	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	lock := read(t, out, "tilegen.lock")
+	for _, want := range []string{"(tile ledger.PaymentStore postgres-sqlc)", "(tile ledger.BalanceStore postgres-sqlc)"} {
+		if !strings.Contains(lock, want) {
+			t.Errorf("lock missing %s:\n%s", want, lock)
+		}
+	}
+	if schema := read(t, out, "db/schema.sql"); !strings.Contains(schema, "CREATE TABLE ledger_inbox (\n  consumer TEXT NOT NULL,\n  key TEXT NOT NULL,") || !strings.Contains(schema, "PRIMARY KEY (consumer, key)") {
+		t.Errorf("schema has no inbox table:\n%s", schema)
+	}
+	if q := read(t, out, "db/query.sql"); !strings.Contains(q, "-- name: MarkLedgerInbox :execrows\nINSERT INTO ledger_inbox (consumer, key) VALUES ($1, $2) ON CONFLICT DO NOTHING;") {
+		t.Errorf("the mark must be an insert that a repeat cannot make:\n%s", q)
+	}
+	src := read(t, out, "ledger/inbox_gen.go")
+	for _, want := range []string{
+		"func (in *Inbox) OncePaymentTaken(consumer string, h func(ctx context.Context, q *db.Queries, e PaymentTaken) error) func(context.Context, PaymentTaken) error {",
+		`"PaymentTaken:"+fmt.Sprint(e.ID)`,
+		"if first == 0 {\n\t\treturn nil // handled before: a repeat is not an error",
+		"func (in *Inbox) Prune(ctx context.Context, olderThan time.Duration) (int64, error) {",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("inbox_gen.go missing %q", want)
+		}
+	}
+	// Mark, then handle, then commit: a failed handler leaves no mark.
+	mark, handle, commit := strings.Index(src, "q.MarkLedgerInbox("), strings.Index(src, "handle(q)"), strings.Index(src, "return tx.Commit(ctx)")
+	if !(mark < handle && handle < commit) {
+		t.Error("the record, the handler and the commit must come in that order, in one transaction")
+	}
+	if _, err := parser.ParseFile(token.NewFileSet(), "inbox_gen.go", src, 0); err != nil {
+		t.Errorf("does not parse: %v", err)
+	}
+	if tasks := read(t, out, "tilegen.tasks.json"); strings.Contains(tasks, "Inbox") {
+		t.Error("the inbox has no holes")
+	}
+	for name, c := range map[string]struct{ entities, events, want string }{
+		"no such event":    {two, "(inbox PaymentTakn ID)", "these events have no PaymentTakn"},
+		"no such field":    {two, "(inbox PaymentTaken Id)", "PaymentTaken has no field Id"},
+		"twice":            {two, "(inbox PaymentTaken ID) (inbox PaymentTaken Cents)", "an event has one identity"},
+		"no field":         {two, "(inbox PaymentTaken)", "(inbox ?event ?field)"},
+		"nothing to write": {"", "(inbox PaymentTaken ID)", "needs an entity with a (store ...) for the handler to write"},
+	} {
+		sp, _ := writeSpec(t, t.TempDir(), inboxSpec(c.entities, c.events), "")
+		if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want an error containing %q, got: %v", name, c.want, err)
+		}
+	}
+}

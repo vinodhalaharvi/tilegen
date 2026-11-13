@@ -14,6 +14,7 @@ func init() {
 			"durable":       "an in-memory map loses its data on restart",
 			"cross-process": "the map lives in this process's heap; another process has its own, empty one",
 			"outbox":        "nothing is committed, so there is no transaction for an event to share",
+			"inbox":         "nothing is committed, so a handler's writes and the record that it ran cannot share a transaction",
 		},
 		Satisfies: map[string]string{
 			"lookup-by-field": "a scan over the map: correct at any size, slow at a large one",

@@ -3147,7 +3147,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			store = &tiles.Capabilities[i]
 		}
 	}
-	if store == nil || len(store.OfferedBy) != 7 || len(store.Requirements) != 5 {
+	if store == nil || len(store.OfferedBy) != 7 || len(store.Requirements) != 6 {
 		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
 	}
 	for _, tl := range tiles.Tiles {

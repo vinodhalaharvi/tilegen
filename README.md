@@ -89,6 +89,7 @@ Two guides go deeper:
 | `(api (get X) (save X)... (typed-clients))` | a server for those operations over HTTP and JSON, Connect or gRPC, whichever its clients need |
 | `(secrets (secret DatabaseURL)... (rotating))` | a typed `Secrets` interface, read from the environment, mounted files or Vault |
 | `(events ... (outbox Order))` | an `Order` and its events saved in one transaction, and a relay that publishes them |
+| `(events ... (inbox OrderPlaced ID))` | a wrapper that makes a handler take effect once per event, however often it is delivered |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -210,6 +211,41 @@ once the bus has taken it. A crash between the two publishes it again:
 delivery is at least once, so handlers must tolerate a repeat. One relay
 keeps events in the order they were recorded; several can run at once and
 share the work, giving that order up.
+
+### Inbox: delivered twice, handled once
+
+At-least-once delivery means a handler may see an event twice. One more
+line makes it take effect once:
+
+```lisp
+(events
+  (event PaymentTaken (field ID uuid.UUID) (field Cents int64))
+  (inbox PaymentTaken ID))   ; two deliveries with the same ID are one event
+```
+
+A handler cannot check "have I seen this?" and then act: a crash between
+the two loses the event or repeats it. So the record that an event was
+handled is written in the same transaction as whatever the handler
+writes. That transaction has to cover every store the handler may touch,
+so `(inbox ...)` puts an `inbox` requirement on each store in the
+package, and they land on `postgres-sqlc`.
+
+```go
+inbox := ledger.NewInbox(pool)
+bus.OnPaymentTaken(inbox.OncePaymentTaken("billing",
+	func(ctx context.Context, q *db.Queries, e ledger.PaymentTaken) error {
+		// write through q: it commits with the record, or not at all
+		return ledger.NewPostgresBalanceStore(q).Save(ctx, balance)
+	}))
+```
+
+A repeat finds the record and returns nil without calling the handler.
+A handler that fails leaves no record, so the redelivery runs. The name
+(`"billing"`) lets two handlers of one event each run once. `Prune`
+forgets old records; keep them longer than a delivery can be delayed.
+
+With `(outbox ...)` on the publishing side and `(inbox ...)` on the
+handling side, delivery is at least once and the effect is exactly once.
 
 ### APIs: HTTP, Connect or gRPC
 
