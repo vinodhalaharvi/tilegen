@@ -219,7 +219,7 @@ const TG = (() => {
 
   // buildPolicy prices the cost dimensions the way the sliders say. The
   // default weights need no policy at all.
-  function buildPolicy(s, running) {
+  function buildPolicy(s, running, off) {
     const w = s.weights || DEFAULT_WEIGHTS;
     const parts = [];
     if (!Object.keys(DEFAULT_WEIGHTS).every(k => w[k] === DEFAULT_WEIGHTS[k])) {
@@ -227,6 +227,8 @@ const TG = (() => {
     }
     const run = Object.keys(running || {}).filter(e => running[e]).sort();
     if (run.length) parts.push('  ; already operated, so nothing more to run\n' + `  (running ${run.join(' ')})`);
+    const no = Object.keys(off || {}).filter(t => off[t]).sort();
+    if (no.length) parts.push('  ; switched off in the studio\n' + no.map(t => `  (avoid ${t} "switched off in the studio")`).join('\n'));
     if (!parts.length) return '';
     return '(policy\n' + parts.join('\n') + ')\n';
   }
