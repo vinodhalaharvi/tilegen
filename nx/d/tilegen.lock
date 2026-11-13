@@ -1,0 +1,4 @@
+; tilegen.lock: the tile each need got, pinned. Commit this file.
+; To choose again, delete a line or run tilegen with -reselect.
+(lock
+  (tile orders.Secrets env-secrets))
