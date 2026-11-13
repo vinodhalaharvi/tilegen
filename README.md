@@ -90,6 +90,7 @@ Two guides go deeper:
 | `(secrets (secret DatabaseURL)... (rotating))` | a typed `Secrets` interface, read from the environment, mounted files or Vault |
 | `(events ... (outbox Order))` | an `Order` and its events saved in one transaction, and a relay that publishes them |
 | `(events ... (inbox OrderPlaced ID))` | a wrapper that makes a handler take effect once per event, however often it is delivered |
+| `(app)` | the program: `cmd/<name>/wire_gen.go` builds and serves every part, and a `main.go` starts it |
 | `(llm "intent")` | explicit hole: pure intent, no structure yet |
 | `(doc "...")` | doc comment on package, type, field, or method |
 
@@ -326,6 +327,54 @@ Fields can be strings, numbers, bools, `[]byte`, `uuid.UUID`, `time.Time`,
 the package's enums, and pointers to those, which become `optional`. An
 enum gets an `UNSPECIFIED` zero value, and a request that leaves one unset
 is an invalid argument rather than a silent default.
+
+### The program: `(app)`
+
+Everything above generates the parts of a service. `(app)` at the top of
+the project asks for the program as well:
+
+```lisp
+(project orders
+  (module github.com/you/orders)
+  (go 1.22)
+  (app)            ; or (app ordersd) to name the command
+  (package orders ...))
+```
+
+| File | Whose | What |
+|---|---|---|
+| `cmd/orders/wire_gen.go` | generated | `Deps`, `App`, `build` and `Serve` |
+| `cmd/orders/main.go` | yours, written once | opens what `Deps` asks for and starts the program |
+
+The wiring is worked out from the Go this run produces, not from what
+each tile says about itself. Every constructor (`func New...`) in a
+package is read back. A parameter another constructor can supply is
+supplied by it, so the bus the API streams from is the bus the outbox
+relay publishes to. A parameter nothing can supply becomes a field of
+`Deps`:
+
+```go
+type Deps struct {
+	NatsConn       *nats.Conn      // for orders.NewNatsBus
+	OrdersOutboxDB orders.OutboxDB // for orders.NewOutbox, orders.NewOutboxRelay
+	Queries        *db.Queries     // for orders.NewPostgresOrderStore
+}
+```
+
+`build` refuses to start with any of it missing and names what is.
+`Serve` runs what runs (an outbox relay), serves what listens (HTTP and
+Connect on `$ADDR`, gRPC on `$GRPC_ADDR`), and returns when the context
+is done.
+
+Because it reads the Go, it follows what you change: add a parameter to
+a constructor in a scaffolded file and the next run wires it. A tile
+tilegen has never heard of is wired the same way. If two constructors
+could supply the same interface, generation stops and says so rather
+than pick one.
+
+With tiles that build from each other (memory, the local bus, secrets
+from the environment), `Deps` is empty and the program starts as
+generated: `go run ./cmd/orders`.
 
 ### Secrets
 
