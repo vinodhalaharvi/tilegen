@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- `(watch Event)` in `(api ...)` is a server-streaming RPC fed by the
+  package's bus, for the `connect` and `grpc` tiles. It needs a stream,
+  so it rules out `http-json`. `NewAPIServer` takes the `Bus` when
+  something is watched. A slow client is disconnected rather than
+  slowing the publisher; `allow<Event>` is the one hole.
 - `(outbox Order)` inside `(events ...)` saves an `Order` and records
   its events in one transaction, and generates a relay that publishes
   them to the bus at least once. It puts an `outbox` requirement on the

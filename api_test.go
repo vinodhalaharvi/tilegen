@@ -351,3 +351,98 @@ func TestAPIServerForSeveralEntities(t *testing.T) {
 		t.Error("the request should carry the ID in its own type")
 	}
 }
+
+func watchSpec(api string) string {
+	return `(project orders (module example.com/orders) (go 1.22)
+  (require (uuid github.com/google/uuid v1.6.0))
+  (package orders
+    (entity Order (field ID uuid.UUID) (field TotalCents int64) (store get save))
+    (events (event OrderPlaced (field OrderID uuid.UUID) (field At time.Time)) (event OrderShipped (field OrderID uuid.UUID)))
+    (api ` + api + `)))`
+}
+
+func TestWatchStreamsEventsFromTheBus(t *testing.T) {
+	// (watch ...) alone rules out the tile with no streams; nothing else
+	// has to be said.
+	if got := genAPI(t, t.TempDir(), watchSpec("(get Order) (watch OrderPlaced)"), false); got != "connect" {
+		t.Errorf("a watch needs a stream: chose %s, want connect", got)
+	}
+	sp, cp := writeSpec(t, t.TempDir(), watchSpec("(watch OrderPlaced)"), "(config (api http))")
+	if err := run(Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "a stream of events needs one of the schema tiles") {
+		t.Errorf("http-json cannot serve a watch: %v", err)
+	}
+	for tile, c := range map[string]struct{ reqs, sig, header, lagged string }{
+		"connect": {"", "func (s *APIServer) WatchOrderPlaced(ctx context.Context, req *connect.Request[ordersv1.WatchOrderPlacedRequest], stream *connect.ServerStream[ordersv1.WatchOrderPlacedResponse]) error {",
+			"if err := stream.Send(nil); err != nil {", "connect.NewError(connect.CodeResourceExhausted,"},
+		"grpc": {"(grpc-native)", "func (s *APIServer) WatchOrderPlaced(req *ordersv1.WatchOrderPlacedRequest, stream grpc.ServerStreamingServer[ordersv1.WatchOrderPlacedResponse]) error {",
+			"if err := stream.SendHeader(nil); err != nil {", "status.Error(codes.ResourceExhausted,"},
+	} {
+		out := t.TempDir()
+		if got := genAPI(t, out, watchSpec("(get Order) (save Order) (watch OrderPlaced) "+c.reqs), false); got != tile {
+			t.Fatalf("chose %s, want %s", got, tile)
+		}
+		proto := read(t, out, "proto/orders/v1/orders.proto")
+		for _, want := range []string{
+			"message OrderPlaced {\n  string order_id = 1;\n  google.protobuf.Timestamp at = 2;\n}",
+			"message WatchOrderPlacedRequest {}\n\nmessage WatchOrderPlacedResponse {\n  OrderPlaced order_placed = 1;\n}",
+			"  rpc WatchOrderPlaced(WatchOrderPlacedRequest) returns (stream WatchOrderPlacedResponse);",
+		} {
+			if !strings.Contains(proto, want) {
+				t.Errorf("%s: .proto missing %q:\n%s", tile, want, proto)
+			}
+		}
+		if strings.Contains(proto, "OrderShipped") {
+			t.Errorf("%s: only watched events go on the wire", tile)
+		}
+		server := read(t, out, "orders/api_gen.go")
+		for _, want := range []string{
+			"\tbus    Bus\n", "func NewAPIServer(orders OrderStore, bus Bus) *APIServer {",
+			c.sig, c.header, c.lagged,
+			"stop := s.bus.OnOrderPlaced(func(_ context.Context, e OrderPlaced) error {",
+			"default: // the client is not keeping up: drop it, not the publisher",
+			"defer stop()",
+			"if !s.allowOrderPlaced(ctx, e) {",
+			"OrderPlaced: orderPlacedToProto(&e)",
+		} {
+			if !strings.Contains(server, want) {
+				t.Errorf("%s: server missing %q", tile, want)
+			}
+		}
+		// Subscribe, then answer: a client whose call has returned misses nothing.
+		if strings.Index(server, "s.bus.OnOrderPlaced(") > strings.Index(server, c.header) {
+			t.Errorf("%s: the server must subscribe before it sends headers", tile)
+		}
+		if strings.Contains(server, "orderPlacedFromProto") {
+			t.Errorf("%s: an event only leaves; nothing converts one back", tile)
+		}
+		holes := read(t, out, "orders/api.go")
+		if !strings.Contains(holes, "func (s *APIServer) allowOrderPlaced(ctx context.Context, e OrderPlaced) bool {") || strings.Contains(holes, "codeForOrderPlaced") {
+			t.Errorf("%s: a watched event has one hole, who may see it:\n%s", tile, holes)
+		}
+		if _, err := parser.ParseFile(token.NewFileSet(), "api_gen.go", server, 0); err != nil {
+			t.Errorf("%s: does not parse: %v", tile, err)
+		}
+		if lock := read(t, out, "tilegen.lock"); !strings.Contains(lock, "(proto orders.OrderPlaced\n    (number OrderID 1)\n    (number At 2))") {
+			t.Errorf("%s: an event's numbers are pinned like an entity's:\n%s", tile, lock)
+		}
+		if buf, err := exec.LookPath("buf"); err == nil {
+			for _, args := range [][]string{{"lint"}, {"format", "-d", "--exit-code"}} {
+				cmd := exec.Command(buf, args...)
+				cmd.Dir = out
+				if o, err := cmd.CombinedOutput(); err != nil {
+					t.Errorf("%s: buf %s: %v\n%s", tile, strings.Join(args, " "), err, o)
+				}
+			}
+		}
+	}
+	// An api that only watches needs no store at all.
+	out := t.TempDir()
+	genAPI(t, out, watchSpec("(watch OrderShipped)"), false)
+	if !strings.Contains(read(t, out, "orders/api_gen.go"), "func NewAPIServer(bus Bus) *APIServer {") {
+		t.Error("a watch-only api is built from the bus alone")
+	}
+	sp, _ = writeSpec(t, t.TempDir(), watchSpec("(watch OrderPlacd)"), "")
+	if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "has no (event OrderPlacd)") || !strings.Contains(err.Error(), "OrderPlaced") {
+		t.Errorf("an unknown event should be named, with the nearest one: %v", err)
+	}
+}
