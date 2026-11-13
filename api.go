@@ -35,7 +35,7 @@ func init() {
 	RegisterCapability(&Capability{
 		Name:         "api",
 		Doc:          "serves a package's entities to clients in other programs",
-		Requirements: []string{"typed-clients", "browser-clients", "grpc-native"},
+		Requirements: []string{"typed-clients", "browser-clients", "grpc-native", "streaming"},
 	})
 
 	holes := Cost{{Dim: "llm-work", Value: 2, Source: "derived", Note: "only validation and error mapping are left open"}}
@@ -49,6 +49,7 @@ func init() {
 		IllegalFor: map[string]string{
 			"typed-clients": "there is no schema: every client writes its own requests and types by hand",
 			"grpc-native":   "it is not gRPC",
+			"streaming":     "this tile generates request and response handlers only; a stream of events needs one of the schema tiles",
 		},
 		Satisfies: map[string]string{
 			"browser-clients": "fetch and JSON, with nothing in between",
@@ -70,6 +71,7 @@ func init() {
 		},
 		Satisfies: map[string]string{
 			"typed-clients":   "clients are generated from the .proto, in any language buf has a plugin for",
+			"streaming":       "a server-streaming RPC, over the Connect, gRPC and gRPC-Web protocols alike",
 			"browser-clients": "the Connect protocol is plain HTTP with JSON or binary bodies, so a browser calls it with no proxy",
 		},
 		Impl: &APITransport{Emit: emitProtoAPI, Flavor: "connect", Plugin: "protoc-gen-connect-go",
@@ -89,6 +91,7 @@ func init() {
 		},
 		Satisfies: map[string]string{
 			"typed-clients": "clients are generated from the .proto, in any language protoc has a plugin for",
+			"streaming":     "a server-streaming RPC over HTTP/2",
 			"grpc-native":   "it is grpc-go: interceptors, reflection, health and load balancing work as documented",
 		},
 		Impl: &APITransport{Emit: emitProtoAPI, Flavor: "grpc", Plugin: "protoc-gen-go-grpc",
@@ -137,7 +140,7 @@ func validateAPI(v *validator, n *Node, types map[string]bool) {
 		switch {
 		case it.Head() == "doc":
 			v.shape(it, "(doc ?text)")
-		case contains(apiVerbs, it.Head()):
+		case contains(apiVerbs, it.Head()) || it.Head() == "watch":
 			b := v.shape(it, "("+it.Head()+" ?entity)")
 			if b == nil {
 				continue
@@ -148,9 +151,9 @@ func validateAPI(v *validator, n *Node, types map[string]bool) {
 				seen[key] = true
 			}
 		default:
-			v.bad(it, "api contains (VERB Entity), where VERB is %s, (doc ...) and requirements like (typed-clients), got %s%s",
+			v.bad(it, "api contains (VERB Entity), where VERB is %s, (watch Event), (doc ...) and requirements like (typed-clients), got %s%s",
 				strings.Join(apiVerbs, ", "), short(it),
-				didYouMean(it.Head(), append(append([]string{"doc"}, apiVerbs...), capabilities["api"].Requirements...)))
+				didYouMean(it.Head(), append(append([]string{"doc", "watch"}, apiVerbs...), capabilities["api"].Requirements...)))
 		}
 	}
 	if len(seen) == 0 {
@@ -170,6 +173,14 @@ func selectAPI(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	}
 	var ops []apiOp
 	for _, it := range n.Args() {
+		if it.Head() == "watch" {
+			if ev := it.List[1].Atom; pkg.Events[ev] == nil {
+				return nil, fmt.Errorf("%s: (watch %s) streams an event, and package %s has no (event %s); add it to the package's (events ...)%s",
+					it.Pos, ev, pkg.Name, ev, didYouMean(ev, sortedKeys(pkg.Events)))
+			}
+			ops = append(ops, apiOp{"watch", it.List[1].Atom})
+			continue
+		}
 		if !contains(apiVerbs, it.Head()) {
 			continue
 		}
@@ -252,6 +263,7 @@ var protoCasts = map[string][2]string{ // Go type -> proto type, generated Go ty
 
 // protoMessage is an entity on the wire.
 type protoMessage struct {
+	Event    bool // an event the api streams, not an entity it stores
 	Name     string
 	Fields   []protoField
 	Reserved []int
@@ -344,10 +356,13 @@ func buildProtoModel(c *Ctx, ops []apiOp) (*protoModel, error) {
 			continue
 		}
 		st := pkg.Structs[op.Entity]
+		if op.Verb == "watch" {
+			st = pkg.Events[op.Entity]
+		}
 		if st == nil {
 			return nil, fmt.Errorf("the api serves %s, which is not an entity of package %s", op.Entity, pkg.Name)
 		}
-		msg := protoMessage{Name: op.Entity}
+		msg := protoMessage{Name: op.Entity, Event: op.Verb == "watch"}
 		var names []string
 		for _, f := range st.FindAll("field") {
 			pf := protoField{Go: f.List[1].Atom, GoType: f.List[2].Atom}
@@ -492,13 +507,19 @@ func protoText(pm *protoModel) string {
 			req, resp = one, one
 		case "delete":
 			req = id
+		case "watch":
+			resp = one
 		}
 		fmt.Fprintf(&b, "\nmessage %sRequest %s\nmessage %sResponse %s", rpc, req, rpc, resp)
 	}
 	fmt.Fprintf(&b, "\n// %s is the %s API.\nservice %s {\n", pm.Service, pm.Pkg, pm.Service)
 	for _, op := range pm.Ops {
 		rpc := rpcName(op)
-		fmt.Fprintf(&b, "  rpc %s(%sRequest) returns (%sResponse);\n", rpc, rpc, rpc)
+		stream := ""
+		if op.Verb == "watch" {
+			stream = "stream "
+		}
+		fmt.Fprintf(&b, "  rpc %s(%sRequest) returns (%s%sResponse);\n", rpc, rpc, stream, rpc)
 	}
 	b.WriteString("}\n")
 	return b.String()
@@ -558,6 +579,12 @@ func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, er
 	intents := map[string]string{}
 	for _, msg := range pm.Messages {
 		e, lower := msg.Name, lowerFirstWord(msg.Name)
+		if msg.Event {
+			methods = append(methods, L(Sym("method"), Sym("allow"+e),
+				L(Sym("params"), L(Sym("ctx"), Sym("context.Context")), L(Sym("e"), Sym(e))), L(Sym("returns"), Sym("bool"))))
+			intents["allow"+e] = fmt.Sprintf("Report whether the caller behind ctx may be sent this %s. It is asked once per event per watcher, so it must be quick and must not block. Return true to send it to everyone.", e)
+			continue
+		}
 		if serves(ops, "save", e) {
 			methods = append(methods, L(Sym("method"), Sym("validate"+e), L(Sym("params"), L(Sym(lower), Sym("*"+e))), L(Sym("returns"), Sym("error"))))
 			intents["validate"+e] = fmt.Sprintf("Report what makes this %s unacceptable, before it reaches the store. Return nil when it is fine; the error's text is sent to the client as an invalid-argument error.", e)
@@ -635,14 +662,32 @@ func serverText(pm *protoModel, tr *APITransport, doc string) string {
 		w("\t%s.Unimplemented%sServer\n", pb, pm.Service)
 	}
 	var params, inits []string
+	watches := false
 	for _, m := range pm.Messages {
+		if m.Event {
+			watches = true
+			continue
+		}
 		field := storeField(m.Name)
 		w("\t%s %sStore\n", field, m.Name)
 		params = append(params, field+" "+m.Name+"Store")
 		inits = append(inits, field+": "+field)
 	}
-	w("}\n\n// NewAPIServer returns an APIServer over the given stores.\nfunc NewAPIServer(%s) *APIServer {\n\treturn &APIServer{%s}\n}\n\n",
-		strings.Join(params, ", "), strings.Join(inits, ", "))
+	over := "the given stores"
+	if watches {
+		w("\tbus Bus\n")
+		params, inits = append(params, "bus Bus"), append(inits, "bus: bus")
+		over = "the given stores and bus"
+		if len(params) == 1 {
+			over = "the given bus"
+		}
+	}
+	w("}\n\n")
+	if watches {
+		w("// watchBuffer is how many events a watcher may fall behind before it is\n// disconnected. Publishing never waits for a slow client.\nconst watchBuffer = 64\n\n")
+	}
+	w("// NewAPIServer returns an APIServer over %s.\nfunc NewAPIServer(%s) *APIServer {\n\treturn &APIServer{%s}\n}\n\n",
+		over, strings.Join(params, ", "), strings.Join(inits, ", "))
 	if connect {
 		w("// Compile-time check that APIServer serves every RPC of %s.\nvar _ %sconnect.%sHandler = (*APIServer)(nil)\n\n", pm.Service, pb, pm.Service)
 		w("// Routes returns a mux serving the API. Mount it on any net/http server;\n// serve it over h2c or TLS for gRPC clients to reach it.\n"+
@@ -654,6 +699,25 @@ func serverText(pm *protoModel, tr *APITransport, doc string) string {
 
 	for _, op := range pm.Ops {
 		m, e, rpc := pm.message(op.Entity), op.Entity, rpcName(op)
+		if op.Verb == "watch" {
+			sig := fmt.Sprintf("req *%s.%sRequest, stream grpc.ServerStreamingServer[%s.%sResponse]) error {\n\tctx := stream.Context()", pb, rpc, pb, rpc)
+			header, lagged := "stream.SendHeader(nil)", `status.Error(codes.ResourceExhausted, "watcher fell too far behind; reconnect")`
+			if connect {
+				sig = fmt.Sprintf("ctx context.Context, req *connect.Request[%s.%sRequest], stream *connect.ServerStream[%s.%sResponse]) error {", pb, rpc, pb, rpc)
+				header, lagged = "stream.Send(nil)", `connect.NewError(connect.CodeResourceExhausted, errors.New("watcher fell too far behind; reconnect"))`
+			}
+			w("// %[1]s serves %[2]s.%[1]s: every %[3]s the bus delivers from now on,\n// until the client goes away.\nfunc (s *APIServer) %[1]s(%[4]s\n", rpc, pm.Service, e, sig)
+			w("\tevents := make(chan %[1]s, watchBuffer)\n\tlagged := make(chan struct{})\n\tvar once sync.Once\n"+
+				"\tstop := s.bus.On%[1]s(func(_ context.Context, e %[1]s) error {\n\t\tselect {\n\t\tcase events <- e:\n"+
+				"\t\tdefault: // the client is not keeping up: drop it, not the publisher\n\t\t\tonce.Do(func() { close(lagged) })\n\t\t}\n\t\treturn nil\n\t})\n\tdefer stop()\n"+
+				"\t// Answer now rather than with the first event: once the client's call\n\t// returns, it is subscribed and will miss nothing.\n"+
+				"\tif err := %[2]s; err != nil {\n\t\treturn err\n\t}\n"+
+				"\tfor {\n\t\tselect {\n\t\tcase <-ctx.Done():\n\t\t\treturn nil\n\t\tcase <-lagged:\n\t\t\treturn %[3]s\n\t\tcase e := <-events:\n"+
+				"\t\t\tif !s.allow%[1]s(ctx, e) {\n\t\t\t\tcontinue\n\t\t\t}\n"+
+				"\t\t\tif err := stream.Send(&%[4]s.%[5]sResponse{%[6]s: %[7]sToProto(&e)}); err != nil {\n\t\t\t\treturn err\n\t\t\t}\n\t\t}\n\t}\n}\n\n",
+				e, header, lagged, pb, rpc, protoGoName(snake(e)), lowerFirstWord(e))
+			continue
+		}
 		store, lower := "s."+storeField(e), lowerFirstWord(e)
 		msg, sig := "req", fmt.Sprintf("req *%s.%sRequest) (*%s.%sResponse, error)", pb, rpc, pb, rpc)
 		ret := func(lit string) string { return lit + ", nil" }
@@ -725,6 +789,9 @@ func serverText(pm *protoModel, tr *APITransport, doc string) string {
 		}
 		w("\treturn p\n}\n\n")
 
+		if m.Event {
+			continue // an event only ever leaves
+		}
 		// Wire to domain: an ID that is not a UUID or an enum value this
 		// program does not know is the client's mistake, and is reported.
 		fallible := false
@@ -797,4 +864,13 @@ func bufFiles(plugins []string) (yaml, gen string) {
 		fmt.Fprintf(&b, "  - local: %s\n    out: gen\n    opt: paths=source_relative\n", p)
 	}
 	return yaml, b.String()
+}
+
+// watchRequirements is the requirement a (watch Event) puts on its api:
+// only a tile that can hold a stream open can serve one.
+func watchRequirements(api *Node) []string {
+	if api.Find("watch") != nil {
+		return []string{"streaming"}
+	}
+	return nil
 }
