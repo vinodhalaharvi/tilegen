@@ -764,6 +764,50 @@ from one computation, so they cannot disagree; a test checks that they
 report the same problems. `check -json` still exits non-zero on failure, so
 it works in CI either way.
 
+## What a library exports
+
+`tilegen symbols` reads a module with the Go type checker and says what
+it exports, as data:
+
+```sh
+tilegen symbols go.etcd.io/bbolt@v1.4.0             # a listing
+tilegen symbols -json -kind interface github.com/nats-io/nats.go
+```
+
+```
+go.etcd.io/bbolt v1.4.0, as the Go type checker reads it:
+
+package bbolt // go.etcd.io/bbolt
+  type DB struct, from Open; methods: Batch, Begin, Close, GoString, Info, IsReadOnly, Logger, Path, Stats, String, Sync, Update, View
+  error ErrBucketNotFound
+```
+
+(Three lines of it.)
+
+It comes from `go/types`, never from source text. So an interface is its
+whole method set, embedded ones included; a type's methods are the ones
+callable on it; "implemented by" is `types.Implements`; a constructor is a
+function that returns the type; and a sentinel error is a variable whose
+type satisfies `error`. The module is fetched with the go tool if it is
+not on this machine, and nothing from it is run. Internal packages,
+commands, examples and tests are left out, and a large module is read
+twelve packages deep, nearest first, with the rest named.
+
+Two things use it. A drafted tile may cite what its claims rest on:
+
+```
+(tile bbolt-kv
+  (offers store)
+  (module go.etcd.io/bbolt)
+  (symbols bbolt.DB.Update bbolt.Open bbolt.Tx.Commit)
+  (satisfies (durable) "DB.Update returns after the transaction is committed")
+  ...)
+```
+
+and each cited symbol is checked against the module. And
+`tilegen import -tiles -symbols` writes the listing into each tile-spec
+skeleton, so the TODOs are filled in beside the facts.
+
 ## As a service
 
 `tilegen serve` answers over HTTP: a spec in, a scaffolded project out.
@@ -848,8 +892,17 @@ edit and tick, or as one line saying it is not that kind of tool.
   sent to the page. `tilegen key remove` deletes it.
 - **Never on a public server.** Drafting is refused unless the server
   listens on this machine only.
-- **What is sent:** the module paths and versions you asked about, and
-  tilegen's own prompt. Nothing else from your go.mod or your spec.
+- **What is sent:** the module paths and versions you asked about, what
+  each of those modules exports (below), and tilegen's own prompt.
+  Nothing else from your go.mod or your spec. A private module's exported
+  names and signatures are part of that, so ask only about modules whose
+  API may leave your machine.
+- **Written from the library, not from memory of it.** Before asking,
+  tilegen fetches the module with the go tool and reads what it exports
+  with the type checker. The draft has to cite, in `(symbols ...)`, the
+  ones its claims rest on, and one that cites a symbol the module does
+  not export goes back with the reason. If the module cannot be read, the
+  draft says it is from the model's memory.
 - **Checked, then yours to check.** A draft passes the same parser as
   one written by hand, and goes back once with the reason if it fails.
   It is still Claude's reading of a library: read it before you tick it.
@@ -885,7 +938,10 @@ own on writing specs, and nothing on the Go.
 |---|---|
 | `tilegen_reference` | how to write a spec, a config and a policy: the sections of this page on each |
 | `tilegen_catalogue` | every capability, the requirements a spec may state, and every tile |
-| `tilegen_explain` | for a spec: the tile chosen for each need, the alternatives, what was ruled out and why. Writes nothing |
+| `tilegen_explain` | for a spec: the tile chosen for each need, the alternatives, what was ruled out and why. Takes drafted tiles to weigh beside tilegen's own. Writes nothing |
+| `tilegen_gomod` | for a go.mod: which requirements a tile already speaks, which engines are in use, and which requirements no tile knows |
+| `tilegen_symbols` | what a module exports, read by the type checker: the index of names, or named symbols in full |
+| `tilegen_check_tile` | hold a drafted tile to the parser every tile passes, and each symbol it cites to the module itself |
 | `tilegen_generate` | one project from a spec, in the folder `name` under the root |
 | `tilegen_generate_many` | up to 500 projects in one call, each in its own folder; a spec that fails is reported and the rest are still made |
 
@@ -935,6 +991,13 @@ Then ask for what you want: "make twenty services under this folder, each
 a different mix of storage, events and API, and tell me which tiles each
 one got."
 
+Inside a project that already exists, the same tools read what is there:
+"read this go.mod, tell me what tilegen covers, and for the library it
+does not know, read its symbols, draft a tile, check it, and show me
+whether it would win for a durable store." The assistant drafts; the
+type checker says what the library has; `tilegen_check_tile` refuses a
+draft that cites a symbol the library does not export.
+
 The server is the compiler's stages composed as
 [weft](https://github.com/vinodhalaharvi/weft) arrows and served through
 weft's MCP package:
@@ -943,6 +1006,7 @@ weft's MCP package:
 generate = place ; readText ; decideTiles ; layFiles ; confine ; writeFiles ; report
 explain  = readText ; decideTiles ; describe
 many     = traverse (name, attempt generate) ; tally
+symbols  = (id, resolve) ; pick
 ```
 
 The stages are the functions the command line calls, so a project made

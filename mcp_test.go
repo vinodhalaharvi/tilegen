@@ -417,7 +417,7 @@ func TestMCPManyAtOnce(t *testing.T) {
 // `tilegen explain -json` says.
 func TestMCPExplainIsExplain(t *testing.T) {
 	for _, c := range mcpCases(t) {
-		got, err := explain()(context.Background(), SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy})
+		got, err := explain()(context.Background(), ExplainIn{SpecIn: SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}})
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -479,7 +479,7 @@ func TestMCPRecovers(t *testing.T) {
 	}
 }
 
-var mcpToolNames = []string{"tilegen_catalogue", "tilegen_explain", "tilegen_generate", "tilegen_generate_many", "tilegen_reference"}
+var mcpToolNames = []string{"tilegen_catalogue", "tilegen_check_tile", "tilegen_explain", "tilegen_generate", "tilegen_generate_many", "tilegen_gomod", "tilegen_reference", "tilegen_symbols"}
 
 // Through the protocol and back is the arrow itself: a tool called over
 // MCP answers exactly what the arrow answers when called directly.
@@ -640,13 +640,32 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 		}
 	}
 
-	// the read-only tools
-	c := cases[0]
-	gotEx, err := call[SpecIn, json.RawMessage](client, "tilegen_explain")(ctx, SpecIn{Spec: c.spec})
+	// a go.mod, read on the other side
+	mod := GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire github.com/nats-io/nats.go v1.55.0\n"}
+	gotMod, err := call[GoModIn, GoModsJSON](client, "tilegen_gomod")(ctx, mod)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEx, _ := explain()(ctx, SpecIn{Spec: c.spec})
+	if wantMod, _ := gomod()(ctx, mod); asJSON(gotMod) != asJSON(wantMod) || len(gotMod.Known) != 1 {
+		t.Errorf("over MCP the go.mod reads differently: %s", asJSON(gotMod))
+	}
+	// a draft's form, checked on the other side (no symbols cited: no module is fetched)
+	tile := CheckTileIn{Tile: "(tile x (offers store))"}
+	gotCheck, err := call[CheckTileIn, CheckTileOut](client, "tilegen_check_tile")(ctx, tile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wantCheck, _ := checkTile(readSymbols)(ctx, tile); asJSON(gotCheck) != asJSON(wantCheck) || gotCheck.OK || len(gotCheck.Problems) == 0 {
+		t.Errorf("over MCP the check differs: %s", asJSON(gotCheck))
+	}
+
+	// the read-only tools
+	c := cases[0]
+	gotEx, err := call[ExplainIn, json.RawMessage](client, "tilegen_explain")(ctx, ExplainIn{SpecIn: SpecIn{Spec: c.spec}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantEx, _ := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: c.spec}})
 	if !sameJSON(t, gotEx, wantEx) {
 		t.Error("over MCP explain differs")
 	}
@@ -682,7 +701,7 @@ func sameJSON(t *testing.T, raw json.RawMessage, v any) bool {
 
 // Every tool's input schema is JSON, an object, and closed.
 func TestMCPSchemas(t *testing.T) {
-	for name, s := range map[string]string{"none": noInput, "spec": specSchema, "one": oneSchema, "many": manySchema} {
+	for name, s := range map[string]string{"none": noInput, "explain": explainSchema, "one": oneSchema, "many": manySchema, "gomod": gomodSchema, "symbols": symbolsSchema, "check": checkSchema} {
 		var v struct {
 			Type       string         `json:"type"`
 			Properties map[string]any `json:"properties"`
@@ -698,6 +717,9 @@ func TestMCPSchemas(t *testing.T) {
 	}
 	if !projectNameOK.MatchString("orders-api") || !strings.Contains(oneSchema, projectNameOK.String()) {
 		t.Error("the schema's name pattern is not the one place checks")
+	}
+	if !strings.Contains(symbolsSchema, fmt.Sprintf(`"maxItems": %d`, maxSymbolDetails)) {
+		t.Error("the schema's limit on symbols is not the one the tool checks")
 	}
 	if !strings.Contains(manySchema, fmt.Sprintf(`"maxItems": %d`, maxBatch)) {
 		t.Error("the schema's batch limit is not the one many checks")

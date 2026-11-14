@@ -94,6 +94,9 @@ func draftForm(o *Offer) string {
 	if e := engineOf(o); e != "" && operated(o) {
 		fmt.Fprintf(&b, "\n  (engine %s)", e)
 	}
+	if len(o.Symbols) > 0 {
+		fmt.Fprintf(&b, "\n  (symbols %s)", strings.Join(o.Symbols, " "))
+	}
 	for _, claims := range []struct {
 		head string
 		m    map[string]string
@@ -140,6 +143,7 @@ The form:
   (doc "one line: what it is")
   (module THE/MODULE/PATH)
   (engine NAME)                           ; only if someone has to run a server for it: the server's name
+  (symbols pkg.Name pkg.Type.Method ...)  ; the exported symbols your claims rest on
   (satisfies (REQUIREMENT) "how it meets it")
   (illegal-when (REQUIREMENT) "why it cannot")
   (unverified (REQUIREMENT) "what would have to be true")
@@ -149,6 +153,7 @@ Rules:
 - NAME is lower-case words joined by hyphens.
 - Say something about every requirement of the capability you choose: satisfies, illegal-when or unverified. Use satisfies only for what the tool guarantees by design, with the mechanism in the reason. If it depends on configuration or you are not sure, use unverified and say what it depends on.
 - Each cost is 0 to 9. llm-work is how much code is left for a person or an LLM to write against it; maintenance is what there is to keep working; dependency is how much it pulls in; runtime is its overhead in the process; operations is what someone has to run and look after, and is 0 for a library with no server. Give a reason for any cost that is not obvious.
+- When the message lists the module's symbols, they are what the Go type checker read from the module itself at that version. Rest every satisfies on something in that list, cite those symbols in (symbols ...), and cite nothing the list does not contain: tilegen checks each one against the module. When no symbols are listed, leave (symbols ...) out.
 - Reasons are plain sentences an engineer can check. No marketing words.
 
 Three of tilegen's own tiles, for the level of detail and the scale of the costs:
@@ -179,6 +184,40 @@ type DraftJSON struct {
 	Name    string `json:"name,omitempty"`     // its name
 	NotTile string `json:"not_tile,omitempty"` // why it is not a tile
 	Error   string `json:"error,omitempty"`    // the request failed, or the draft never passed
+	// Symbols is how many of the module's exported symbols the draft was
+	// written from and checked against. Zero means the module could not
+	// be read, FromMemory says why, and the draft is the model's
+	// recollection of the library.
+	Symbols    int    `json:"symbols,omitempty"`
+	FromMemory string `json:"from_memory,omitempty"`
+}
+
+// draftSymbolBudget is how much of a module's symbols a draft is shown, in characters.
+const draftSymbolBudget = 16000
+
+// symbolsFor reads a module's symbols for a draft, or says why it could not.
+func symbolsFor(ctx context.Context, module, version string) (*ModuleSymbols, string) {
+	if readSymbols == nil {
+		return nil, "this build cannot read modules"
+	}
+	type result struct {
+		m   *ModuleSymbols
+		err error
+	}
+	done := make(chan result, 1)
+	go func() {
+		m, err := readSymbols(module, version)
+		done <- result{m, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			return nil, r.err.Error()
+		}
+		return r.m, ""
+	case <-ctx.Done():
+		return nil, "reading the module took too long"
+	}
 }
 
 // askClaude sends one conversation and returns the text of the answer.
@@ -226,7 +265,15 @@ func askClaude(ctx context.Context, key, system string, turns []map[string]strin
 // checks goes back once, with the reason.
 func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 	out := DraftJSON{Module: module, Version: version}
-	turns := []map[string]string{{"role": "user", "content": "Module: " + module + "\nVersion: " + version}}
+	ask := "Module: " + module + "\nVersion: " + version
+	syms, why := symbolsFor(ctx, module, version)
+	if syms != nil {
+		out.Symbols = len(syms.names())
+		ask += "\n\nSymbols:\n" + syms.text(draftSymbolBudget)
+	} else {
+		out.FromMemory = "the module's symbols could not be read (" + why + "), so this draft is from the model's memory of the library"
+	}
+	turns := []map[string]string{{"role": "user", "content": ask}}
 	system := draftPrompt()
 	var problem error
 	for attempt := 0; attempt < 2; attempt++ {
@@ -249,6 +296,13 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 				// The module it was asked about is the module it is for.
 				if offers[0].Module != "" && offers[0].Module != module {
 					problem = fmt.Errorf("the tile's (module ...) is %s, and it was asked about %s", offers[0].Module, module)
+				} else if syms == nil && len(offers[0].Symbols) > 0 {
+					problem = errors.New("no symbols were listed for this module, so none can be cited: leave (symbols ...) out")
+				} else if syms != nil && len(offers[0].Symbols) == 0 {
+					problem = errors.New("the module's symbols were listed: cite in (symbols ...) the ones the claims rest on")
+				} else if syms != nil && offers[0].Module == "" {
+					problem = fmt.Errorf("a tile that cites symbols names its module: add (module %s)", module)
+				} else if problem = citedOrNil(offers[0], syms); problem != nil {
 				} else {
 					out.Tile, out.Name = form, offers[0].Tile
 					return out
@@ -260,6 +314,13 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 	}
 	out.Error = "Claude's draft did not pass tilegen's checks after one correction: " + problem.Error()
 	return out
+}
+
+func citedOrNil(o *Offer, m *ModuleSymbols) error {
+	if m == nil {
+		return nil
+	}
+	return checkCited(o, m)
 }
 
 // trimFence drops a code fence an answer was wrapped in despite the

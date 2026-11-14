@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,6 +137,14 @@ func fakeClaude(t *testing.T, answers ...string) (calls *atomic.Int32, last *str
 	old := anthropicURL
 	anthropicURL = srv.URL
 	t.Cleanup(func() { anthropicURL = old; srv.Close() })
+	if !symbolsStubbed {
+		// No test fetches a module unless it says so.
+		oldRead := readSymbols
+		readSymbols = func(mod, version string) (*ModuleSymbols, error) {
+			return nil, errors.New("no module is fetched in this test")
+		}
+		t.Cleanup(func() { readSymbols = oldRead })
+	}
 	return calls, last
 }
 

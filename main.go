@@ -64,6 +64,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "symbols":
+			if err := symbolsCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "mcp":
 			if err := mcpCmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -146,6 +152,7 @@ func main() {
 			"       tilegen explain [SPEC]       why each store got its backend: needs, scores, legality\n"+
 			"       tilegen import [DIR]         lift an existing Go module into a spec\n"+
 			"       tilegen api IMPORT-PATH      the API surface a prompt carries for a package\n"+
+			"       tilegen symbols MODULE[@V]   what a module exports, read by the type checker\n"+
 			"       tilegen plan [-dot] [SPEC]   what the plan makes, in dependency order\n"+
 			"       tilegen serve [-addr :8080]  a spec in, a project out, over HTTP\n"+
 			"       tilegen mcp [-root DIR]      the same, for an editor's assistant, over MCP\n"+

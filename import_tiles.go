@@ -17,8 +17,8 @@ import (
 // tilegen can already compile. The ones that do not are the tiles this
 // project would need, and it writes a tile-spec skeleton for each.
 //
-// It reads go.mod and nothing else. No type checking, no scanning of
-// implementations, no guessing what a dependency is for. A direct
+// It reads go.mod and nothing else, unless -symbols asks for more: no
+// scanning of implementations, no guessing what a dependency is for. A direct
 // requirement is a deliberate statement by the team that they use this
 // thing, which is enough to say whether tilegen knows about it.
 //
@@ -122,7 +122,7 @@ func scanModule(dir string) (modPath string, cov []tileCoverage, err error) {
 }
 
 // importTiles is `tilegen import -tiles`.
-func importTiles(dir, outDir string, force bool, stdout io.Writer) error {
+func importTiles(dir, outDir string, force, withSymbols bool, stdout io.Writer) error {
 	modPath, cov, err := scanModule(dir)
 	if err != nil {
 		return err
@@ -160,7 +160,11 @@ func importTiles(dir, outDir string, force bool, stdout io.Writer) error {
 			fmt.Fprintf(stdout, "  kept   %s (exists; -force overwrites)\n", path.Join(outDir, name+".sexp"))
 			continue
 		}
-		if err := os.WriteFile(file, []byte(tileSpecSkeleton(name, c)), 0o644); err != nil {
+		text := tileSpecSkeleton(name, c)
+		if withSymbols {
+			text += symbolsComment(c)
+		}
+		if err := os.WriteFile(file, []byte(text), 0o644); err != nil {
 			return err
 		}
 		fmt.Fprintf(stdout, "  wrote  %s\n", path.Join(outDir, name+".sexp"))
@@ -170,6 +174,28 @@ func importTiles(dir, outDir string, force bool, stdout io.Writer) error {
 		"TODO and the validator will not let a tile through without them.\n"+
 		"Then: tilegen -out . %s/NAME.sexp\n", outDir)
 	return nil
+}
+
+// skeletonSymbolBudget is how much of a module's symbols a skeleton carries, in characters.
+const skeletonSymbolBudget = 8000
+
+// symbolsComment is what the module exports, as a comment to write the
+// TODOs from: facts from the type checker, beside the judgment only a
+// person has.
+func symbolsComment(c tileCoverage) string {
+	if readSymbols == nil {
+		return "\n; The module's symbols cannot be read in this build.\n"
+	}
+	m, err := readSymbols(c.Module, c.Version)
+	if err != nil {
+		return "\n; The module's symbols could not be read: " + strings.ReplaceAll(err.Error(), "\n", " ") + "\n"
+	}
+	var b strings.Builder
+	b.WriteString("\n; What the module exports. `tilegen symbols " + c.Module + "@" + m.Version + "` prints all of it.\n;\n")
+	for _, line := range strings.Split(strings.TrimRight(m.text(skeletonSymbolBudget), "\n"), "\n") {
+		b.WriteString(strings.TrimRight("; "+line, " ") + "\n")
+	}
+	return b.String()
 }
 
 // tileNameFor turns a module path into a tile name: the last path element,

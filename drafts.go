@@ -15,6 +15,7 @@ import (
 //	  (doc "distributed SQL that speaks the Postgres protocol")
 //	  (module github.com/cockroachdb/cockroach-go/v2)
 //	  (engine cockroachdb)
+//	  (symbols crdbpgx.ExecuteTx)
 //	  (satisfies (durable) "a write is replicated before it is acknowledged")
 //	  (satisfies (cross-process) "any number of clients connect to the cluster")
 //	  (illegal-when (no-broker) "it is a cluster to run")
@@ -38,6 +39,10 @@ import (
 // draftUnproven is the uncertainty every draft carries: nothing has
 // generated or run it.
 const draftUnproven = 2
+
+// symbolRef is how a draft cites its module: pkg.Name or pkg.Type.Method,
+// where pkg is a package's name or its import path.
+var symbolRef = regexp.MustCompile(`^([A-Za-z_][A-Za-z0-9_]*|[a-z0-9][A-Za-z0-9_.~-]*(/[A-Za-z0-9_.~-]+)+)\.[A-Z][A-Za-z0-9_]*(\.[A-Z][A-Za-z0-9_]*)?$`)
 
 var draftName = regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 
@@ -149,6 +154,22 @@ func parseDraft(f *Node) (*Offer, error) {
 				continue
 			}
 			o.Engine = it.List[1].Atom
+		case "symbols":
+			if len(it.List) < 2 {
+				bad(it, "expected (symbols pkg.Name ...), the exported symbols the claims rest on, got %s", short(it))
+				continue
+			}
+			for _, ref := range it.Args() {
+				if ref.IsList || !symbolRef.MatchString(ref.Atom) {
+					bad(ref, "a symbol is written pkg.Name or pkg.Type.Method, with an exported name, like nats.Conn or nats.Conn.Publish; got %s", short(ref))
+					continue
+				}
+				if contains(o.Symbols, ref.Atom) {
+					bad(ref, "%s is cited twice", ref.Atom)
+					continue
+				}
+				o.Symbols = append(o.Symbols, ref.Atom)
+			}
 		case "satisfies":
 			claim(it, o.Satisfies)
 		case "illegal-when":
@@ -183,12 +204,15 @@ func parseDraft(f *Node) (*Offer, error) {
 				o.Cost = append(o.Cost, term)
 			}
 		default:
-			known := []string{"offers", "doc", "module", "engine", "satisfies", "illegal-when", "unverified", "cost"}
+			known := []string{"offers", "doc", "module", "engine", "symbols", "satisfies", "illegal-when", "unverified", "cost"}
 			bad(it, "a tile contains %s; got %s%s", strings.Join(known, ", "), short(it), didYouMean(it.Head(), known))
 		}
 	}
 	if strings.TrimSpace(o.Doc) == "" {
 		bad(f, `(tile %s ...) needs a (doc "..."): one line on what it is`, o.Tile)
+	}
+	if len(o.Symbols) > 0 && o.Module == "" {
+		bad(f, "(tile %s ...) cites symbols and names no (module ...) they could come from", o.Tile)
 	}
 	for _, need := range []string{"llm-work", "maintenance", "dependency"} {
 		priced := false
