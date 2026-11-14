@@ -29,6 +29,7 @@ import (
 //	generate = place ; readText ; decideTiles ; layFiles ; confine ; writeFiles ; report
 //	explain  = readText ; decideTiles ; describe
 //	many     = traverse (name △ attempt generate) ; tally
+//	symbols  = (id △ resolve) ; pick
 //
 // (";" is weft.Compose, "△" is weft.Fanout.) Nothing here decides
 // anything: the arrows wrap the same functions the command line calls,
@@ -311,15 +312,192 @@ func many(root string) weft.Arrow[ManyIn, ManyOut] {
 // explainMu guards explainJSON, which sets a package variable while it runs.
 var explainMu sync.Mutex
 
+// ExplainIn is a spec, and the drafted tiles to weigh beside tilegen's own.
+type ExplainIn struct {
+	SpecIn
+	Tiles string `json:"tiles,omitempty"`
+}
+
+// decideWith is decideTiles with drafts in the running. A draft that wins
+// cannot generate, and the decision still stands: explaining it is the point.
+func decideWith(tiles string) weft.Arrow[parsed, decided] {
+	return func(_ context.Context, p parsed) (decided, error) {
+		cp, err := compileForms(p.forms, Options{Out: p.dir, Tiles: tiles}, io.Discard)
+		var won *draftsChosen
+		if errors.As(err, &won) {
+			return decided{parsed: p, cp: won.cp}, nil
+		}
+		if err != nil {
+			return decided{}, err
+		}
+		return decided{parsed: p, cp: cp}, nil
+	}
+}
+
 // explain: the decisions and the reasons, and nothing on disk.
-func explain() weft.Arrow[SpecIn, any] {
-	here := weft.Pure(func(in SpecIn) placed { return placed{in: ProjectIn{SpecIn: in}, dir: "project"} })
+func explain() weft.Arrow[ExplainIn, any] {
+	here := weft.Pure(func(in ExplainIn) placed { return placed{in: ProjectIn{SpecIn: in.SpecIn}, dir: "project"} })
 	describe := func(d decided) any {
 		explainMu.Lock()
 		defer explainMu.Unlock()
 		return explainJSON(d.cp, nil)
 	}
-	return weft.Apply(weft.Map(weft.Pipe3(here, weft.Arrow[placed, parsed](readText), weft.Arrow[parsed, decided](decideTiles)), describe), recovering[SpecIn, any]())
+	decide := func(ctx context.Context, in ExplainIn) (decided, error) {
+		return weft.Pipe3(here, weft.Arrow[placed, parsed](readText), decideWith(in.Tiles))(ctx, in)
+	}
+	return weft.Apply(weft.Map(weft.Arrow[ExplainIn, decided](decide), describe), recovering[ExplainIn, any]())
+}
+
+// GoModIn is the text of a go.mod.
+type GoModIn struct {
+	GoMod string `json:"gomod"`
+}
+
+// gomod: which of a go.mod's direct requirements a tile already speaks,
+// which engines that shows are in use, and which requirements no tile knows.
+func gomod() weft.Arrow[GoModIn, GoModsJSON] {
+	return func(_ context.Context, in GoModIn) (GoModsJSON, error) {
+		if strings.TrimSpace(in.GoMod) == "" {
+			return GoModsJSON{}, errors.New(`no go.mod; send its text as {"gomod": "module ...\n\nrequire (...)"}`)
+		}
+		out := scanGoMods([]string{in.GoMod})
+		if len(out.Errors) > 0 {
+			return GoModsJSON{}, fmt.Errorf("that is not a go.mod: %s", strings.TrimPrefix(out.Errors[0], "file 1: "))
+		}
+		return out, nil
+	}
+}
+
+// SymbolsIn asks what a module exports, or for some of its symbols in full.
+type SymbolsIn struct {
+	Module  string   `json:"module"`
+	Version string   `json:"version,omitempty"`
+	Symbols []string `json:"symbols,omitempty"`
+}
+
+// SymbolsOut is the index of a module, or the symbols asked for.
+type SymbolsOut struct {
+	Module  string         `json:"module"`
+	Version string         `json:"version"`
+	Index   *SymbolIndex   `json:"index,omitempty"`
+	Details []SymbolDetail `json:"details,omitempty"`
+	Missing []string       `json:"not_exported,omitempty"`
+}
+
+// maxSymbolDetails bounds how many symbols one call returns in full.
+const maxSymbolDetails = 25
+
+// resolve: a module and a version to what the type checker reads there.
+func resolve(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[SymbolsIn, *ModuleSymbols] {
+	return func(ctx context.Context, in SymbolsIn) (*ModuleSymbols, error) {
+		if strings.TrimSpace(in.Module) == "" {
+			return nil, errors.New(`no module; send {"module": "github.com/nats-io/nats.go"}, with "version" if it matters`)
+		}
+		type result struct {
+			m   *ModuleSymbols
+			err error
+		}
+		done := make(chan result, 1)
+		go func() {
+			m, err := read(strings.TrimSpace(in.Module), strings.TrimSpace(in.Version))
+			done <- result{m, err}
+		}()
+		select {
+		case r := <-done:
+			return r.m, r.err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
+// symbols: the index of a module, or the named symbols in full.
+func symbols(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[SymbolsIn, SymbolsOut] {
+	pick := func(p weft.Pair[SymbolsIn, *ModuleSymbols]) (SymbolsOut, error) {
+		in, m := p.Fst, p.Snd
+		out := SymbolsOut{Module: m.Module, Version: m.Version}
+		if len(in.Symbols) == 0 {
+			idx := m.index()
+			out.Index = &idx
+			return out, nil
+		}
+		if len(in.Symbols) > maxSymbolDetails {
+			return SymbolsOut{}, fmt.Errorf("%d symbols in one call; the most is %d, so ask in several calls", len(in.Symbols), maxSymbolDetails)
+		}
+		for _, ref := range in.Symbols {
+			if d, ok := m.detail(ref); ok {
+				out.Details = append(out.Details, d)
+			} else {
+				out.Missing = append(out.Missing, ref+didYouMean(ref, m.names()))
+			}
+		}
+		return out, nil
+	}
+	both := weft.Fanout(weft.Id[SymbolsIn](), resolve(read))
+	return weft.Apply(weft.Compose(both, weft.Arrow[weft.Pair[SymbolsIn, *ModuleSymbols], SymbolsOut](func(_ context.Context, p weft.Pair[SymbolsIn, *ModuleSymbols]) (SymbolsOut, error) {
+		return pick(p)
+	})), recovering[SymbolsIn, SymbolsOut]())
+}
+
+// CheckTileIn is a drafted tile to hold to tilegen's rules and to its module.
+type CheckTileIn struct {
+	Tile    string `json:"tile"`
+	Version string `json:"version,omitempty"`
+}
+
+// CheckTileOut says whether a draft stands, and everything wrong with it if not.
+type CheckTileOut struct {
+	OK         bool     `json:"ok"`
+	Name       string   `json:"name,omitempty"`
+	Capability string   `json:"capability,omitempty"`
+	Module     string   `json:"module,omitempty"`
+	Version    string   `json:"version,omitempty"`
+	Cited      int      `json:"symbols_cited"`
+	Verified   bool     `json:"symbols_verified"`
+	Problems   []string `json:"problems,omitempty"`
+	Note       string   `json:"note,omitempty"`
+}
+
+// checkTile: the form, by the parser every tile passes; then each cited
+// symbol, by the module itself.
+func checkTile(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
+	form := func(_ context.Context, in CheckTileIn) (*Offer, error) {
+		if strings.TrimSpace(in.Tile) == "" {
+			return nil, errors.New(`no tile; send {"tile": "(tile NAME (offers ...) ...)"}`)
+		}
+		offers, err := parseDrafts(in.Tile)
+		if err != nil {
+			return nil, err
+		}
+		if len(offers) != 1 {
+			return nil, fmt.Errorf("one tile per call; this is %d", len(offers))
+		}
+		return offers[0], nil
+	}
+	return weft.Apply(weft.Arrow[CheckTileIn, CheckTileOut](func(ctx context.Context, in CheckTileIn) (CheckTileOut, error) {
+		o, err := form(ctx, in)
+		if err != nil {
+			return CheckTileOut{Problems: strings.Split(err.Error(), "\n")}, nil
+		}
+		out := CheckTileOut{Name: o.Tile, Capability: o.Capability, Module: o.Module, Cited: len(o.Symbols)}
+		if len(o.Symbols) == 0 {
+			out.OK = true
+			out.Note = "the form is right, and it cites no symbols, so nothing ties its claims to the module: add (symbols ...) naming what each satisfies rests on"
+			return out, nil
+		}
+		m, err := resolve(read)(ctx, SymbolsIn{Module: o.Module, Version: in.Version})
+		if err != nil {
+			out.Problems = []string{"the module's symbols could not be read, so the cited ones are unchecked: " + err.Error()}
+			return out, nil
+		}
+		out.Version = m.Version
+		if err := checkCited(o, m); err != nil {
+			out.Problems = []string{err.Error()}
+			return out, nil
+		}
+		out.OK, out.Verified = true, true
+		return out, nil
+	}), recovering[CheckTileIn, CheckTileOut]())
 }
 
 // Catalogue is what there is to ask for.
@@ -370,12 +548,15 @@ const (
 	specProps = `"spec": {"type": "string", "minLength": 1, "description": "The spec, as S-expression text starting with (project NAME ...). It states requirements such as (durable) and (cross-process); it does not name a database or a broker. Call tilegen_reference for the language."},
 "config": {"type": "string", "description": "Optional. A (config ...) form that pins choices, for example (config (store postgres) (events nats)). Leave it out to let tilegen choose every tile."},
 "policy": {"type": "string", "description": "Optional. A (policy ...) form: cost weights, tiles to avoid, and engines already running."}`
-	noInput     = `{"type": "object", "properties": {}, "additionalProperties": false}`
-	specSchema  = `{"type": "object", "properties": {` + specProps + `}, "required": ["spec"], "additionalProperties": false}`
-	nameProp    = `"name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$", "description": "The folder to create under the server's root, for example orders-api. One project per name."}`
-	oneSchema   = `{"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}`
-	manySchema  = `{"type": "object", "properties": {"projects": {"type": "array", "minItems": 1, "maxItems": 500, "description": "The projects to create, each in its own folder.", "items": {"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}}}, "required": ["projects"], "additionalProperties": false}`
-	scaffoldSay = " Scaffolding only: types, interfaces, SQL, protobuf, wiring and a lock file are written, and method bodies that need judgment are left as typed holes. No model is called and no token is spent."
+	noInput       = `{"type": "object", "properties": {}, "additionalProperties": false}`
+	nameProp      = `"name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$", "description": "The folder to create under the server's root, for example orders-api. One project per name."}`
+	oneSchema     = `{"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}`
+	manySchema    = `{"type": "object", "properties": {"projects": {"type": "array", "minItems": 1, "maxItems": 500, "description": "The projects to create, each in its own folder.", "items": {"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}}}, "required": ["projects"], "additionalProperties": false}`
+	explainSchema = `{"type": "object", "properties": {` + specProps + `, "tiles": {"type": "string", "description": "Optional. Drafted (tile ...) forms to weigh beside tilegen's own, to see whether a tool you already use would win. A draft can win a decision; it cannot generate code."}}, "required": ["spec"], "additionalProperties": false}`
+	gomodSchema   = `{"type": "object", "properties": {"gomod": {"type": "string", "minLength": 1, "description": "The text of a go.mod file."}}, "required": ["gomod"], "additionalProperties": false}`
+	symbolsSchema = `{"type": "object", "properties": {"module": {"type": "string", "minLength": 1, "description": "A Go module path, for example github.com/nats-io/nats.go."}, "version": {"type": "string", "description": "Optional. The version, as in go.mod, for example v1.55.0. Left out, the latest is read."}, "symbols": {"type": "array", "maxItems": 25, "items": {"type": "string"}, "description": "Optional. Symbols to return in full, written pkg.Name, for example nats.JetStream. Left out, the answer is the index: every package's names."}}, "required": ["module"], "additionalProperties": false}`
+	checkSchema   = `{"type": "object", "properties": {"tile": {"type": "string", "minLength": 1, "description": "One (tile NAME (offers CAPABILITY) (doc ...) (module ...) (symbols pkg.Name ...) (satisfies ...) (cost ...)) form."}, "version": {"type": "string", "description": "Optional. The module version to check the cited symbols against. Left out, the latest."}}, "required": ["tile"], "additionalProperties": false}`
+	scaffoldSay   = " Scaffolding only: types, interfaces, SQL, protobuf, wiring and a lock file are written, and method bodies that need judgment are left as typed holes. No model is called and no token is spent."
 )
 
 // mcpServer is tilegen's tools, each an arrow lifted out through weft.
@@ -388,8 +569,17 @@ func mcpServer(root string) *mcp.Server {
 			mcp.WithDescription("What there is to ask for: every capability with the requirements a spec may state for it, and every tile with what it guarantees, what rules it out, what it costs and what it needs running. Takes no input. Read-only."),
 			mcp.WithInputSchema([]byte(noInput))),
 		mcp.ServeAsTool("tilegen_explain", explain(),
-			mcp.WithDescription("Decide, and write nothing. For a spec, returns each need, the tile chosen for it and its score, every other tile that could do it, and every tile ruled out with the reason. Use it to check a spec, or to see why a tile won, before generating. An invalid spec comes back as an error that names the line and the fix."),
-			mcp.WithInputSchema([]byte(specSchema))),
+			mcp.WithDescription("Decide, and write nothing. For a spec, returns each need, the tile chosen for it and its score, every other tile that could do it, and every tile ruled out with the reason. Use it to check a spec, or to see why a tile won, before generating. With \"tiles\", drafted tiles are weighed beside tilegen's own. An invalid spec comes back as an error that names the line and the fix."),
+			mcp.WithInputSchema([]byte(explainSchema))),
+		mcp.ServeAsTool("tilegen_gomod", gomod(),
+			mcp.WithDescription("Read a go.mod: which direct requirements a tile already speaks, which engines (postgres, nats, kafka ...) they show are in use, and which requirements no tile knows. Use it inside an existing project to see what tilegen covers before writing a spec, and to turn what is already running into a policy. Reads only the text sent; touches nothing."),
+			mcp.WithInputSchema([]byte(gomodSchema))),
+		mcp.ServeAsTool("tilegen_symbols", symbols(readSymbols),
+			mcp.WithDescription("What a Go module exports, as data read by the Go type checker (not from source text and not from memory): each interface with its whole method set and the types that satisfy it, each type with its methods and constructors, and the sentinel errors. Without \"symbols\" it returns the index, names only; with \"symbols\": [\"nats.JetStream\"] it returns those in full, with every signature. Use it before drafting a tile for a library, so each claim rests on something the library has. Fetches the module with the go tool if it is not on this machine; runs nothing from it."),
+			mcp.WithInputSchema([]byte(symbolsSchema))),
+		mcp.ServeAsTool("tilegen_check_tile", checkTile(readSymbols),
+			mcp.WithDescription("Hold a drafted tile to tilegen's rules: the form, by the parser every tile passes, and each symbol it cites in (symbols ...), by the module itself. Returns ok, or every problem with how to fix it. A tile that passes can be given to tilegen_explain as \"tiles\"."),
+			mcp.WithInputSchema([]byte(checkSchema))),
 		mcp.ServeAsTool("tilegen_generate", generate(root),
 			mcp.WithDescription("Create one Go project from a spec, in the folder NAME under the server's root."+scaffoldSay+" Returns the tile chosen for each need, how many files were written, how many holes are open, and the commands that make the project build. Calling it again with the same name and spec changes nothing; a folder that exists and is not a tilegen project is refused."),
 			mcp.WithInputSchema([]byte(oneSchema))),

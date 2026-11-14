@@ -877,7 +877,7 @@ function App({ boot }) {
     if (r.error) throw new Error(r.error);
     setDrafts(prev => {
       const keep = prev.filter(d => !modules.some(m => m.module === d.module));
-      return keep.concat(r.drafts.map((d, i) => ({ id: Date.now() + '-' + i, module: d.module, text: d.tile || '', on: false, note: d.not_tile ? 'Not a tile: ' + d.not_tile : (d.error || '') })));
+      return keep.concat(r.drafts.map((d, i) => ({ id: Date.now() + '-' + i, module: d.module, text: d.tile || '', on: false, note: d.not_tile ? 'Not a tile: ' + d.not_tile : (d.error || d.from_memory || (d.symbols ? 'Written from ' + d.symbols + ' symbols the Go type checker read from the module, and checked against them.' : '')) })));
     });
     return r;
   }, []);

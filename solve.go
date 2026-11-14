@@ -88,8 +88,12 @@ type Offer struct {
 	// Draft marks a tile declared for one compile (drafts.go): it takes
 	// part in selection and has no generator. Module is the library it
 	// was drafted from, if any.
-	Draft  bool
-	Module string
+	Draft bool
+	// Symbols is what a draft cites from its module as the ground for its
+	// claims: pkg.Name or pkg.Type.Method. They are checked against the
+	// module itself wherever its symbols can be read.
+	Symbols []string
+	Module  string
 
 	IllegalFor map[string]string // requirement -> why it cannot serve it
 
