@@ -158,9 +158,19 @@ func readSpec(r *http.Request) (specRequest, error) {
 // compileRequest turns a request into a compiled spec, without touching
 // the filesystem: the parser takes text, so the "files" are in memory.
 func compileRequest(req specRequest) (*compiled, error) {
+	forms, err := parseParts(req.Spec, req.Config, req.Policy)
+	if err != nil {
+		return nil, err
+	}
+	return compileForms(forms, Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
+}
+
+// parseParts reads a spec sent as text, with the config and policy that
+// may come beside it, into one list of forms.
+func parseParts(spec, config, policy string) ([]*Node, error) {
 	var forms []*Node
 	for _, part := range []struct{ name, text string }{
-		{"spec.sexp", req.Spec}, {"config.sexp", req.Config}, {"policy.sexp", req.Policy},
+		{"spec.sexp", spec}, {"config.sexp", config}, {"policy.sexp", policy},
 	} {
 		if strings.TrimSpace(part.text) == "" {
 			continue
@@ -171,10 +181,7 @@ func compileRequest(req specRequest) (*compiled, error) {
 		}
 		forms = append(forms, f...)
 	}
-	if err := checkSpecSize(forms); err != nil {
-		return nil, err
-	}
-	return compileForms(forms, Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
+	return forms, checkSpecSize(forms)
 }
 
 // checkSpecSize rejects a spec too large to be a person's, before any
