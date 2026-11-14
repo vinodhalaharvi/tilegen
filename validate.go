@@ -6,6 +6,8 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/fs"
+	"path"
 	"regexp"
 	"sort"
 	"strings"
@@ -293,6 +295,9 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 			// A package may say where it goes, overriding (layout ...).
 			// "." generates into the root of the module at <out>.
 			v.shape(it, "(dir ?path)")
+			if len(it.List) == 2 && !localDir(it.List[1].Atom) {
+				v.bad(it, "%s leaves the project: a package's folder is a path inside <out>, such as \"internal/orders\" or \".\"", short(it))
+			}
 		default:
 			if s := closest(it.Head(), knownPackageForms()); s != "" {
 				// A likely typo is an error: it must not quietly become an LLM task.
@@ -545,3 +550,9 @@ func short(n *Node) string {
 }
 
 var appName = regexp.MustCompile(`^[a-z][a-z0-9-]*$`)
+
+// localDir reports whether a package's (dir ...) stays inside the project:
+// relative, slash-separated, and never climbing out with "..".
+func localDir(dir string) bool {
+	return !strings.Contains(dir, `\`) && !strings.Contains(dir, ":") && fs.ValidPath(path.Clean(dir))
+}

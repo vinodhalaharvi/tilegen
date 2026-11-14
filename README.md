@@ -867,6 +867,88 @@ Deploying it is one command, since it is stateless and scales to zero:
 PROJECT=my-gcp-project deploy/cloudrun.sh
 ```
 
+## As an MCP server
+
+`tilegen mcp` serves the compiler to an editor's assistant over the Model
+Context Protocol, on standard input and output. The assistant writes the
+specs; tilegen writes the projects.
+
+```
+tilegen mcp -root ~/projects
+```
+
+It only scaffolds. No hole is filled and no model is called, so asking for
+one project or two hundred costs no tokens here: the assistant spends its
+own on writing specs, and nothing on the Go.
+
+| tool | what it does |
+|---|---|
+| `tilegen_reference` | how to write a spec, a config and a policy: the sections of this page on each |
+| `tilegen_catalogue` | every capability, the requirements a spec may state, and every tile |
+| `tilegen_explain` | for a spec: the tile chosen for each need, the alternatives, what was ruled out and why. Writes nothing |
+| `tilegen_generate` | one project from a spec, in the folder `name` under the root |
+| `tilegen_generate_many` | up to 500 projects in one call, each in its own folder; a spec that fails is reported and the rest are still made |
+
+A generated project comes back with the tile chosen for each need, the
+number of files written, the holes left open, and the commands that make
+it build. Fill the holes later, or never: `tilegen fill <dir>`.
+
+Nothing is written outside `-root`. A name is one folder, never a path; a
+folder that exists and is not a tilegen project is refused; and code you
+have written in a project is kept when it is generated again.
+
+**Claude Code**
+
+```
+claude mcp add tilegen -- tilegen mcp -root ~/projects
+```
+
+**VS Code** (`.vscode/mcp.json`)
+
+```json
+{
+  "servers": {
+    "tilegen": {
+      "type": "stdio",
+      "command": "tilegen",
+      "args": ["mcp", "-root", "${workspaceFolder}"]
+    }
+  }
+}
+```
+
+**GoLand** and the other JetBrains IDEs (Settings, Tools, AI Assistant,
+Model Context Protocol, Add)
+
+```json
+{
+  "mcpServers": {
+    "tilegen": {
+      "command": "tilegen",
+      "args": ["mcp", "-root", "/Users/you/projects"]
+    }
+  }
+}
+```
+
+Then ask for what you want: "make twenty services under this folder, each
+a different mix of storage, events and API, and tell me which tiles each
+one got."
+
+The server is the compiler's stages composed as
+[weft](https://github.com/vinodhalaharvi/weft) arrows and served through
+weft's MCP package:
+
+```
+generate = place ; readText ; decideTiles ; layFiles ; confine ; writeFiles ; report
+explain  = readText ; decideTiles ; describe
+many     = traverse (name, attempt generate) ; tally
+```
+
+The stages are the functions the command line calls, so a project made
+through MCP is byte for byte the one `tilegen -out` makes. The tests hold
+that, and that the pipeline gives the same project however it is grouped.
+
 ## Two layers, kept apart
 
 tilegen is a scaffold, not a code generator that finishes the job. The

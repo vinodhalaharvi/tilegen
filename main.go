@@ -64,6 +64,12 @@ func main() {
 				os.Exit(1)
 			}
 			return
+		case "mcp":
+			if err := mcpCmd(os.Args[2:], os.Stderr); err != nil {
+				fmt.Fprintln(os.Stderr, "tilegen:", err)
+				os.Exit(1)
+			}
+			return
 		case "plan":
 			if err := planCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
@@ -142,6 +148,7 @@ func main() {
 			"       tilegen api IMPORT-PATH      the API surface a prompt carries for a package\n"+
 			"       tilegen plan [-dot] [SPEC]   what the plan makes, in dependency order\n"+
 			"       tilegen serve [-addr :8080]  a spec in, a project out, over HTTP\n"+
+			"       tilegen mcp [-root DIR]      the same, for an editor's assistant, over MCP\n"+
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
