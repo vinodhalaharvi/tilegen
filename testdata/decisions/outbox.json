@@ -81,6 +81,10 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; an Update is one, and this tile does not generate it"
         },
         {
+          "tile": "cassandra",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; TransactWriteItems can write both, and this tile does not generate one"
         },
@@ -119,6 +123,10 @@
         {
           "tile": "postgres-pgx",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "redis-hash",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
           "tile": "redis-kv",
@@ -259,6 +267,56 @@
           ]
         },
         {
+          "tile": "redis-pubsub",
+          "score": 39,
+          "own": 39,
+          "terms": "llm 2·4 + maint 2·3 + dep 2·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 2,
+              "weight": 4,
+              "source": "derived",
+              "note": "a publish, and a channel to range over"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to declare; a missed message leaves no trace to find it by"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per publish"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-jetstream",
           "score": 47,
           "own": 47,
@@ -292,6 +350,56 @@
               "weight": 3,
               "source": "derived",
               "note": "one binary with no dependencies, but streams, consumers and retention to configure"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-notify",
+          "score": 48,
+          "own": 48,
+          "terms": "llm 3·4 + maint 3·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "a pg_notify call, and a connection held open in a loop with a clean stop"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "a payload must stay under 8000 bytes, and each listener holds one connection out of the pool for as long as it listens"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per publish"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -370,6 +478,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nsqd on each producing host and nsqlookupd to run and watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "azure-service-bus",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 5·4 + maint 4·3 + dep 3·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a sender per call, a receive loop with a clean stop, and complete or abandon by the handler's result"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "topics, subscriptions, lock durations and a dead-letter queue to keep right"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Azure SDK's core, AMQP and messaging modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an AMQP round trip per message"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; the namespace, access policy and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -592,6 +750,10 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; an Update is one, and this tile does not generate it"
         },
         {
+          "tile": "cassandra",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an outbox is one transaction over the entity and the event; TransactWriteItems can write both, and this tile does not generate one"
         },
@@ -630,6 +792,10 @@
         {
           "tile": "postgres-pgx",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "redis-hash",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
           "tile": "redis-kv",

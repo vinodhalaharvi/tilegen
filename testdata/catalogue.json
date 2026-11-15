@@ -26,7 +26,12 @@
       ],
       "offered_by": [
         "api-key",
+        "basic-auth",
+        "cookie-session",
+        "jwt-jwks",
         "jwt-local",
+        "ldap-bind",
+        "mtls",
         "oidc",
         "session-store"
       ]
@@ -45,13 +50,16 @@
         "no-broker"
       ],
       "offered_by": [
+        "azure-service-bus",
         "kafka",
         "local-bus",
         "mqtt",
         "nats-core",
         "nats-jetstream",
         "nsq",
+        "postgres-notify",
         "rabbitmq",
+        "redis-pubsub",
         "redis-streams",
         "sqs"
       ]
@@ -84,6 +92,7 @@
         "badger",
         "bolt",
         "buntdb",
+        "cassandra",
         "dynamodb",
         "etcd",
         "leveldb",
@@ -95,6 +104,7 @@
         "pogreb",
         "postgres-pgx",
         "postgres-sqlc",
+        "redis-hash",
         "redis-kv",
         "redis-rueidis",
         "s3",
@@ -470,6 +480,107 @@
       }
     },
     {
+      "name": "basic-auth",
+      "pass": "select",
+      "doc": "HTTP Basic: a user name and password on every request, checked by a function you supply",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "expiring": "a password works until someone changes it; nothing in the credential says when to stop trusting it",
+        "offline-verify": "a password proves nothing by itself: every request is a check against what is stored",
+        "third-party-idp": "the user names and passwords are yours to keep, not an identity provider's"
+      },
+      "covers": [
+        "(alias basic)"
+      ],
+      "satisfies": {
+        "revocable": "the credentials are checked on every request, so changing or removing them takes effect on the next one"
+      },
+      "cost_notes": {
+        "dependency": "the standard library",
+        "llm-work": "read the header and call the check",
+        "maintenance": "passwords to store hashed, compare in constant time and rotate, and they cross the wire on every request",
+        "operations": "nothing to run",
+        "runtime": "one check per request, and a password hash is slow on purpose",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "cookie-session",
+      "pass": "select",
+      "doc": "a session in a signed cookie, read through gorilla/sessions",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 2,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "third-party-idp": "the session is one this service started, after a login of its own"
+      },
+      "covers": [
+        "(alias cookie)"
+      ],
+      "satisfies": {
+        "expiring": "the cookie carries a signed timestamp, checked against the store's maximum age on every read"
+      },
+      "unverified": {
+        "offline-verify": "a CookieStore verifies the cookie's signature with no call; a store kept on the server reads it on every request, and which Store this is given is the caller's choice",
+        "revocable": "with a CookieStore the session lives in the signed cookie and cannot be withdrawn before it expires; with a store kept on the server it can, and which Store this is given is the caller's choice"
+      },
+      "cost_notes": {
+        "dependency": "gorilla/sessions and securecookie",
+        "llm-work": "read the session and take the subject from it",
+        "maintenance": "keys to keep secret and rotate, cookie flags to set, and a login that puts the subject there",
+        "operations": "nothing to run with a cookie store",
+        "runtime": "a signature check per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "jwt-jwks",
+      "pass": "select",
+      "doc": "bearer tokens signed by someone else, verified against the keys they publish",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 3,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "revocable": "a token is trusted until it expires: nothing is asked of the issuer on a request"
+      },
+      "covers": [
+        "(alias jwks)"
+      ],
+      "satisfies": {
+        "expiring": "a token with no exp claim, or one that has passed, is refused",
+        "offline-verify": "verification uses keys the caller's keyfunc has fetched and cached, with no call per request",
+        "third-party-idp": "tokens are issued elsewhere and verified here against the issuer's published keys"
+      },
+      "cost_notes": {
+        "dependency": "golang-jwt only; the key set's fetching is the caller's",
+        "llm-work": "parse with the right options, then map claims to a principal",
+        "maintenance": "the issuer, audience and accepted algorithms to keep right",
+        "operations": "an issuer to run or pay for, whose keys rotate",
+        "runtime": "a signature check per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "jwt-local",
       "pass": "select",
       "doc": "a token this service signs and verifies itself, with no lookup",
@@ -497,6 +608,75 @@
         "maintenance": "the signing key has to be rotated, and rotation is a second key for a while",
         "operations": "a secret to distribute, nothing to run",
         "runtime": "one HMAC per request, no I/O"
+      }
+    },
+    {
+      "name": "ldap-bind",
+      "pass": "select",
+      "doc": "a directory checks the password: HTTP Basic credentials, tried as an LDAP bind",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 3,
+        "maintenance": 3,
+        "operations": 5,
+        "runtime": 4,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "expiring": "a password works until the directory says otherwise; nothing in the credential says when to stop trusting it",
+        "offline-verify": "every request is a connection and a bind to the directory"
+      },
+      "covers": [
+        "(alias ldap)"
+      ],
+      "engine": "ldap",
+      "satisfies": {
+        "revocable": "every request binds, so an account disabled in the directory stops working on the next one",
+        "third-party-idp": "identities and passwords live in the directory, not here"
+      },
+      "cost_notes": {
+        "dependency": "go-ldap and a few small modules",
+        "llm-work": "dial, bind, and tell a wrong password from a directory that is down",
+        "maintenance": "the DN pattern and the directory's TLS to keep right, and passwords cross the wire on every request",
+        "operations": "a directory to run, or to depend on someone else running",
+        "runtime": "a connection and a bind per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "mtls",
+      "pass": "select",
+      "doc": "mutual TLS: the caller is whoever its client certificate says, verified in the handshake",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 5,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "third-party-idp": "certificates come from a certificate authority you run, not from an identity provider's login"
+      },
+      "covers": [
+        "(alias mtls)"
+      ],
+      "satisfies": {
+        "expiring": "a certificate past its NotAfter fails the handshake",
+        "offline-verify": "the certificate is verified against the CA's certificate during the handshake, with no call to anyone"
+      },
+      "unverified": {
+        "revocable": "a certificate is trusted until it expires unless the server checks a revocation list or OCSP, and Go's TLS does neither by itself"
+      },
+      "cost_notes": {
+        "dependency": "the standard library",
+        "llm-work": "read the verified certificate and map its name",
+        "maintenance": "a certificate for every caller to issue, distribute and renew before it lapses",
+        "operations": "a certificate authority to run and keep safe",
+        "runtime": "nothing per request: the handshake did the work",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
       }
     },
     {
@@ -555,6 +735,46 @@
         "maintenance": "expired sessions have to be swept, or the store grows forever",
         "operations": "nothing new to run: the sessions live in a store already chosen",
         "runtime": "one store read per request"
+      }
+    },
+    {
+      "name": "azure-service-bus",
+      "pass": "select",
+      "doc": "Azure Service Bus: a topic per event type, a subscription per service",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 2,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a cloud service the program cannot start without: a namespace, its topics and subscriptions, credentials and a network path to them",
+        "replay": "a message is gone once it is completed; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias servicebus)"
+      ],
+      "engine": "azure-service-bus",
+      "satisfies": {
+        "at-least-once": "a received message is locked, and one that is abandoned or whose lock runs out is delivered again",
+        "consumer-groups": "receivers on one subscription share its messages",
+        "cross-process": "a service every process reaches over the network",
+        "durable": "a send that returns has been stored by the namespace",
+        "fan-out": "every subscription on a topic gets a copy of each message"
+      },
+      "unverified": {
+        "ordered": "order is kept within a session, for messages that carry a session id on a subscription that requires one; this tile sets neither"
+      },
+      "cost_notes": {
+        "dependency": "the Azure SDK's core, AMQP and messaging modules",
+        "llm-work": "a sender per call, a receive loop with a clean stop, and complete or abandon by the handler's result",
+        "maintenance": "topics, subscriptions, lock durations and a dead-letter queue to keep right",
+        "operations": "nothing to patch; the namespace, access policy and cost to watch",
+        "runtime": "an AMQP round trip per message",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
     {
@@ -766,6 +986,44 @@
       }
     },
     {
+      "name": "postgres-notify",
+      "pass": "select",
+      "doc": "Postgres LISTEN/NOTIFY: a channel per event type, on the database already there",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 3,
+        "maintenance": 3,
+        "operations": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "at-least-once": "a listener that is disconnected when a notification is sent never sees it",
+        "consumer-groups": "every listener gets every notification; nothing shares them out",
+        "durable": "a notification goes to the sessions listening when the sending transaction commits and is kept nowhere",
+        "no-broker": "a Postgres to run, though nothing beyond the one a project on a Postgres store already has",
+        "replay": "nothing is stored, so there is nothing to read back"
+      },
+      "covers": [
+        "(alias pgnotify)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "cross-process": "every session connected to the database can listen",
+        "fan-out": "every session listening on a channel gets each notification",
+        "ordered": "notifications reach a listener in the order their transactions committed"
+      },
+      "cost_notes": {
+        "dependency": "pgx only",
+        "llm-work": "a pg_notify call, and a connection held open in a loop with a clean stop",
+        "maintenance": "a payload must stay under 8000 bytes, and each listener holds one connection out of the pool for as long as it listens",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "a statement per publish",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "rabbitmq",
       "pass": "select",
       "doc": "RabbitMQ: exchanges, bindings and competing consumers",
@@ -796,6 +1054,44 @@
       },
       "cost_notes": {
         "operations": "a broker to run, plus the topology to declare and keep in step"
+      }
+    },
+    {
+      "name": "redis-pubsub",
+      "pass": "select",
+      "doc": "Redis publish/subscribe: a channel per event type, heard by whoever is listening",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 2,
+        "maintenance": 2,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "at-least-once": "a subscriber that is away, slow or disconnected simply misses the message: delivery is at most once",
+        "consumer-groups": "every subscriber gets every message; nothing shares them out",
+        "durable": "a message goes to whoever is subscribed at that moment and is kept nowhere",
+        "no-broker": "a Redis to run",
+        "replay": "nothing is stored, so there is nothing to read back"
+      },
+      "covers": [
+        "(alias pubsub)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "cross-process": "every client connected to the server can subscribe",
+        "fan-out": "every subscriber to a channel gets each message",
+        "ordered": "a channel's messages reach a subscriber in the order the server took them"
+      },
+      "cost_notes": {
+        "dependency": "go-redis and its few modules",
+        "llm-work": "a publish, and a channel to range over",
+        "maintenance": "nothing to declare; a missed message leaves no trace to find it by",
+        "operations": "a server to run",
+        "runtime": "a round trip per publish",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1041,6 +1337,44 @@
         "llm-work": "View and Update closures over string keys and values, with the JSON by hand",
         "maintenance": "no schema and no migrations, and every value is held in memory",
         "runtime": "a map and a B-tree in memory",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "cassandra",
+      "pass": "select",
+      "doc": "Cassandra: one table per entity keyed by id, the value as JSON in a blob",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 8,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "the value is one opaque blob found by its partition key; a query on anything inside it has nothing to use",
+        "no-broker": "a Cassandra cluster to run"
+      },
+      "covers": [
+        "(alias cassandra)"
+      ],
+      "engine": "cassandra",
+      "satisfies": {
+        "cross-process": "a cluster every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "a write is acknowledged by as many replicas as the session's consistency level asks, and each appends it to a commit log that is synced to disk periodically by default; what one node's crash can lose is the cluster's configuration",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "gocql and a few small modules",
+        "llm-work": "CQL by hand, an iterator to close, and results that arrive in token order",
+        "maintenance": "the table (id text PRIMARY KEY, data blob) is created outside this code, a list or a count scans every partition, and a delete leaves a tombstone",
+        "operations": "a cluster of at least three nodes to run, repair, compact, back up and upgrade",
+        "runtime": "a round trip per call",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
@@ -1422,6 +1756,44 @@
         "dependency": "pgx, plus sqlc as a build-time tool",
         "llm-work": "the LLM writes only row-to-domain mapping; sqlc writes the queries",
         "operations": "a server to run, plus sqlc in the build"
+      }
+    },
+    {
+      "name": "redis-hash",
+      "pass": "select",
+      "doc": "Redis: one hash per entity, a field per value, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 3,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a hash finds a value by its field name, which is the ID; there is no index on what a value holds",
+        "no-broker": "a Redis to run, with memory to size and persistence to configure"
+      },
+      "covers": [
+        "(alias redishash)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "go-redis and its few modules",
+        "llm-work": "five hash commands and the JSON",
+        "maintenance": "no schema, and every value of an entity lives under one key: a list reads them all in one reply, and one key cannot be spread over a cluster's slots",
+        "operations": "a server to run, with memory to size and persistence to configure",
+        "runtime": "a round trip per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {

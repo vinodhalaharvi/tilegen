@@ -402,6 +402,56 @@
           ]
         },
         {
+          "tile": "redis-hash",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 3·4 + maint 4·3 + dep 2·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "five hash commands and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and every value of an entity lives under one key: a list reads them all in one reply, and one key cannot be spread over a cluster's slots"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-kv",
           "score": 53,
           "own": 53,
@@ -825,6 +875,56 @@
           ]
         },
         {
+          "tile": "cassandra",
+          "score": 73,
+          "own": 73,
+          "terms": "llm 5·4 + maint 5·3 + dep 2·1 + run 2·1 + ops 8·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "CQL by hand, an iterator to close, and results that arrive in token order"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "the table (id text PRIMARY KEY, data blob) is created outside this code, a list or a count scans every partition, and a delete leaves a tombstone"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "gocql and a few small modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 8,
+              "weight": 3,
+              "source": "derived",
+              "note": "a cluster of at least three nodes to run, repair, compact, back up and upgrade"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "tikv",
           "score": 74,
           "own": 74,
@@ -1035,6 +1135,56 @@
           ]
         },
         {
+          "tile": "redis-pubsub",
+          "score": 39,
+          "own": 39,
+          "terms": "llm 2·4 + maint 2·3 + dep 2·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 2,
+              "weight": 4,
+              "source": "derived",
+              "note": "a publish, and a channel to range over"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to declare; a missed message leaves no trace to find it by"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per publish"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-jetstream",
           "score": 47,
           "own": 47,
@@ -1068,6 +1218,56 @@
               "weight": 3,
               "source": "derived",
               "note": "one binary with no dependencies, but streams, consumers and retention to configure"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-notify",
+          "score": 48,
+          "own": 48,
+          "terms": "llm 3·4 + maint 3·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "a pg_notify call, and a connection held open in a loop with a clean stop"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "a payload must stay under 8000 bytes, and each listener holds one connection out of the pool for as long as it listens"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per publish"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -1146,6 +1346,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nsqd on each producing host and nsqlookupd to run and watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "azure-service-bus",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 5·4 + maint 4·3 + dep 3·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a sender per call, a receive loop with a clean stop, and complete or abandon by the handler's result"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "topics, subscriptions, lock durations and a dead-letter queue to keep right"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Azure SDK's core, AMQP and messaging modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an AMQP round trip per message"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; the namespace, access policy and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -1521,6 +1771,10 @@
           "reason": "an index is declared over a pattern of keys and a comparison of values; this tile declares none"
         },
         {
+          "tile": "cassandra",
+          "reason": "the value is one opaque blob found by its partition key; a query on anything inside it has nothing to use"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: a Query on another field needs a global secondary index, and a Scan with a filter reads the whole table; this tile creates neither"
         },
@@ -1547,6 +1801,10 @@
         {
           "tile": "pogreb",
           "reason": "a hash table finds a value by its whole key, and nothing else"
+        },
+        {
+          "tile": "redis-hash",
+          "reason": "a hash finds a value by its field name, which is the ID; there is no index on what a value holds"
         },
         {
           "tile": "redis-kv",
