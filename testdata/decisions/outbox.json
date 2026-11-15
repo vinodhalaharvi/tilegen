@@ -77,6 +77,10 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
         },
         {
+          "tile": "buntdb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; an Update is one, and this tile does not generate it"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; TransactWriteItems can write both, and this tile does not generate one"
         },
@@ -93,12 +97,24 @@
           "reason": "nothing is committed, so a handler's writes and the record that it ran cannot share a transaction"
         },
         {
+          "tile": "minio",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; the S3 API has no transaction over two objects"
+        },
+        {
           "tile": "mongo",
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "nats-kv",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two keys"
+        },
+        {
           "tile": "pebble",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "pogreb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; Pogreb has no transactions"
         },
         {
           "tile": "postgres-pgx",
@@ -109,8 +125,28 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
+          "tile": "redis-rueidis",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "s3",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; S3 has no transaction over two objects"
+        },
+        {
           "tile": "sqlite-sqlc",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "tikv",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; the raw API has no transaction over two keys; the transactional API (txnkv) does, and this tile does not use it"
+        },
+        {
+          "tile": "valkey",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "zookeeper",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; Multi commits several operations atomically, and this tile does not generate one"
         }
       ],
       "position": "spec.sexp:26:7"
@@ -402,6 +438,10 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
         },
         {
+          "tile": "buntdb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; an Update is one, and this tile does not generate it"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an outbox is one transaction over the entity and the event; TransactWriteItems can write both, and this tile does not generate one"
         },
@@ -418,12 +458,24 @@
           "reason": "nothing is committed, so there is no transaction for an event to share"
         },
         {
+          "tile": "minio",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; the S3 API has no transaction over two objects"
+        },
+        {
           "tile": "mongo",
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "nats-kv",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; JetStream has no transaction over two keys"
+        },
+        {
           "tile": "pebble",
           "reason": "unverified: an outbox is one transaction over the entity and the event; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "pogreb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; Pogreb has no transactions"
         },
         {
           "tile": "postgres-pgx",
@@ -434,8 +486,28 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
+          "tile": "redis-rueidis",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "s3",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; S3 has no transaction over two objects"
+        },
+        {
           "tile": "sqlite-sqlc",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "tikv",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; the raw API has no transaction over two keys; the transactional API (txnkv) does, and this tile does not use it"
+        },
+        {
+          "tile": "valkey",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "zookeeper",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; Multi commits several operations atomically, and this tile does not generate one"
         }
       ],
       "position": "spec.sexp:21:7"

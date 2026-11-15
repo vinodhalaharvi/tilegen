@@ -80,16 +80,25 @@
       "offered_by": [
         "badger",
         "bolt",
+        "buntdb",
         "dynamodb",
         "etcd",
         "leveldb",
         "memory",
+        "minio",
         "mongo",
+        "nats-kv",
         "pebble",
+        "pogreb",
         "postgres-pgx",
         "postgres-sqlc",
         "redis-kv",
-        "sqlite-sqlc"
+        "redis-rueidis",
+        "s3",
+        "sqlite-sqlc",
+        "tikv",
+        "valkey",
+        "zookeeper"
       ]
     },
     {
@@ -880,6 +889,41 @@
       }
     },
     {
+      "name": "buntdb",
+      "pass": "select",
+      "doc": "embedded key-value: BuntDB, in memory with an append-only file, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 3,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "the whole database lives in one process's memory, and the file is not locked against a second one",
+        "lookup-by-field": "an index is declared over a pattern of keys and a comparison of values; this tile declares none"
+      },
+      "covers": [
+        "(alias buntdb)"
+      ],
+      "satisfies": {
+        "no-broker": "a library and a file; there is no server"
+      },
+      "unverified": {
+        "durable": "by default the file is synced once a second, so a crash can lose the last second of writes; SyncPolicy buntdb.Always closes that, and it is the caller's Config, not this tile's",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; an Update is one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; an Update is one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "buntdb and a few small modules, and no build-time tool",
+        "llm-work": "View and Update closures over string keys and values, with the JSON by hand",
+        "maintenance": "no schema and no migrations, and every value is held in memory",
+        "runtime": "a map and a B-tree in memory",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "dynamodb",
       "pass": "select",
       "doc": "DynamoDB: one table per entity keyed by id, items marshalled attribute by attribute",
@@ -1011,6 +1055,44 @@
       }
     },
     {
+      "name": "minio",
+      "pass": "select",
+      "doc": "MinIO or any S3-compatible server: one JSON object per entity under a prefix in a bucket",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 6,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "an object is found by its key; there is no query over what is inside it",
+        "no-broker": "an object server to run, with disks, erasure sets and upgrades"
+      },
+      "covers": [
+        "(alias minio)"
+      ],
+      "engine": "minio",
+      "satisfies": {
+        "cross-process": "a server every process reaches over HTTP"
+      },
+      "unverified": {
+        "durable": "a PutObject is acknowledged once the server has written it, and what survives a lost disk depends on how the server is deployed: one disk, or an erasure set",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; the S3 API has no transaction over two objects",
+        "outbox": "an outbox is one transaction over the entity and the event; the S3 API has no transaction over two objects"
+      },
+      "cost_notes": {
+        "dependency": "minio-go and a few small modules",
+        "llm-work": "a GetObject whose error only appears on the first read, a channel of listed objects, and a GET per object behind every list",
+        "maintenance": "no schema and no query: a list or a count walks every key under the prefix",
+        "operations": "an object server to run: disks, healing, upgrades and backups",
+        "runtime": "a round trip per object, and a list is one per page of keys plus one per object",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "mongo",
       "pass": "select",
       "doc": "mongo: a collection per entity, documents rather than rows",
@@ -1045,6 +1127,44 @@
       }
     },
     {
+      "name": "nats-kv",
+      "pass": "select",
+      "doc": "NATS JetStream key-value: a bucket per entity, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a bucket has one key; there is no index on what a value holds",
+        "no-broker": "a NATS server with JetStream to run"
+      },
+      "covers": [
+        "(alias natskv)"
+      ],
+      "engine": "nats",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "a Put is acknowledged once the bucket's stream has stored it, and what survives a restart depends on the bucket: file or memory storage, and how many replicas",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two keys",
+        "outbox": "an outbox is one transaction over the entity and the event; JetStream has no transaction over two keys"
+      },
+      "cost_notes": {
+        "dependency": "nats.go and its few modules",
+        "llm-work": "get, put, delete and a key listing, with the JSON by hand",
+        "maintenance": "no schema, a key may hold only letters, digits and - _ = . /, and a list or a count walks every key",
+        "operations": "a NATS server with JetStream storage to run, size and back up",
+        "runtime": "a round trip per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "pebble",
       "pass": "select",
       "doc": "embedded key-value: Pebble, an LSM store in a directory, values as JSON",
@@ -1075,6 +1195,41 @@
         "llm-work": "key encoding, bounded iterators and the closer every read hands back, all by hand",
         "maintenance": "no schema and no migrations: a field added to the struct changes stored values silently",
         "runtime": "an LSM tree with background compaction"
+      }
+    },
+    {
+      "name": "pogreb",
+      "pass": "select",
+      "doc": "embedded key-value: Pogreb, a hash table on disk, one database per entity, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "Pogreb locks its directory; a second process cannot open the same database",
+        "lookup-by-field": "a hash table finds a value by its whole key, and nothing else"
+      },
+      "covers": [
+        "(alias pogreb)"
+      ],
+      "satisfies": {
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "durable": "a Put is written to the file and reaches the disk when the operating system flushes it, unless the database was opened to sync: Options.BackgroundSyncInterval -1 syncs after every write, and that is the caller's choice, not this tile's",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; Pogreb has no transactions",
+        "outbox": "an outbox is one transaction over the entity and the event; Pogreb has no transactions"
+      },
+      "cost_notes": {
+        "dependency": "pogreb only, and no build-time tool",
+        "llm-work": "get, put, delete and an iterator, with the JSON and a sort by hand",
+        "maintenance": "no schema, no ordering and no range scan: every list reads the whole database and sorts it",
+        "runtime": "a hash lookup on disk",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1185,6 +1340,82 @@
       }
     },
     {
+      "name": "redis-rueidis",
+      "pass": "select",
+      "doc": "Redis through rueidis: one string key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a string key holds one value; a secondary index would be a second structure written and repaired by hand",
+        "no-broker": "a Redis to run, with memory to size and persistence to configure"
+      },
+      "covers": [
+        "(alias rueidis)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "rueidis only",
+        "llm-work": "commands built one by one, a cursor scan, nil replies to tell from errors, and JSON by hand",
+        "maintenance": "no schema, and a list or a count walks the keyspace with SCAN",
+        "operations": "a server to run, with memory to size and persistence to configure",
+        "runtime": "a round trip per call, pipelined automatically",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "s3",
+      "pass": "select",
+      "doc": "S3: one JSON object per entity under a prefix in a bucket",
+      "produces": "store",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 2,
+        "runtime": 4,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "an object is found by its key; there is no query over what is inside it",
+        "no-broker": "a cloud service the program cannot start without: an account, a bucket, credentials and a network path to them"
+      },
+      "covers": [
+        "(alias s3)"
+      ],
+      "engine": "s3",
+      "satisfies": {
+        "cross-process": "a regional service every process reaches over HTTPS, with read-after-write consistency",
+        "durable": "a PutObject that returns has stored the object redundantly across availability zones"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; S3 has no transaction over two objects",
+        "outbox": "an outbox is one transaction over the entity and the event; S3 has no transaction over two objects"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "paged listing, a GET per object behind every list, and typed errors, all by hand",
+        "maintenance": "no schema and no query: a list or a count reads every key under the prefix, and tests need an emulator or a live bucket",
+        "operations": "nothing to patch or back up by hand; a bucket policy, IAM and cost to watch",
+        "runtime": "an HTTPS round trip per object, and a list is one per page of keys plus one per object",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "sqlite-sqlc",
       "pass": "select",
       "doc": "sqlite via sqlc: one file, no server; uuid and time are TEXT",
@@ -1218,6 +1449,120 @@
       "cost_notes": {
         "dependency": "a driver and sqlc, but no server to run",
         "llm-work": "same as postgres-sqlc: sqlc writes the queries"
+      }
+    },
+    {
+      "name": "tikv",
+      "pass": "select",
+      "doc": "TiKV: one key per entity under a prefix in the raw key-value API, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 6,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 8,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "one keyspace, one key; a secondary index would be written and repaired by hand",
+        "no-broker": "a TiKV cluster and its placement drivers to run"
+      },
+      "covers": [
+        "(alias tikv)"
+      ],
+      "engine": "tikv",
+      "satisfies": {
+        "cross-process": "a cluster every process reaches over gRPC, linearizable for a single key",
+        "durable": "a Put that returns has been committed by a Raft majority of the key's region"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; the raw API has no transaction over two keys; the transactional API (txnkv) does, and this tile does not use it",
+        "outbox": "an outbox is one transaction over the entity and the event; the raw API has no transaction over two keys; the transactional API (txnkv) does, and this tile does not use it"
+      },
+      "cost_notes": {
+        "dependency": "the TiKV client brings gRPC, protobuf, the placement-driver client and their trees",
+        "llm-work": "key encoding, a scan in bounded pages and JSON, all by hand",
+        "maintenance": "no schema and no migrations: a field added to the struct changes stored values silently",
+        "operations": "at least three TiKV nodes and three placement drivers to run, balance, back up and upgrade",
+        "runtime": "a round of consensus for every write",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "valkey",
+      "pass": "select",
+      "doc": "Valkey: one string key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a string key holds one value; a secondary index would be a second structure written and repaired by hand",
+        "no-broker": "a Valkey to run, with memory to size and persistence to configure"
+      },
+      "covers": [
+        "(alias valkey)"
+      ],
+      "engine": "valkey",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "valkey-go only",
+        "llm-work": "commands built one by one, a cursor scan, nil replies to tell from errors, and JSON by hand",
+        "maintenance": "no schema, and a list or a count walks the keyspace with SCAN",
+        "operations": "a server to run, with memory to size and persistence to configure",
+        "runtime": "a round trip per call, pipelined automatically",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "zookeeper",
+      "pass": "select",
+      "doc": "ZooKeeper: one znode per entity under a parent path, data as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 7,
+        "operations": 7,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a znode is found by its path; there is no query over its data",
+        "no-broker": "a ZooKeeper ensemble to run"
+      },
+      "covers": [
+        "(alias zookeeper)"
+      ],
+      "engine": "zookeeper",
+      "satisfies": {
+        "cross-process": "an ensemble every process reaches over the network; a client reads its own writes",
+        "durable": "a write is acknowledged once a quorum of servers has logged it to disk"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; Multi commits several operations atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; Multi commits several operations atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the zk client only",
+        "llm-work": "paths, versions, a create-or-set for every save and a read per child for every list",
+        "maintenance": "no schema, and it is built for a little data that matters a great deal: a znode holds under 1 MiB, the whole tree lives in each server's memory, and listing reads children one by one",
+        "operations": "an ensemble of three or five to keep in quorum, with snapshots and logs to purge",
+        "runtime": "a quorum write, and a list is one call per znode",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
