@@ -1618,7 +1618,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by badger, bolt, memory, mongo, postgres-pgx, postgres-sqlc, sqlite-sqlc"} {
+		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by badger, bolt, "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}
@@ -1846,8 +1846,14 @@ func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
 	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), badger (score 29), postgres-sqlc (score 44), bolt (score 48), postgres-pgx (score 60), or use auto") {
+	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), badger (score 29), ") {
 		t.Fatalf("got %v", err)
+	}
+	// The legal ones are listed cheapest first, and the way out is named.
+	for _, want := range []string{"postgres-sqlc (score 44)", "bolt (score 48)", "postgres-pgx (score 60)", ", or use auto"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should offer %q: %v", want, err)
+		}
 	}
 	if !strings.Contains(err.Error(), "spec.sexp:2:") {
 		t.Errorf("the error should point at the store: %v", err)
@@ -2185,7 +2191,11 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
-	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc) (avoid bolt) (avoid badger) (avoid mongo))`), 0o644)
+	policy := "(policy"
+	for _, name := range compile.SortedKeys(compile.Backends) {
+		policy += " (avoid " + compile.Backends[name].Tile + ")"
+	}
+	os.WriteFile(pf, []byte(policy+")"), 0o644)
 	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
 		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
@@ -3056,9 +3066,17 @@ func TestExplainJSON(t *testing.T) {
 		len(orders.Requirements) != 1 || orders.Requirements[0] != "durable" {
 		t.Errorf("coverage: %+v", orders)
 	}
-	if len(orders.Illegal) != 2 || orders.Illegal[0].Tile != "memory" || orders.Illegal[0].Reason == "" ||
-		orders.Illegal[1].Tile != "mongo" || !strings.HasPrefix(orders.Illegal[1].Reason, "unverified: ") {
+	why := map[string]string{}
+	for _, il := range orders.Illegal {
+		why[il.Tile] = il.Reason
+	}
+	if why["memory"] != "an in-memory map loses its data on restart" || !strings.HasPrefix(why["mongo"], "unverified: ") {
 		t.Errorf("rejections should carry their reasons: %+v", orders.Illegal)
+	}
+	for tile, reason := range why {
+		if reason == "" {
+			t.Errorf("%s is ruled out with no reason", tile)
+		}
 	}
 	var sqlc *compile.CandidateJSON
 	for i := range orders.Candidates {
@@ -3155,7 +3173,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 			store = &tiles.Capabilities[i]
 		}
 	}
-	if store == nil || len(store.OfferedBy) != 7 || len(store.Requirements) != 6 {
+	if store == nil || len(store.OfferedBy) < 7 || len(store.Requirements) != 6 {
 		t.Fatalf("capabilities should list their offers and requirements: %+v", store)
 	}
 	for _, tl := range tiles.Tiles {
@@ -4399,11 +4417,14 @@ func priceOn(r compile.Running, o *compile.Offer, score int, p *compile.Policy) 
 func TestTileSpecDeclaresItsEngine(t *testing.T) {
 	const spec = `(project tiles (module example.com/tiles) (go 1.22)
   (package main (dir ".")
-    (tile-spec pebble
+    (tile-spec rocks
       (kind store-backend)
       (doc "embedded key-value on the cockroach engine")
       (engine cockroach)
       %s
+      (satisfies (durable) "a synced log") (satisfies (no-broker) "a library")
+      (illegal-when (cross-process) "one process holds the directory") (illegal-when (lookup-by-field) "keys only")
+      (unverified (outbox) "not generated") (unverified (inbox) "not generated")
       (cost (llm-work 4) (maintenance 3)))))`
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, ""), "")

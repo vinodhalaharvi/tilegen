@@ -571,6 +571,31 @@ Write the `IllegalWhen` strings for the person who will read them in
 `explain`. They are the whole explanation of a rejection, and they end up in
 architecture discussions.
 
+Most storage tiles are not written from an empty file. Each has a spec in
+`internal/tiles/specs/`, and tilegen generates the registration from it:
+
+```lisp
+(tile-spec pebble
+  (kind store-backend)
+  (doc "embedded key-value store: an LSM tree in a directory")
+  (engine none)
+  (import pebble github.com/cockroachdb/pebble)
+  (satisfies (durable) "a write is synced to the log before it returns")
+  (satisfies (no-broker) "a library in the program: nothing else to run")
+  (illegal-when (cross-process) "one process holds the directory's lock")
+  (illegal-when (lookup-by-field) "it finds a value by its key, and nothing else")
+  (unverified (outbox) "no outbox is generated for it")
+  (unverified (inbox) "no inbox is generated for it")
+  (cost (llm-work 5) (maintenance 3) (dependency 3) (runtime 2)))
+```
+
+Every requirement a store can be asked for goes under one of the three
+headings, with its reason: `satisfies` when the tile meets it,
+`illegal-when` when it cannot, `unverified` when nobody has checked. A
+spec that leaves one out is refused, so a tile never wins a requirement
+by saying nothing about it. `tilegen tiles` lists the tiles there are,
+with what each claims.
+
 ### A SQL backend
 
 A SQL backend is a `Dialect` plus a registered tile. The query shapes are

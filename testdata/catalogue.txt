@@ -38,21 +38,26 @@ select      file-secrets    secrets        llm 0, maint 1, dep 0, run 1, ops 1  
 select      vault           secrets        llm 0, maint 2, dep 3, run 1, ops 5                                                                           one path of a HashiCorp Vault KV v2 mount, read through a short cache
 select      badger          store          llm 4, maint 3, dep 2, run 2                                                                                  embedded key-value: an LSM store, one keyspace, values as JSON
 select      bolt            store          llm 7, maint 6, dep 1, run 1                                                                                  embedded key-value: one file, a bucket per entity, values as JSON
+select      dynamodb        store          llm 8, maint 5, dep 4, run 2, ops 3                                                                           DynamoDB: one table per entity keyed by id, items marshalled attribute by attribute
+select      etcd            store          llm 5, maint 7, dep 4, run 2, ops 7                                                                           etcd: a replicated key-value store, one key per entity under a prefix, values as JSON
+select      leveldb         store          llm 5, maint 4, dep 1, run 2                                                                                  embedded key-value: LevelDB in pure Go, a directory of sorted tables, values as JSON
 select      memory          store          llm 2, maint 1, dep 0, run 1                                                                                  in-memory store: a map guarded by a mutex
 select      mongo           store          llm 5, maint 3, dep 3, run 2, ops 5                                                                           mongo: a collection per entity, documents rather than rows
+select      pebble          store          llm 5, maint 3, dep 3, run 2                                                                                  embedded key-value: Pebble, an LSM store in a directory, values as JSON
 select      postgres-pgx    store          llm 7, maint 5, dep 1, run 1, ops 5                                                                           postgres via pgx: tilegen writes the schema, the LLM writes the SQL
 select      postgres-sqlc   store          llm 3, maint 2, dep 3, run 1, ops 5  sqlc (missing)                                                           postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows
+select      redis-kv        store          llm 4, maint 4, dep 2, run 1, ops 4                                                                           Redis: one string key per entity under a prefix, values as JSON
 select      sqlite-sqlc     store          llm 3, maint 2, dep 1, run 1         sqlc (missing)                                                           sqlite via sqlc: one file, no server; uuid and time are TEXT
 select      kafka           transport      llm 7, maint 5, dep 4, run 4, ops 9                                                                           Kafka as an inbound edge: consume a topic, at your own offset
 select      nats-core       transport      llm 2, maint 1, dep 2, run 1, ops 2                                                                           core NATS: subjects and queue groups, with nothing kept
 select      doc-mapper      domain                                                                                                                       decodes mongo documents into domain types, by hand
 select      row-mapper      domain                                                                                                                       converts sqlc's row types to domain types, by hand
 
-48 tile(s).
+53 tile(s).
 capability api        offered by connect, grpc, http-json
 capability auth       offered by api-key, jwt-local, oidc, session-store
 capability event-bus  offered by kafka, local-bus, nats-core, nats-jetstream, rabbitmq, redis-streams
 capability secrets    offered by env-secrets, file-secrets, vault
-capability store      offered by badger, bolt, memory, mongo, postgres-pgx, postgres-sqlc, sqlite-sqlc
+capability store      offered by badger, bolt, dynamodb, etcd, leveldb, memory, mongo, pebble, postgres-pgx, postgres-sqlc, redis-kv, sqlite-sqlc
 capability transport  offered by kafka, nats-core
 Each need gets the cheapest legal tile; see tilegen explain.

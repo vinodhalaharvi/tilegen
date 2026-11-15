@@ -80,10 +80,15 @@
       "offered_by": [
         "badger",
         "bolt",
+        "dynamodb",
+        "etcd",
+        "leveldb",
         "memory",
         "mongo",
+        "pebble",
         "postgres-pgx",
         "postgres-sqlc",
+        "redis-kv",
         "sqlite-sqlc"
       ]
     },
@@ -888,6 +893,111 @@
       }
     },
     {
+      "name": "dynamodb",
+      "pass": "select",
+      "doc": "DynamoDB: one table per entity keyed by id, items marshalled attribute by attribute",
+      "produces": "store",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 8,
+        "maintenance": 5,
+        "operations": 3,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "no-broker": "a cloud service the program cannot start without: an account, a table, credentials and a network path to them"
+      },
+      "covers": [
+        "(alias dynamodb)"
+      ],
+      "engine": "dynamodb",
+      "satisfies": {
+        "cross-process": "a regional service every process reaches over HTTPS",
+        "durable": "a write is acknowledged once it is stored in more than one availability zone"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; TransactWriteItems can write both, and this tile does not generate one",
+        "lookup-by-field": "a Query on another field needs a global secondary index, and a Scan with a filter reads the whole table; this tile creates neither",
+        "outbox": "an outbox is one transaction over the entity and the event; TransactWriteItems can write both, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "attribute values, the key schema, pagination and results in no order, written by hand for every method",
+        "maintenance": "no schema beyond the key, a list or a count is a paid read of the whole table, and tests need an emulator or a live table",
+        "operations": "nothing to patch or back up by hand, but capacity, IAM and cost to watch",
+        "runtime": "an HTTPS round trip per call"
+      }
+    },
+    {
+      "name": "etcd",
+      "pass": "select",
+      "doc": "etcd: a replicated key-value store, one key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 7,
+        "operations": 7,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "keys only: a range over a key prefix is the one query, so finding by another field means a second index kept by hand",
+        "no-broker": "a cluster to run: an odd number of members, with snapshots, compaction and defragmentation"
+      },
+      "covers": [
+        "(alias etcd)"
+      ],
+      "engine": "etcd",
+      "satisfies": {
+        "cross-process": "a cluster every process reaches over gRPC",
+        "durable": "a Put returns after a quorum of the cluster has the write in its log"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a Txn can put both, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; a Txn can put both, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the client brings gRPC and protobuf with it",
+        "llm-work": "get, put, delete and a prefix range, with the JSON and the key encoding by hand",
+        "maintenance": "no schema, and it is built for a little data that matters a great deal: a request is capped near 1.5 MiB and the whole keyspace at a few GiB by default, which a store of entities grows past",
+        "operations": "a quorum to keep healthy: members, backups, compaction and defragmentation",
+        "runtime": "every write is a round of consensus"
+      }
+    },
+    {
+      "name": "leveldb",
+      "pass": "select",
+      "doc": "embedded key-value: LevelDB in pure Go, a directory of sorted tables, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "cross-process": "goleveldb takes a file lock on the directory; a second process cannot open the same store",
+        "lookup-by-field": "one keyspace, one key; a secondary index would be written and repaired by hand"
+      },
+      "covers": [
+        "(alias leveldb)"
+      ],
+      "satisfies": {
+        "durable": "every write this tile asks for sets WriteOptions.Sync: the journal is synced before the call returns",
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a Batch or a Transaction commits several writes atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; a Batch or a Transaction commits several writes atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "goleveldb and snappy, and no build-time tool",
+        "llm-work": "key encoding, prefix iteration and JSON, all by hand",
+        "maintenance": "no schema and no migrations, and a library that changes rarely: its last tagged release is v1.0.0",
+        "runtime": "an LSM tree with background compaction"
+      }
+    },
+    {
       "name": "memory",
       "pass": "select",
       "doc": "in-memory store: a map guarded by a mutex",
@@ -945,6 +1055,39 @@
         "dependency": "the driver, and a server to run",
         "llm-work": "filters and updates written by hand, but no schema to keep in step",
         "operations": "a server to run, and a replica set if you want durable writes"
+      }
+    },
+    {
+      "name": "pebble",
+      "pass": "select",
+      "doc": "embedded key-value: Pebble, an LSM store in a directory, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 3,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "cross-process": "Pebble locks its directory; a second process cannot open the same store",
+        "lookup-by-field": "one keyspace, one key; a secondary index would be written and repaired by hand"
+      },
+      "covers": [
+        "(alias pebble)"
+      ],
+      "satisfies": {
+        "durable": "every write this tile asks for passes pebble.Sync: it is in the write-ahead log and synced before the call returns",
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a Batch commits several writes atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; a Batch commits several writes atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "Pebble and the CockroachDB libraries it is built on, but no server and no build-time tool",
+        "llm-work": "key encoding, bounded iterators and the closer every read hands back, all by hand",
+        "maintenance": "no schema and no migrations: a field added to the struct changes stored values silently",
+        "runtime": "an LSM tree with background compaction"
       }
     },
     {
@@ -1016,6 +1159,42 @@
         "dependency": "pgx, plus sqlc as a build-time tool",
         "llm-work": "the LLM writes only row-to-domain mapping; sqlc writes the queries",
         "operations": "a server to run, plus sqlc in the build"
+      }
+    },
+    {
+      "name": "redis-kv",
+      "pass": "select",
+      "doc": "Redis: one string key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "lookup-by-field": "keys only: finding by another field means a second index, a set or a sorted set, kept by hand",
+        "no-broker": "a Redis to run, with memory to size and persistence to configure"
+      },
+      "covers": [
+        "(alias rediskv)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced); the default can lose the last seconds of writes, and this tile cannot see the setting",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; MULTI and EXEC can queue both, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; MULTI and EXEC can queue both, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "go-redis and little else",
+        "llm-work": "get, set and delete by key, a SCAN for the rest, and the JSON by hand",
+        "maintenance": "no schema, and every key lives in memory: the data set has to fit there",
+        "operations": "a server to run, with memory limits, persistence and failover to decide",
+        "runtime": "one round trip per call, served from memory"
       }
     },
     {

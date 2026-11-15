@@ -336,13 +336,14 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	skel := string(raw)
 
 	// Nothing is guessed: no kind, and no number that could pass for one.
-	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ",
+	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ", "; (operations N ",
+		`(satisfies (TODO) "TODO")`, `(illegal-when (TODO) "TODO")`, `(unverified (TODO) "TODO")`, "; store-backend: durable, cross-process, lookup-by-field, no-broker,",
 		"One of: " + strings.Join(tiles.TileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + importer.KindComparison("store-backend")} {
 		if !strings.Contains(skel, want) {
 			t.Errorf("the skeleton has no %q:\n%s", want, skel)
 		}
 	}
-	for _, req := range compile.KnownRequirements() {
+	for _, req := range compile.Capabilities["store"].Requirements {
 		if !strings.Contains(skel, " "+req) {
 			t.Errorf("the skeleton does not offer the requirement %s", req)
 		}
@@ -362,12 +363,13 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	if err == nil {
 		t.Fatal("a skeleton with its TODOs open was generated from")
 	}
-	for _, want := range []string{"(kind TODO) is still a TODO", `(doc "TODO") is still a TODO`, "(cost (llm-work TODO", "answer it before this tile can be used"} {
+	for _, want := range []string{"(kind TODO) is still a TODO", `(doc "TODO") is still a TODO`, `(satisfies (TODO) "TODO") is still a TODO`, `(illegal-when (TODO) "TODO") is still a TODO`,
+		`(unverified (TODO) "TODO") is still a TODO`, "(cost (llm-work TODO", "answer it before this tile can be used"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal should say %q:\n%v", want, err)
 		}
 	}
-	if strings.Count(err.Error(), "is still a TODO") != 3 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
+	if strings.Count(err.Error(), "is still a TODO") != 6 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
 		t.Errorf("each open question should be reported once, and nothing else:\n%v", err)
 	}
 	if left, _ := os.ReadDir(target); len(left) != 0 {
@@ -380,7 +382,10 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 		"(kind TODO)": "(kind store-backend)", `(doc "TODO")`: `(doc "a key-value store in one file")`,
 		"(llm-work TODO": "(llm-work 4", "(maintenance TODO": "(maintenance 2", "(dependency TODO": "(dependency 1", "(runtime TODO": "(runtime 1",
 		`"TODO: how much must be written by hand?"`: `"get, put and delete by key"`, `"TODO: what goes wrong over months?"`: `"no schema to migrate"`,
-		`"TODO: what does it pull in, and what must be installed?"`: `"one module, nothing to install"`, `"TODO: what has to be running?"`: `"nothing"`,
+		`"TODO: what does it pull in, and what must be installed?"`: `"one module, nothing to install"`, `"TODO: what does a call cost when the program runs?"`: `"a file read"`,
+		`(satisfies (TODO) "TODO")`:    `(satisfies (durable) "a synced write") (satisfies (no-broker) "a file and a library")`,
+		`(illegal-when (TODO) "TODO")`: `(illegal-when (cross-process) "one process holds the file") (illegal-when (lookup-by-field) "keys only")`,
+		`(unverified (TODO) "TODO")`:   `(unverified (outbox) "not generated") (unverified (inbox) "not generated")`,
 	} {
 		if !strings.Contains(answered, old) {
 			t.Fatalf("the skeleton has no %s to answer", old)

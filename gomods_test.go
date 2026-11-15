@@ -2,14 +2,17 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 )
 
 const (
@@ -24,13 +27,19 @@ func TestGoModsSayWhatIsAlreadyRun(t *testing.T) {
 	}
 	// Postgres first: both services require pgx. Each engine lists every
 	// tile that would share it, not only the one whose library was seen.
-	want := map[string]string{"postgres": "postgres-pgx postgres-sqlc", "nats": "nats-core nats-jetstream", "redis": "redis-streams"}
+	// (Other tiles may share an engine too; these are the ones that must.)
+	want := map[string][]string{"postgres": {"postgres-pgx", "postgres-sqlc"}, "nats": {"nats-core", "nats-jetstream"}, "redis": {"redis-streams"}}
 	if len(got.Running) != 3 || got.Running[0].Engine != "postgres" || got.Running[0].In != 2 {
 		t.Fatalf("running: %+v", got.Running)
 	}
 	for _, r := range got.Running {
-		if strings.Join(r.Tiles, " ") != want[r.Engine] {
-			t.Errorf("%s is shared by %v, want %s", r.Engine, r.Tiles, want[r.Engine])
+		for _, tile := range want[r.Engine] {
+			if !compile.Contains(r.Tiles, tile) {
+				t.Errorf("%s is shared by %v, which should include %s", r.Engine, r.Tiles, tile)
+			}
+		}
+		if !sort.StringsAreSorted(r.Tiles) {
+			t.Errorf("%s: the tiles are not in order: %v", r.Engine, r.Tiles)
 		}
 	}
 	// badger is a library linked into a program, not a server someone runs,
@@ -53,8 +62,13 @@ func TestGoModsSayWhatIsAlreadyRun(t *testing.T) {
 			t.Errorf("pgx: %+v", k)
 		}
 	}
-	if strings.Join(got.Engines, " ") != "kafka mongo nats postgres rabbitmq redis vault" {
-		t.Errorf("engines someone operates: %v", got.Engines)
+	for _, engine := range []string{"kafka", "mongo", "nats", "postgres", "rabbitmq", "redis", "vault"} {
+		if !compile.Contains(got.Engines, engine) {
+			t.Errorf("%s is an engine someone operates, and is not among %v", engine, got.Engines)
+		}
+	}
+	if !sort.StringsAreSorted(got.Engines) || compile.Contains(got.Engines, compile.NoEngine) || compile.Contains(got.Engines, "") {
+		t.Errorf("engines someone operates, in order, and nothing else: %v", got.Engines)
 	}
 }
 

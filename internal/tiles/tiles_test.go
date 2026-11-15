@@ -29,7 +29,7 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		t.Fatalf("the registry is inconsistent: %v", err)
 	}
 	for capability, want := range map[string][]string{
-		"store":     {"badger", "bolt", "memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"},
+		"store":     {"badger", "bolt", "dynamodb", "etcd", "leveldb", "memory", "mongo", "pebble", "postgres-pgx", "postgres-sqlc", "redis-kv", "sqlite-sqlc"},
 		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
 		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
 		"api":       {"connect", "grpc", "http-json"},
@@ -213,7 +213,7 @@ func TestOneFilePerTile(t *testing.T) {
 			}
 		}
 	}
-	if len(found) != 23 {
+	if len(found) != 28 {
 		t.Errorf("%d tiles found in files", len(found))
 	}
 }
