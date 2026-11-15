@@ -2,9 +2,10 @@ package tiles
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
-	"strings"
 )
 
 // The pgx backend: postgres without a code generator. tilegen writes the

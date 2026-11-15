@@ -33,9 +33,14 @@ context.
 
 ## Adding a tile
 
-A storage tile is a file in `internal/tiles`. `tilegen import -tiles`
-writes a skeleton for one from a go.mod, and `tilegen -out . SPEC`
-generates the file with its two holes; [TILES.md](TILES.md) has the rest.
+A tile is one file in `internal/tiles`, named for what it offers and what
+it is: `store_bolt.go`, `bus_kafka.go`, `auth_oidc.go`. The file registers
+the tile and holds the code that emits its Go, and a test refuses a file
+that holds two tiles or is named for another.
+
+For a storage tile, `tilegen import -tiles` writes a skeleton from a
+go.mod, and `tilegen -out . SPEC` generates the file with its two holes;
+[TILES.md](TILES.md) has the rest.
 
 ## What keeps a change honest
 

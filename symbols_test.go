@@ -393,7 +393,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	if err := run(compile.Options{Spec: file, Out: target}, io.Discard); err != nil {
 		t.Fatalf("an answered skeleton was refused: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(target, "internal", "tiles", "tile_kv.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(target, "internal", "tiles", "store_kv.go")); err != nil {
 		t.Errorf("an answered skeleton generated no tile: %v", err)
 	}
 	// A TODO left in one place is still caught, and words that merely

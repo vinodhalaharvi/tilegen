@@ -5,7 +5,7 @@ package compile
 // jobs with different vocabularies, and some systems do both.
 //
 // Kafka is the worked example, and it registers twice: once here and once
-// in bus_remote.go. That is deliberate, and it is not a workaround for a
+// in internal/tiles. That is deliberate, and it is not a workaround for a
 // missing list of capabilities on Offer. A tile's cost, its legality and
 // the code it emits are all per-capability, exactly as a struct
 // implementing two interfaces has two different method sets:
@@ -33,7 +33,7 @@ func init() {
 	})
 
 	// Kafka, the second time. Compare the numbers with the event-bus
-	// Offer in bus_remote.go: same cluster, different work.
+	// Offer in internal/tiles/bus_kafka.go: same cluster, different work.
 	RegisterOffer(&Offer{
 		Tile:       "kafka",
 		Capability: "transport",
@@ -94,7 +94,7 @@ func init() {
 			Import: [2]string{"nats", "github.com/nats-io/nats.go"},
 		},
 	})
-	// No alias here: bus_nats.go already registers "nats" for this tile,
+	// No alias here: internal/tiles/bus_nats_core.go already registers "nats" for this tile,
 	// and one tile has one alias however many capabilities it offers.
 
 	// MQTT is missing on purpose. Every clause it would carry is

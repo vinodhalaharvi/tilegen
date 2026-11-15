@@ -1,8 +1,13 @@
 package tiles
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"path/filepath"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -113,5 +118,93 @@ func TestValidTileName(t *testing.T) {
 		if ValidTileName(bad) {
 			t.Errorf("%q should not be a tile name", bad)
 		}
+	}
+}
+
+// filePrefix is how a tile's file is named for the capability it offers.
+var filePrefix = map[string]string{"store": "store", "event-bus": "bus", "auth": "auth"}
+
+// Every tile is one file, named for what it offers and what it is, and no
+// file holds two.
+func TestOneFilePerTile(t *testing.T) {
+	fset := token.NewFileSet()
+	pkgFiles, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{} // tile -> file
+	for _, file := range pkgFiles {
+		if strings.HasSuffix(file, "_test.go") {
+			continue
+		}
+		f, err := parser.ParseFile(fset, file, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var here []string
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok || len(call.Args) != 1 {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (sel.Sel.Name != "RegisterOffer" && sel.Sel.Name != "RegisterStoreBackend") {
+				return true
+			}
+			unary, ok := call.Args[0].(*ast.UnaryExpr)
+			if !ok {
+				t.Errorf("%s: a registration that is not a literal cannot be checked", file)
+				return true
+			}
+			lit, ok := unary.X.(*ast.CompositeLit)
+			if !ok {
+				t.Errorf("%s: a registration that is not a literal cannot be checked", file)
+				return true
+			}
+			fields := map[string]string{}
+			for _, el := range lit.Elts {
+				kv, ok := el.(*ast.KeyValueExpr)
+				if !ok {
+					continue
+				}
+				if b, ok := kv.Value.(*ast.BasicLit); ok && b.Kind == token.STRING {
+					fields[kv.Key.(*ast.Ident).Name], _ = strconv.Unquote(b.Value)
+				}
+			}
+			tile := fields["Tile"]
+			if tile == "" {
+				tile = fields["Name"]
+			}
+			capability := fields["Capability"]
+			if sel.Sel.Name == "RegisterStoreBackend" {
+				capability = "store"
+			}
+			here = append(here, tile)
+			want := filePrefix[capability] + "_" + strings.ReplaceAll(tile, "-", "_") + ".go"
+			if filePrefix[capability] == "" {
+				t.Errorf("%s registers %s for %q, which has no file prefix", file, tile, capability)
+			} else if file != want {
+				t.Errorf("%s is in %s; a tile's file is named for it: %s", tile, file, want)
+			}
+			if prev, twice := found[tile]; twice {
+				t.Errorf("%s is registered in %s and in %s", tile, prev, file)
+			}
+			found[tile] = file
+			return true
+		})
+		if len(here) > 1 {
+			t.Errorf("%s holds %d tiles (%s); one file holds one", file, len(here), strings.Join(here, ", "))
+		}
+	}
+	// And the other way: every tile this package is known to offer was found in a file.
+	for capability := range filePrefix {
+		for _, tile := range offered(capability) {
+			if found[tile] == "" && tile != "local-bus" { // local-bus is the compiler's own: the bus with no broker
+				t.Errorf("%s (%s) is registered and no file in this package holds it", tile, capability)
+			}
+		}
+	}
+	if len(found) < 16 {
+		t.Errorf("%d tiles found in files", len(found))
 	}
 }

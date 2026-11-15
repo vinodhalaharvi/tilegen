@@ -498,8 +498,9 @@ func classifyRequirements(o *Offer) {
 var classifyOnce sync.Once
 
 // ensureClassified runs classifyRequirements over every offer, once. It
-// cannot happen in RegisterOffer: init functions run in filename order,
-// so bus_nats.go registers before capabilities.go declares event-bus.
+// cannot happen in RegisterOffer: registration follows the order init
+// functions run in, so a tile can register before its capability is
+// declared.
 func ensureClassified() {
 	classifyOnce.Do(func() {
 		for _, capability := range SortedKeys(Offers) {
