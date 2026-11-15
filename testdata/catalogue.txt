@@ -28,10 +28,13 @@ select      oidc            auth           llm 4, maint 2, dep 2, run 1, ops 5  
 select      session-store   auth           llm 3, maint 2, dep 0, run 2, ops 1                                                                                  an opaque session id in a cookie, looked up in a store on every request
 select      kafka           event-bus      llm 5, maint 5, dep 4, run 4, ops 9                                                                                  Kafka: a partitioned log, ordered per key, read back at will
 select      local-bus       event-bus      llm 0, maint 0, dep 0, run 1                                                                                         in-process bus: synchronous delivery, ordered, errors joined
+select      mqtt            event-bus      llm 4, maint 4, dep 2, run 2, ops 4, unc 2                                                                           MQTT: a topic per event type on a broker, published and subscribed at QoS 1
 select      nats-core       event-bus      llm 4, maint 2, dep 4, run 1, ops 2                                                                                  core NATS: subjects and queue groups, with nothing kept
 select      nats-jetstream  event-bus      llm 5, maint 3, dep 4, run 2, ops 4                                                                                  NATS JetStream: the same server with a log, so events are kept and can be read back
+select      nsq             event-bus      llm 4, maint 3, dep 1, run 2, ops 5, unc 2                                                                           NSQ: a topic per event type, a channel per group of consumers
 select      rabbitmq        event-bus      llm 4, maint 4, dep 3, run 3, ops 5                                                                                  RabbitMQ: exchanges, bindings and competing consumers
 select      redis-streams   event-bus      llm 4, maint 3, dep 2, run 2, ops 3                                                                                  Redis Streams: an append-only log with consumer groups
+select      sqs             event-bus      llm 5, maint 4, dep 4, run 3, ops 2, unc 2                                                                           Amazon SQS: a queue per event type, long-polled by competing consumers
 select      env-secrets     secrets        llm 0, maint 1, dep 0, ops 0                                                                                         environment variables, read once when the process starts
 select      file-secrets    secrets        llm 0, maint 1, dep 0, run 1, ops 1                                                                                  one file per secret in a mounted directory, read on every call
 select      vault           secrets        llm 0, maint 2, dep 3, run 1, ops 5                                                                                  one path of a HashiCorp Vault KV v2 mount, read through a short cache
@@ -61,10 +64,10 @@ select      nats-core       transport      llm 2, maint 1, dep 2, run 1, ops 2  
 select      doc-mapper      domain                                                                                                                              decodes mongo documents into domain types, by hand
 select      row-mapper      domain                                                                                                                              converts sqlc's row types to domain types, by hand
 
-61 tile(s).
+64 tile(s).
 capability api        offered by connect, grpc, http-json
 capability auth       offered by api-key, jwt-local, oidc, session-store
-capability event-bus  offered by kafka, local-bus, nats-core, nats-jetstream, rabbitmq, redis-streams
+capability event-bus  offered by kafka, local-bus, mqtt, nats-core, nats-jetstream, nsq, rabbitmq, redis-streams, sqs
 capability secrets    offered by env-secrets, file-secrets, vault
 capability store      offered by badger, bolt, buntdb, dynamodb, etcd, leveldb, memory, minio, mongo, nats-kv, pebble, pogreb, postgres-pgx, postgres-sqlc, redis-kv, redis-rueidis, s3, sqlite-sqlc, tikv, valkey, zookeeper
 capability transport  offered by kafka, nats-core

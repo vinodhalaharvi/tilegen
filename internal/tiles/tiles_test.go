@@ -30,10 +30,10 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		t.Fatalf("the registry is inconsistent: %v", err)
 	}
 	for capability, want := range map[string][]string{
-		// The stores written in Go, and one for each store_NAME.sexp.
+		// The tiles written in Go, and one for each file that offers the same.
 		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t, "store")...),
-		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
-		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
+		"event-bus": append([]string{"kafka", "local-bus", "nats-core"}, dataTiles(t, "event-bus")...),
+		"auth":      append([]string{"session-store"}, dataTiles(t, "auth")...),
 		"api":       {"connect", "grpc", "http-json"},
 		"secrets":   {"env-secrets", "file-secrets", "vault"},
 		"transport": {"kafka", "nats-core"},

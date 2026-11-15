@@ -268,6 +268,156 @@
           ]
         },
         {
+          "tile": "nsq",
+          "score": 53,
+          "own": 53,
+          "terms": "llm 4·4 + maint 3·3 + dep 1·1 + run 2·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "a producer call and a consumer with a handler and a clean stop"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "channels to name consistently, and timeouts and requeue limits to tune"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-nsq and a few small modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a TCP round trip per publish"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "nsqd on each producing host and nsqlookupd to run and watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "mqtt",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "tokens to wait on, a callback that cannot return an error, and JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "topic names and QoS to keep consistent, and a handler failure that the broker never hears about"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Paho client and its websocket and sync modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip and an acknowledgement per message"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a broker to run, with sessions and retained messages to size"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "sqs",
+          "score": 55,
+          "own": 55,
+          "terms": "llm 5·4 + maint 4·3 + dep 4·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a clean stop, and delete-on-success, by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a queue to create per event type, visibility timeouts to tune, and a dead-letter queue to watch"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per send, and a long poll per batch"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; queues, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "kafka",
           "score": 70,
           "own": 70,

@@ -329,21 +329,27 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("    ; (operations N (source user \"what is there to run, back up and upgrade?\"))\n")
 	b.WriteString("    )\n\n")
 
-	b.WriteString("  ; TODO: what the generated store keeps, and the constructor that fills\n")
-	b.WriteString("  ; it. tilegen fills in {impl} (the store's type), {entity}, {name} and\n")
-	b.WriteString("  ; {names} (note, notes) and {id} (the type of the ID).\n")
+	b.WriteString("  ; TODO: what the generated type keeps, and the constructor that fills\n")
+	b.WriteString("  ; it. For a store tilegen fills in {impl} (the store's type), {entity},\n")
+	b.WriteString("  ; {name} and {names} (note, notes) and {id} (the type of the ID).\n")
 	fmt.Fprintf(&b, "  (holds (TODO %s.TODO))\n", qual)
 	fmt.Fprintf(&b, "  (new (params (TODO %s.TODO))\n", qual)
 	b.WriteString("    \"TODO: return &{impl}{...}\")\n\n")
 
 	b.WriteString("  ; TODO: what each kind of method has to do, in this library's own\n")
 	b.WriteString("  ; terms: the calls to make, the error that means not found, what must\n")
-	b.WriteString("  ; be closed. Add list-by, get-by, count-by, exists-by and delete-by if\n")
-	b.WriteString("  ; the tile serves (lookup-by-field); {field} and {param} name the field\n")
-	b.WriteString("  ; and the parameter that carries its value.\n")
+	b.WriteString("  ; be closed. These are a store's; add list-by, get-by, count-by,\n")
+	b.WriteString("  ; exists-by and delete-by if it serves (lookup-by-field), where {field}\n")
+	b.WriteString("  ; and {param} name the field and the parameter that carries its value.\n")
 	for _, op := range []string{"get", "list", "save", "delete", "count"} {
 		fmt.Fprintf(&b, "  (hint %s \"TODO\")\n", op)
 	}
+	b.WriteString("\n  ; A bus or an auth scheme is a type of its own. If this offers one,\n")
+	b.WriteString("  ; replace the hints above with (hint publish ...) and (hint on ...), or\n")
+	b.WriteString("  ; (hint authenticate ...), and add:\n")
+	b.WriteString("  ;   (type-name NameBus)\n")
+	b.WriteString("  ;   (about \"{impl} is ...\")          the type's doc comment\n")
+	b.WriteString("  ;   (about-new \"New{impl} ...\")      the constructor's\n")
 	b.WriteString("  )\n")
 	return b.String()
 }
