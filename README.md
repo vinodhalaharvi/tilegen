@@ -808,6 +808,25 @@ and each cited symbol is checked against the module. And
 `tilegen import -tiles -symbols` writes the listing into each tile-spec
 skeleton, so the TODOs are filled in beside the facts.
 
+### Tiles of your own
+
+A storage tile is a file of data, and tilegen takes a folder of them:
+
+```sh
+tilegen import -tiles .                    # a skeleton in ./tiles for each library with no tile
+tilegen -tiles ./tiles tiles               # yours, listed beside the built-in ones
+tilegen -tiles ./tiles explain spec.sexp   # where each wins, and why
+tilegen -tiles ./tiles -out out spec.sexp
+tilegen -tiles ./tiles mcp -root ~/projects
+```
+
+`-tiles DIR` goes before the command, and every command then sees the
+folder's tiles. A skeleton is questions: what the tile is, what each
+requirement means for it, what it costs, what a store on it holds, and
+what each method has to do. A tile with a question left open is refused,
+and so is one named like a tile tilegen already has.
+[docs/TILES.md](docs/TILES.md) has the form.
+
 ## As a service
 
 `tilegen serve` answers over HTTP: a spec in, a scaffolded project out.

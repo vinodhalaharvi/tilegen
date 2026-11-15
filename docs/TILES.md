@@ -627,6 +627,12 @@ Any other `{word}` is refused as a misspelling; Go's own braces, as in
 language: no conditions and no loops. A tile that needs to compute
 something from the entity is asking for Go.
 
+A tile of your own goes in a folder of your own, and `-tiles DIR` before
+any command adds what is in it: `tilegen -tiles ./tiles explain
+spec.sexp`. `tilegen import -tiles` writes a skeleton there for each
+library in a go.mod that no tile covers. A (tile-spec ...) is not part of
+a project's spec, and is refused in one.
+
 `tilegen tiles` lists the tiles there are, with what each claims.
 
 ### A SQL backend

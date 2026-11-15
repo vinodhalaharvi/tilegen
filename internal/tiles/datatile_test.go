@@ -113,7 +113,7 @@ func TestATileFileIsRefusedForWhatIsWrongWithIt(t *testing.T) {
 		"not a tile":        {`(project x)`, "a tile file holds (tile-spec ...) forms, got (project x)"},
 		"unparsable":        {`(tile-spec rocks`, "unclosed"},
 		"no constructor":    {change(`(new (params (db *rocks.DB) (seen "map[{id}]bool"))`, `(holdz (params) `), "a tile-spec contains"},
-		"holds without new": {strings.Replace(change(`(hint custom "Do it for {names}.")`, ""), `(new (params (db *rocks.DB) (seen "map[{id}]bool"))`+"\n    "+`"return &{impl}{db: db, prefix: \"{names}/\", cache: map[{id}]*{entity}{}} // {name}")`, "", 1), "is whole when it has both (holds ...) and (new ...)"},
+		"holds without new": {strings.Replace(change(`(hint custom "Do it for {names}.")`, ""), `(new (params (db *rocks.DB) (seen "map[{id}]bool"))`+"\n    "+`"return &{impl}{db: db, prefix: \"{names}/\", cache: map[{id}]*{entity}{}} // {name}")`, "", 1), "(tile-spec rocks ...) needs (holds ...) and (new ...)"},
 		"a misspelt name":   {change("{names}/", "{entitys}/"), "{entitys} is not a name tilegen fills in; it knows {impl}, {entity}, {name}, {names}, {id}"},
 		"a name in a type":  {change(`(prefix string)`, `(prefix "{nam}")`), "{nam} is not a name tilegen fills in"},
 		"a field elsewhere": {change("Get the {entity}", "Get the {field}"), "(hint get ...) uses {field}, and only a by-field method has one"},
@@ -138,7 +138,7 @@ func TestATileFileIsRefusedForWhatIsWrongWithIt(t *testing.T) {
 
 	// Without what the store holds, it is a tile still to be written in Go.
 	half := rocks[:strings.Index(rocks, "  (holds")] + ")"
-	if _, err := LoadTiles("rocks.sexp", half); err == nil || !strings.Contains(err.Error(), "(tile-spec rocks ...) is not whole: it needs (holds ...) and (new ...)") {
+	if _, err := LoadTiles("rocks.sexp", half); err == nil || !strings.Contains(err.Error(), "(tile-spec rocks ...) needs (holds ...) and (new ...)") {
 		t.Errorf("a tile with nothing to hold: %v", err)
 	}
 }

@@ -172,10 +172,11 @@ func Tiles(dir, outDir string, force, withSymbols bool, stdout io.Writer) error 
 		}
 		fmt.Fprintf(stdout, "  wrote  %s\n", path.Join(outDir, name+".sexp"))
 	}
-	fmt.Fprintf(stdout, "\nEach skeleton needs four things only you know: what kind of tile it is,\n"+
-		"one line of doc, what it cannot do, and what it costs. They are marked\n"+
-		"TODO and the validator will not let a tile through without them.\n"+
-		"Then: tilegen -out . %s/NAME.sexp\n", outDir)
+	fmt.Fprintf(stdout, "\nEach skeleton asks what only you know: what kind of tile it is, one line\n"+
+		"of doc, what each requirement means for it, what it costs, what a store\n"+
+		"on it holds, and what each method has to do. They are marked TODO, and a\n"+
+		"tile with one left is refused.\n"+
+		"Then: tilegen -tiles %s tiles\n", outDir)
 	return nil
 }
 
@@ -275,7 +276,7 @@ func tileNameFor(module string) string {
 }
 
 // tileSpecSkeleton writes what go.mod states and marks the rest TODO. The
-// judgment fields are left as comments rather than plausible defaults: a
+// judgment fields are left as questions rather than plausible defaults: a
 // guessed (illegal-when ...) reads exactly like a real one in explain, and
 // that is the one place a wrong answer would not look wrong.
 func tileSpecSkeleton(name string, c tileCoverage) string {
@@ -283,55 +284,67 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	var b strings.Builder
 
 	fmt.Fprintf(&b, "; Skeleton from go.mod: %s %s.\n", c.Module, c.Version)
-	b.WriteString("; The import, version and qualifier are what go.mod states. Everything\n")
-	b.WriteString("; marked TODO is judgment, and tilegen will not guess it: a wrong\n")
+	b.WriteString("; The import and qualifier are what go.mod states. Everything marked\n")
+	b.WriteString("; TODO is judgment, and tilegen will not guess it: a wrong\n")
 	b.WriteString("; (illegal-when ...) reads exactly like a right one in explain.\n;\n")
-	b.WriteString(";   tilegen -out . SPEC     generate the tile, with two holes\n")
-	b.WriteString(";   tilegen fill -out . SPEC\n\n")
+	b.WriteString("; Once every TODO is answered this file is the tile:\n")
+	b.WriteString(";   tilegen -tiles DIR tiles           lists it beside the others\n")
+	b.WriteString(";   tilegen -tiles DIR explain SPEC    shows where it wins and why\n\n")
 
-	b.WriteString("(project tilegen-tiles\n")
-	b.WriteString("  (module github.com/vinodhalaharvi/tilegen)\n")
-	b.WriteString("  (go 1.26)\n")
-	fmt.Fprintf(&b, "  (require (%s %s %s))\n\n", qual, c.Module, c.Version)
-	b.WriteString("  (package tiles\n    (dir \"internal/tiles\")\n\n")
+	fmt.Fprintf(&b, "(tile-spec %s\n", name)
+	fmt.Fprintf(&b, "  ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tiles.TileKinds, ", "))
+	b.WriteString("  ; If it is none of them, this module is not a tile: delete this file.\n")
+	b.WriteString("  (kind TODO)\n\n")
+	b.WriteString("  ; TODO: the one line `tilegen tiles` prints.\n")
+	b.WriteString("  (doc \"TODO\")\n\n")
+	fmt.Fprintf(&b, "  (import %s %s)\n", qual, importPathFor(c.Module))
+	fmt.Fprintf(&b, "  (error-package %s)\n", qual)
+	fmt.Fprintf(&b, "  (topics %s)\n\n", name)
 
-	fmt.Fprintf(&b, "    (tile-spec %s\n", name)
-	fmt.Fprintf(&b, "      ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tiles.TileKinds, ", "))
-	b.WriteString("      ; If it is none of them, this module is not a tile: delete this file.\n")
-	b.WriteString("      (kind TODO)\n\n")
-	b.WriteString("      ; TODO: the one line `tilegen tiles` prints.\n")
-	b.WriteString("      (doc \"TODO\")\n\n")
-	fmt.Fprintf(&b, "      (import %s %s)\n", qual, importPathFor(c.Module))
-	fmt.Fprintf(&b, "      (error-package %s)\n", qual)
-	fmt.Fprintf(&b, "      (topics %s)\n\n", name)
-
-	b.WriteString("      ; TODO: answer each requirement a spec can state for this kind of\n")
-	b.WriteString("      ; tile, with the reason a person will read in explain. It is met\n")
-	b.WriteString("      ; (satisfies), it rules this tile out (illegal-when), or nobody has\n")
-	b.WriteString("      ; checked (unverified). Saying nothing about one is refused.\n")
+	b.WriteString("  ; TODO: answer each requirement a spec can state for this kind of\n")
+	b.WriteString("  ; tile, with the reason a person will read in explain. It is met\n")
+	b.WriteString("  ; (satisfies), it rules this tile out (illegal-when), or nobody has\n")
+	b.WriteString("  ; checked (unverified). Saying nothing about one is refused.\n")
 	for _, kind := range tiles.TileKinds {
 		if c := compile.Capabilities[tiles.TileKindCapability[kind]]; c != nil {
-			writeWrapped(&b, "      ; "+kind+": ", "      ;   ", c.Requirements)
+			writeWrapped(&b, "  ; "+kind+": ", "  ;   ", c.Requirements)
 		}
 	}
-	b.WriteString("      (satisfies (TODO) \"TODO\")\n")
-	b.WriteString("      (illegal-when (TODO) \"TODO\")\n")
-	b.WriteString("      (unverified (TODO) \"TODO\")\n\n")
+	b.WriteString("  (satisfies (TODO) \"TODO\")\n")
+	b.WriteString("  (illegal-when (TODO) \"TODO\")\n")
+	b.WriteString("  (unverified (TODO) \"TODO\")\n\n")
 
-	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
+	b.WriteString("  ; TODO: what it costs, each a whole number. For comparison:\n")
 	for _, kind := range tiles.TileKinds {
 		if cmp := KindComparison(kind); cmp != "" {
-			fmt.Fprintf(&b, "      ;   %s: %s\n", kind, cmp)
+			fmt.Fprintf(&b, "  ;   %s: %s\n", kind, cmp)
 		}
 	}
-	b.WriteString("      (cost\n")
-	b.WriteString("        (llm-work TODO (source user \"TODO: how much must be written by hand?\"))\n")
-	b.WriteString("        (maintenance TODO (source user \"TODO: what goes wrong over months?\"))\n")
-	b.WriteString("        (dependency TODO (source user \"TODO: what does it pull in, and what must be installed?\"))\n")
-	b.WriteString("        (runtime TODO (source user \"TODO: what does a call cost when the program runs?\"))\n")
-	b.WriteString("        ; and, when someone has to run a server for it:\n")
-	b.WriteString("        ; (operations N (source user \"what is there to run, back up and upgrade?\"))\n")
-	b.WriteString("        ))))\n")
+	b.WriteString("  (cost\n")
+	b.WriteString("    (llm-work TODO (source user \"TODO: how much must be written by hand?\"))\n")
+	b.WriteString("    (maintenance TODO (source user \"TODO: what goes wrong over months?\"))\n")
+	b.WriteString("    (dependency TODO (source user \"TODO: what does it pull in, and what must be installed?\"))\n")
+	b.WriteString("    (runtime TODO (source user \"TODO: what does a call cost when the program runs?\"))\n")
+	b.WriteString("    ; and, when someone has to run a server for it:\n")
+	b.WriteString("    ; (operations N (source user \"what is there to run, back up and upgrade?\"))\n")
+	b.WriteString("    )\n\n")
+
+	b.WriteString("  ; TODO: what the generated store keeps, and the constructor that fills\n")
+	b.WriteString("  ; it. tilegen fills in {impl} (the store's type), {entity}, {name} and\n")
+	b.WriteString("  ; {names} (note, notes) and {id} (the type of the ID).\n")
+	fmt.Fprintf(&b, "  (holds (TODO %s.TODO))\n", qual)
+	fmt.Fprintf(&b, "  (new (params (TODO %s.TODO))\n", qual)
+	b.WriteString("    \"TODO: return &{impl}{...}\")\n\n")
+
+	b.WriteString("  ; TODO: what each kind of method has to do, in this library's own\n")
+	b.WriteString("  ; terms: the calls to make, the error that means not found, what must\n")
+	b.WriteString("  ; be closed. Add list-by, get-by, count-by, exists-by and delete-by if\n")
+	b.WriteString("  ; the tile serves (lookup-by-field); {field} and {param} name the field\n")
+	b.WriteString("  ; and the parameter that carries its value.\n")
+	for _, op := range []string{"get", "list", "save", "delete", "count"} {
+		fmt.Fprintf(&b, "  (hint %s \"TODO\")\n", op)
+	}
+	b.WriteString("  )\n")
 	return b.String()
 }
 

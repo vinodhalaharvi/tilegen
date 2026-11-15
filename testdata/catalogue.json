@@ -329,19 +329,6 @@
       ]
     },
     {
-      "name": "tile-spec",
-      "pass": "select",
-      "doc": "a tile for tilegen itself: the registration compiled, the judgment left open",
-      "produces": "go/file",
-      "cost": {
-        "llm-work": 2,
-        "maintenance": 1
-      },
-      "covers": [
-        "(tile-spec ?name ?items...)"
-      ]
-    },
-    {
       "name": "catch-all",
       "pass": "select",
       "doc": "covers anything no other tile covers: the LLM as the tile of last resort",

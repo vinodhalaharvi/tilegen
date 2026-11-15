@@ -4412,43 +4412,6 @@ func priceOn(r compile.Running, o *compile.Offer, score int, p *compile.Policy) 
 	return cost
 }
 
-// TestTileSpecDeclaresItsEngine: a tile written as a (tile-spec ...) says
-// what it runs on, and the generated registration carries it.
-func TestTileSpecDeclaresItsEngine(t *testing.T) {
-	const spec = `(project tiles (module example.com/tiles) (go 1.22)
-  (package main (dir ".")
-    (tile-spec rocks
-      (kind store-backend)
-      (doc "embedded key-value on the cockroach engine")
-      (engine cockroach)
-      %s
-      (satisfies (durable) "a synced log") (satisfies (no-broker) "a library")
-      (illegal-when (cross-process) "one process holds the directory") (illegal-when (lookup-by-field) "keys only")
-      (unverified (outbox) "not generated") (unverified (inbox) "not generated")
-      (cost (llm-work 4) (maintenance 3)))))`
-	dir := t.TempDir()
-	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, ""), "")
-	out := filepath.Join(dir, "out")
-	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	filepath.WalkDir(out, func(path string, d os.DirEntry, err error) error {
-		if err == nil && strings.HasSuffix(path, ".go") {
-			b, _ := os.ReadFile(path)
-			// gofmt may align the field, so compare with the spaces removed.
-			found = found || strings.Contains(strings.Join(strings.Fields(string(b)), ""), `Engine:"cockroach",`)
-		}
-		return nil
-	})
-	if !found {
-		t.Error(`the generated tile should carry Engine: "cockroach"`)
-	}
-	if err := validateSrc(t, fmt.Sprintf(spec, "(engine again)"), false); err == nil || !strings.Contains(err.Error(), "duplicate (engine ...)") {
-		t.Errorf("a second (engine ...) should be reported: %v", err)
-	}
-}
-
 func TestGenerateSaysWhatToRunNext(t *testing.T) {
 	// A sqlc project does not build until sqlc has written its package,
 	// and Go's own error for that is about a repository it cannot find.

@@ -1,14 +1,11 @@
 package main
 
 import (
-	"encoding/json"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -16,130 +13,6 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 )
-
-// A tile-spec generates a file of tilegen's own. Whatever tilegen's
-// packages are called, that file has to compile where it is meant to go:
-// this builds tilegen with a freshly generated tile in place of the one
-// checked in.
-func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
-	if testing.Short() {
-		t.Skip("builds tilegen")
-	}
-	gen := t.TempDir()
-	if err := run(compile.Options{Spec: "examples/tilespec", Out: gen}, io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	tile, err := os.ReadFile(filepath.Join(gen, "internal", "tiles", "store_badger.go"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Count(string(tile), "tilegen:hole") != 2 {
-		t.Fatalf("a fresh tile has two holes:\n%s", tile)
-	}
-
-	// The files a task tells the model to read are files tilegen has.
-	raw, err := os.ReadFile(filepath.Join(gen, "tilegen.tasks.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var tasks struct {
-		Tasks []struct {
-			ID      string   `json:"id"`
-			File    string   `json:"file"`
-			Context []string `json:"context_files"`
-		} `json:"tasks"`
-	}
-	if err := json.Unmarshal(raw, &tasks); err != nil || len(tasks.Tasks) != 2 {
-		t.Fatalf("the tasks: %v\n%s", err, raw)
-	}
-	for _, task := range tasks.Tasks {
-		if len(task.Context) == 0 {
-			t.Errorf("%s names no file to read", task.ID)
-		}
-		for _, f := range task.Context {
-			if f == task.File {
-				continue
-			}
-			if _, err := os.Stat(f); err != nil {
-				t.Errorf("%s tells the model to read %s, which tilegen does not have", task.ID, f)
-			}
-		}
-	}
-
-	// Every function of tilegen's a task names is one tilegen has.
-	named := regexp.MustCompile(`\b(compile|sexp)\.([A-Z][A-Za-z0-9_]*)`).FindAllStringSubmatch(string(raw), -1)
-	if len(named) < 5 {
-		t.Errorf("the tasks name %d of tilegen's functions; the intents should say what to call", len(named))
-	}
-	sources := map[string]string{}
-	for _, m := range named {
-		pkg, name := m[1], m[2]
-		if sources[pkg] == "" {
-			files, _ := filepath.Glob(filepath.Join("internal", pkg, "*.go"))
-			for _, f := range files {
-				b, _ := os.ReadFile(f)
-				sources[pkg] += string(b)
-			}
-		}
-		declared := regexp.MustCompile(`(?m)^(func |type |var |const |\t)` + name + `\b|^func \([^)]*\) ` + name + `\(`)
-		if !declared.MatchString(sources[pkg]) {
-			t.Errorf("a task names %s.%s, which internal/%s does not declare", pkg, name, pkg)
-		}
-	}
-
-	// A copy of what a build of tilegen reads.
-	copyOf := t.TempDir()
-	keep := func(rel string, d fs.DirEntry) bool {
-		top := strings.Split(rel, string(filepath.Separator))[0]
-		if d.IsDir() {
-			return rel == "." || top == "internal" || top == "web"
-		}
-		switch {
-		case top == "internal" || top == "web":
-			return !strings.HasSuffix(rel, "_test.go")
-		case rel == "go.mod" || rel == "go.sum" || rel == "README.md":
-			return true
-		}
-		return filepath.Dir(rel) == "." && strings.HasSuffix(rel, ".go") && !strings.HasSuffix(rel, "_test.go")
-	}
-	err = filepath.WalkDir(".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if !keep(p, d) {
-			if d.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if d.IsDir() {
-			return os.MkdirAll(filepath.Join(copyOf, p), 0o755)
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(filepath.Join(copyOf, p), b, 0o644)
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	// The copy has badger once: as the Go file just generated, in place of
-	// the data file tilegen ships.
-	if err := os.Remove(filepath.Join(copyOf, "internal", "tiles", "specs", "badger.sexp")); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(copyOf, "internal", "tiles", "store_badger.go"), tile, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	for _, args := range [][]string{{"build", "./..."}, {"vet", "./internal/tiles"}} {
-		cmd := exec.Command("go", args...)
-		cmd.Dir = copyOf
-		if out, err := cmd.CombinedOutput(); err != nil {
-			t.Fatalf("tilegen with a freshly generated tile: go %s: %v\n%s", strings.Join(args, " "), err, out)
-		}
-	}
-}
 
 // specTiles are the tiles that are data: the file, and the tile it holds.
 func specTiles(t *testing.T) map[string]string {
@@ -261,21 +134,157 @@ func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
 	}
 }
 
-// A tile-spec that is whole has nothing to scaffold: inside a project it
-// is refused, with where it belongs.
-func TestAWholeTileSpecIsNotScaffolded(t *testing.T) {
+// A tile is a file of its own. Inside a project it is refused, with where
+// it belongs, rather than becoming a hole for a model to fill.
+func TestATileSpecIsNotPartOfAProject(t *testing.T) {
 	src, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	whole := strings.Replace(string(src), "(tile-spec pebble", "(tile-spec rocks", 1)
-	dir := t.TempDir()
-	sp, _ := writeSpec(t, dir, "(project tiles (module example.com/tiles) (go 1.22)\n  (package main (dir \".\")\n"+whole+"))", "")
-	err = run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "(tile-spec rocks ...) is whole") || !strings.Contains(err.Error(), "there is nothing to scaffold") {
-		t.Fatalf("got %v", err)
+	tile := strings.Replace(string(src), "(tile-spec pebble", "(tile-spec rocks", 1)
+	for name, spec := range map[string]string{
+		"in a package": "(project p (module example.com/p) (go 1.22)\n  (package main (dir \".\")\n" + tile + "))",
+		"at the top":   "(project p (module example.com/p) (go 1.22)\n  (package main (dir \".\")))\n" + tile,
+	} {
+		dir := t.TempDir()
+		sp, _ := writeSpec(t, dir, spec, "")
+		err = run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+		if err == nil || !strings.Contains(err.Error(), "(tile-spec ...) is not part of a project: a tile is a file of its own, in a folder tilegen is given with -tiles DIR") {
+			t.Errorf("%s: got %v", name, err)
+		}
+		if left, _ := os.ReadDir(filepath.Join(dir, "out")); len(left) != 0 {
+			t.Errorf("%s: %d entries were written", name, len(left))
+		}
 	}
-	if _, statErr := os.Stat(filepath.Join(dir, "out", "store_rocks.go")); statErr == nil {
-		t.Error("a file was written for it")
+}
+
+// A folder that cannot be a team's tiles is refused whole: nothing in it
+// is registered.
+func TestOwnTilesAreRefusedForWhatIsWrong(t *testing.T) {
+	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	as := func(name string) string {
+		return strings.Replace(string(pebble), "(tile-spec pebble", "(tile-spec "+name, 1)
+	}
+	before := len(compile.Backends)
+	for name, c := range map[string]struct {
+		files map[string]string
+		want  string
+	}{
+		"empty":          {map[string]string{"README.md": "x"}, "no .sexp files in it"},
+		"a name taken":   {map[string]string{"a.sexp": as("rocks"), "b.sexp": string(pebble)}, "tilegen already has a tile called pebble; give this one a name of its own"},
+		"a short name":   {map[string]string{"a.sexp": strings.Replace(as("rocks"), "(kind store-backend)", "(kind store-backend) (alias pgx)", 1)}, "tilegen already has a tile called pgx"},
+		"another kind's": {map[string]string{"a.sexp": as("kafka")}, "tilegen already has a tile called kafka"},
+		"the same twice": {map[string]string{"a.sexp": as("rocks"), "b.sexp": as("rocks")}, "rocks is also the name of a tile in"},
+		"a tile unfinished": {map[string]string{"a.sexp": as("rocks"), "b.sexp": strings.Replace(as("stone"), `(hint get`, `(hint get "TODO") (hint list`, 1)},
+			"is still a TODO"},
+	} {
+		dir := t.TempDir()
+		for file, src := range c.files {
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(src), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		added, err := tiles.LoadDir(dir)
+		if err == nil || !strings.Contains(err.Error(), c.want) || len(added) != 0 {
+			t.Errorf("%s: want %q, got %v (%v added)", name, c.want, err, added)
+		}
+	}
+	if _, err := tiles.LoadDir(filepath.Join(t.TempDir(), "none")); err == nil || !strings.Contains(err.Error(), "not a folder of tile files") {
+		t.Errorf("a folder that is not there: %v", err)
+	}
+	if len(compile.Backends) != before || compile.Backends["rocks"] != nil {
+		t.Errorf("a refused folder registered something: %d backends, was %d", len(compile.Backends), before)
+	}
+
+	// And the flag: only at the front, once per folder, and it needs its folder.
+	if rest, err := ownTiles([]string{"explain", "-tiles", "x"}); err != nil || strings.Join(rest, " ") != "explain -tiles x" {
+		t.Errorf("-tiles after the command belongs to the command: %v %v", rest, err)
+	}
+	if rest, err := ownTiles(nil); err != nil || len(rest) != 0 {
+		t.Errorf("no arguments: %v %v", rest, err)
+	}
+	for _, args := range [][]string{{"-tiles"}, {"--tiles"}} {
+		if _, err := ownTiles(args); err == nil || !strings.Contains(err.Error(), "-tiles needs a folder") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+	for _, args := range [][]string{{"-tiles", "/no/such"}, {"-tiles=/no/such", "tiles"}, {"--tiles=/no/such"}} {
+		if _, err := ownTiles(args); err == nil || !strings.Contains(err.Error(), "not a folder of tile files") {
+			t.Errorf("%v: %v", args, err)
+		}
+	}
+}
+
+// A team's own tile, in a folder of its own, is a tile like any built in:
+// listed, explained, and generated from. This runs tilegen itself, since a
+// tile once registered stays for the life of the program.
+func TestOwnTilesTakePart(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds tilegen")
+	}
+	bin := filepath.Join(t.TempDir(), "tilegen")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	own := t.TempDir()
+	rocks := strings.NewReplacer("(tile-spec pebble", "(tile-spec rocks", "(kind store-backend)", "(kind store-backend)\n  (alias rk)",
+		"(llm-work 5", "(llm-work 0", "(maintenance 3", "(maintenance 0", "(dependency 3", "(dependency 0", "(runtime 2", "(runtime 0").Replace(string(pebble))
+	if err := os.WriteFile(filepath.Join(own, "rocks.sexp"), []byte(rocks), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	spec := filepath.Join(dir, "spec.sexp")
+	if err := os.WriteFile(spec, []byte(`(project notes (module example.com/notes) (go 1.22)
+  (package notes (entity Note (field ID string) (field Title string) (store get save (durable)))))
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tilegen := func(args ...string) (string, error) {
+		cmd := exec.Command(bin, args...)
+		cmd.Dir = dir
+		out, err := cmd.CombinedOutput()
+		return string(out), err
+	}
+
+	// Without the folder there is no such tile; with it, it is listed, and
+	// being free it wins the store.
+	if out, _ := tilegen("tiles"); strings.Contains(out, "rocks") {
+		t.Errorf("rocks is listed without its folder:\n%s", out)
+	}
+	if out, err := tilegen("-tiles", own, "tiles"); err != nil || !strings.Contains(out, "rocks") {
+		t.Errorf("rocks is not listed: %v\n%s", err, out)
+	}
+	out, err := tilegen("-tiles="+own, "explain", "spec.sexp")
+	if err != nil || !strings.Contains(out, "chosen  rocks") {
+		t.Fatalf("explain with the folder: %v\n%s", err, out)
+	}
+	if out, err := tilegen("-tiles", own, "-out", "out", "spec.sexp"); err != nil {
+		t.Fatalf("generate: %v\n%s", err, out)
+	}
+	store, err := os.ReadFile(filepath.Join(dir, "out", "notes", "rk_note_store.go"))
+	if err != nil {
+		found, _ := filepath.Glob(filepath.Join(dir, "out", "notes", "*"))
+		t.Fatalf("the store on rocks: %v (have %v)", err, found)
+	}
+	for _, want := range []string{"type RkNoteStore struct", "db     *pebble.DB", `return &RkNoteStore{db: db, prefix: "notes/"}`} {
+		if !strings.Contains(string(store), want) {
+			t.Errorf("the generated store has no %q:\n%s", want, store)
+		}
+	}
+	// Its hints are what the model is told for each method.
+	if tasks, _ := os.ReadFile(filepath.Join(dir, "out", "tilegen.tasks.json")); !strings.Contains(string(tasks), "Map pebble.ErrNotFound to ErrNotFound") {
+		t.Errorf("the tasks do not carry the tile's hint for get:\n%s", tasks)
+	}
+	// A later run without the folder does not know the tile the lock
+	// names: it says so, and chooses again from the tiles it has.
+	if out, err := tilegen("-out", "out", "spec.sexp"); err != nil || !strings.Contains(out, `tile "rocks" offers no store any more; re-selected`) {
+		t.Errorf("a project locked to rocks, generated without it: %v\n%s", err, out)
 	}
 }

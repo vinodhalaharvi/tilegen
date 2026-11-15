@@ -309,7 +309,9 @@ func (v *Validator) pkg(p *sexp.Node, seen map[string]bool) {
 				v.Bad(it, "%s leaves the project: a package's folder is a path inside <out>, such as \"internal/orders\" or \".\"", Short(it))
 			}
 		default:
-			if s := Closest(it.Head(), knownPackageForms()); s != "" {
+			if where, ok := Elsewhere[it.Head()]; ok {
+				v.Bad(it, "(%s ...) is not part of a project: %s", it.Head(), where)
+			} else if s := Closest(it.Head(), knownPackageForms()); s != "" {
 				// A likely typo is an error: it must not quietly become an LLM task.
 				v.Bad(it, "unknown form %s (did you mean %s?)", Short(it), s)
 			} else if v.c.Strict {
