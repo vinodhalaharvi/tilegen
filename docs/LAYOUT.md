@@ -9,10 +9,10 @@ works; everything else is under `internal/`.
 | `main` (the root) | the command line: `main.go` and the `explain`, `plan` and `tiles` commands. It also embeds the studio's files and the README, and hands them to the packages that serve them |
 | `internal/sexp` | S-expressions: `Node`, `Parse`, the printers, and pattern matching |
 | `internal/compile` | the compiler: capabilities, offers, costs and the registries; the solver, policy and the lock file; validation, the three passes, plan and emit; the workspace; and the forms for events, API, auth, secrets and transport. It declares what can be asked for and holds no tile of its own |
-| `internal/tiles` | every built-in tile, one file each: stores, event buses, API styles, auth schemes and secret sources; and the `tile-spec` form. Importing it registers them |
+| `internal/tiles` | every built-in tile, one file each: stores, event buses, API styles, auth schemes and secret sources; the `tile-spec` form, and the storage tiles written in it under `specs/`. Importing it registers them |
 | `internal/fill` | `tilegen fill`, `tilegen prompt`, and the API surface a prompt carries |
 | `internal/symbols` | what a library exports, read by the type checker; `symbolstest` beside it is the small module its tests read |
-| `internal/importer` | reading what a team already has: go.mod coverage, `tilegen import`, tile-spec skeletons, and drafting a tile with a model |
+| `internal/importer` | reading what a team already has: go.mod coverage, `tilegen import`, tile skeletons, and drafting a tile with a model |
 | `internal/serve` | the HTTP service, the studio page, the docs pages, and the key |
 | `internal/mcpserver` | the MCP server |
 

@@ -18,7 +18,6 @@ select      auth            auth           llm 0, maint 0, dep 0                
 select      events          event-bus      llm 0, maint 0, dep 0                                                                                         event structs, a typed Bus interface, and an in-process LocalBus
 select      http            go/file        llm 2, maint 1, dep 0                                                                                         a Handler and ServeMux over the package's stores
 select      secrets         secrets        llm 0, maint 0, dep 0                                                                                         a typed Secrets interface and its implementation, from wherever the requirements allow
-select      tile-spec       go/file        llm 2, maint 1                                                                                                a tile for tilegen itself: the registration compiled, the judgment left open
 select      catch-all       llm/task       llm 10, unc 10                                                                                                covers anything no other tile covers: the LLM as the tile of last resort
 select      connect         api            llm 2, maint 2, dep 2                buf (missing), protoc-gen-go (missing), protoc-gen-connect-go (missing)  a .proto and a Connect server: Connect, gRPC and gRPC-Web on net/http
 select      grpc            api            llm 2, maint 2, dep 3                buf (missing), protoc-gen-go (missing), protoc-gen-go-grpc (missing)     a .proto and a grpc-go server
@@ -53,7 +52,7 @@ select      nats-core       transport      llm 2, maint 1, dep 2, run 1, ops 2  
 select      doc-mapper      domain                                                                                                                       decodes mongo documents into domain types, by hand
 select      row-mapper      domain                                                                                                                       converts sqlc's row types to domain types, by hand
 
-53 tile(s).
+52 tile(s).
 capability api        offered by connect, grpc, http-json
 capability auth       offered by api-key, jwt-local, oidc, session-store
 capability event-bus  offered by kafka, local-bus, nats-core, nats-jetstream, rabbitmq, redis-streams

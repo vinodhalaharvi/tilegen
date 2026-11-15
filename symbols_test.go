@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -175,10 +174,10 @@ func TestImportTilesWithSymbols(t *testing.T) {
 	stubSymbols(t, m, nil)
 	dir := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire (\n\texample.com/kv v0.1.0\n\texample.com/gone v1.0.0\n)\n"})
 	var out bytes.Buffer
-	if err := importer.Tiles(dir, "tilespecs", false, true, &out); err != nil {
+	if err := importer.Tiles(dir, "tiles", false, true, &out); err != nil {
 		t.Fatal(err)
 	}
-	kv, err := os.ReadFile(filepath.Join(dir, "tilespecs", "kv.sexp"))
+	kv, err := os.ReadFile(filepath.Join(dir, "tiles", "kv.sexp"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,17 +194,17 @@ func TestImportTilesWithSymbols(t *testing.T) {
 			t.Errorf("trailing space: %q", line)
 		}
 	}
-	gone, _ := os.ReadFile(filepath.Join(dir, "tilespecs", "gone.sexp"))
+	gone, _ := os.ReadFile(filepath.Join(dir, "tiles", "gone.sexp"))
 	if !strings.Contains(string(gone), "; The module's symbols could not be read: cannot fetch example.com/gone") {
 		t.Errorf("a module that cannot be read should say so:\n%s", gone)
 	}
 	// Without the flag the skeleton is what go.mod states and nothing more.
 	plain := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire example.com/kv v0.1.0\n"})
 	calls := stubSymbols(t, m, nil)
-	if err := importer.Tiles(plain, "tilespecs", false, false, &out); err != nil {
+	if err := importer.Tiles(plain, "tiles", false, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(filepath.Join(plain, "tilespecs", "kv.sexp")); strings.Contains(string(b), "What the module exports") || *calls != 0 {
+	if b, _ := os.ReadFile(filepath.Join(plain, "tiles", "kv.sexp")); strings.Contains(string(b), "What the module exports") || *calls != 0 {
 		t.Error("symbols were read without -symbols")
 	}
 }
@@ -325,10 +324,10 @@ func TestMCPSymbolTools(t *testing.T) {
 func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	dir := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire example.com/kv v0.1.0\n"})
 	var out bytes.Buffer
-	if err := importer.Tiles(dir, "tilespecs", false, false, &out); err != nil {
+	if err := importer.Tiles(dir, "tiles", false, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	file := filepath.Join(dir, "tilespecs", "kv.sexp")
+	file := filepath.Join(dir, "tiles", "kv.sexp")
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
@@ -357,26 +356,23 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 		t.Errorf("the comparison: %q", cmp)
 	}
 
-	// As written it is refused, one line per open question, and writes nothing.
-	target := t.TempDir()
-	err = run(compile.Options{Spec: file, Out: target}, io.Discard)
+	// As written it is refused, one line per open question.
+	_, err = tiles.LoadDir(filepath.Join(dir, "tiles"))
 	if err == nil {
-		t.Fatal("a skeleton with its TODOs open was generated from")
+		t.Fatal("a skeleton with its TODOs open was loaded")
 	}
 	for _, want := range []string{"(kind TODO) is still a TODO", `(doc "TODO") is still a TODO`, `(satisfies (TODO) "TODO") is still a TODO`, `(illegal-when (TODO) "TODO") is still a TODO`,
-		`(unverified (TODO) "TODO") is still a TODO`, "(cost (llm-work TODO", "answer it before this tile can be used"} {
+		`(unverified (TODO) "TODO") is still a TODO`, "(cost (llm-work TODO", "(holds (TODO kv.TODO)) is still a TODO", "(new (params (TODO kv.TODO))", `(hint get "TODO") is still a TODO`,
+		`(hint count "TODO") is still a TODO`, "answer it before this tile can be used"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal should say %q:\n%v", want, err)
 		}
 	}
-	if strings.Count(err.Error(), "is still a TODO") != 6 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
+	if strings.Count(err.Error(), "is still a TODO") != 13 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
 		t.Errorf("each open question should be reported once, and nothing else:\n%v", err)
 	}
-	if left, _ := os.ReadDir(target); len(left) != 0 {
-		t.Errorf("the refused skeleton wrote %d entries", len(left))
-	}
 
-	// Answered, it is a tile-spec like any other.
+	// Answered, it is a tile.
 	answered := skel
 	for old, new := range map[string]string{
 		"(kind TODO)": "(kind store-backend)", `(doc "TODO")`: `(doc "a key-value store in one file")`,
@@ -386,31 +382,18 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 		`(satisfies (TODO) "TODO")`:    `(satisfies (durable) "a synced write") (satisfies (no-broker) "a file and a library")`,
 		`(illegal-when (TODO) "TODO")`: `(illegal-when (cross-process) "one process holds the file") (illegal-when (lookup-by-field) "keys only")`,
 		`(unverified (TODO) "TODO")`:   `(unverified (outbox) "not generated") (unverified (inbox) "not generated")`,
+		"(holds (TODO kv.TODO))":       "(holds (db *kv.DB))", "(new (params (TODO kv.TODO))": "(new (params (db *kv.DB))",
+		`"TODO: return &{impl}{...}"`: `"return &{impl}{db: db}"`,
+		`(hint get "TODO")`:           `(hint get "Call s.db.Get with the ID.")`, `(hint list "TODO")`: `(hint list "Walk s.db.Keys().")`,
+		`(hint save "TODO")`: `(hint save "Call s.db.Put.")`, `(hint delete "TODO")`: `(hint delete "Call s.db.Delete.")`, `(hint count "TODO")`: `(hint count "Return s.db.Len().")`,
 	} {
 		if !strings.Contains(answered, old) {
 			t.Fatalf("the skeleton has no %s to answer", old)
 		}
 		answered = strings.Replace(answered, old, new, 1)
 	}
-	if err := os.WriteFile(file, []byte(answered), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := run(compile.Options{Spec: file, Out: target}, io.Discard); err != nil {
+	read, err := tiles.LoadTiles(file, answered)
+	if err != nil || len(read) != 1 || read[0].Tile != "kv" || read[0].Imports["kv"] != "example.com/kv" {
 		t.Fatalf("an answered skeleton was refused: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(target, "internal", "tiles", "store_kv.go")); err != nil {
-		t.Errorf("an answered skeleton generated no tile: %v", err)
-	}
-	// A TODO left in one place is still caught, and words that merely
-	// contain it are not.
-	for _, n := range []*sexp.Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {IsList: true, List: []*sexp.Node{{Atom: "TODO"}}}}}} {
-		if !tiles.Unanswered(n) {
-			t.Errorf("%s should count as unanswered", compile.Short(n))
-		}
-	}
-	for _, n := range []*sexp.Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {Atom: "done"}}}} {
-		if tiles.Unanswered(n) {
-			t.Errorf("%s should not count as unanswered", compile.Short(n))
-		}
 	}
 }

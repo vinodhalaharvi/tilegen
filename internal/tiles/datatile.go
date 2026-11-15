@@ -4,6 +4,8 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -45,8 +47,8 @@ func init() {
 	}
 }
 
-// LoadTiles reads a file of whole (tile-spec ...) forms and returns the
-// tiles they describe, checked but not registered.
+// LoadTiles reads a file of (tile-spec ...) forms and returns the tiles
+// they describe, checked but not registered.
 func LoadTiles(file, src string) ([]*compile.Backend, error) {
 	forms, err := sexp.Parse(file, src)
 	if err != nil {
@@ -71,7 +73,7 @@ func loadTile(n *sexp.Node) (*compile.Backend, error) {
 		return nil, fmt.Errorf("%s: a tile file holds (tile-spec ...) forms, got %s", n.Pos, compile.Short(n))
 	}
 	if err := compile.Check(func(v *compile.Validator) {
-		validateTileSpec(v, n, map[string]bool{})
+		validateTileSpec(v, n)
 	}); err != nil {
 		return nil, err
 	}
@@ -79,18 +81,10 @@ func loadTile(n *sexp.Node) (*compile.Backend, error) {
 	if kind := n.Text("kind"); kind != "store-backend" {
 		return nil, fmt.Errorf("%s: (tile-spec %s ...): a tile read from a file is a store-backend, got %q", n.Pos, name, kind)
 	}
-	if !Whole(n) {
-		return nil, fmt.Errorf("%s: (tile-spec %s ...) is not whole: it needs (holds ...) and (new ...), "+
-			"what the generated store keeps and the constructor that fills it", n.Pos, name)
-	}
 	return storeBackend(name, n), nil
 }
 
-// Whole reports whether a tile-spec says everything a tile is, so that
-// nothing is left to write in Go.
-func Whole(n *sexp.Node) bool { return n.Find("holds") != nil && n.Find("new") != nil }
-
-// storeBackend builds the registration from a checked, whole tile-spec.
+// storeBackend builds the registration from a checked tile-spec.
 func storeBackend(name string, n *sexp.Node) *compile.Backend {
 	b := &compile.Backend{
 		Name:         name,
@@ -299,4 +293,68 @@ func validateHint(v *compile.Validator, it *sexp.Node) string {
 	}
 	checkNames(v, it, text.Atom, known)
 	return op.Atom
+}
+
+// LoadDir registers the tiles in a folder of a team's own: every .sexp
+// file in it, in name order. It returns the tiles it added. A tile whose
+// name tilegen already has is refused rather than replaced, so a built-in
+// tile is never silently something else.
+func LoadDir(dir string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*.sexp"))
+	if err != nil {
+		return nil, err
+	}
+	if info, err := os.Stat(dir); err != nil || !info.IsDir() {
+		return nil, fmt.Errorf("-tiles %s: not a folder of tile files", dir)
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("-tiles %s: no .sexp files in it", dir)
+	}
+	sort.Strings(files)
+	var all []*compile.Backend
+	taken := map[string]string{}
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			return nil, err
+		}
+		tiles, err := LoadTiles(file, string(src))
+		if err != nil {
+			return nil, err
+		}
+		for _, b := range tiles {
+			for _, name := range []string{b.Tile, b.Name} {
+				if nameTaken(name) {
+					return nil, fmt.Errorf("%s: tilegen already has a tile called %s; give this one a name of its own", file, name)
+				}
+				if prev := taken[name]; prev != "" && prev != file+"#"+b.Tile {
+					return nil, fmt.Errorf("%s: %s is also the name of a tile in %s", file, name, strings.SplitN(prev, "#", 2)[0])
+				}
+				taken[name] = file + "#" + b.Tile
+			}
+			all = append(all, b)
+		}
+	}
+	var added []string
+	for _, b := range all {
+		compile.RegisterStoreBackend(b)
+		added = append(added, b.Tile)
+	}
+	return added, nil
+}
+
+// nameTaken reports whether a tile, or the short name of one, is already
+// called this.
+func nameTaken(name string) bool {
+	if _, has := compile.Backends[name]; has {
+		return true
+	}
+	for _, offers := range compile.Offers {
+		for _, o := range offers {
+			if o.Tile == name || compile.TileAliases[o.Tile] == name {
+				return true
+			}
+		}
+	}
+	return false
 }

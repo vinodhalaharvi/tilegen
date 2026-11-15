@@ -23,13 +23,19 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
-	_ "github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
+	"github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
 )
 
 func main() {
 	if wasmMain() {
 		return
 	}
+	rest, err := ownTiles(os.Args[1:])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "tilegen:", err)
+		os.Exit(1)
+	}
+	os.Args = append(os.Args[:1], rest...)
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "key":
@@ -139,7 +145,8 @@ func main() {
 			"       tilegen up [-detach] [SPEC]  create worktrees, open or attach the tmux session\n"+
 			"       tilegen status [SPEC]        worktrees, changes, open holes, session\n"+
 			"       tilegen down [-prune] [SPEC] close the session (and remove clean worktrees)\n\n"+
-			"SPEC is a .sexp file or a directory of them (default for up/status/down: ./spec).\n\n")
+			"SPEC is a .sexp file or a directory of them (default for up/status/down: ./spec).\n"+
+			"Before any command, -tiles DIR adds the tiles in a folder of your own.\n\n")
 		flag.PrintDefaults()
 	}
 	flag.Parse()
@@ -454,4 +461,34 @@ func nextLine(c *compile.Ctx, out string, look func(string) (string, error)) str
 		s += "\n      install first: " + strings.Join(missing, ", ") + " (`tilegen tiles` lists what each tile needs)"
 	}
 	return s
+}
+
+// ownTiles takes -tiles DIR off the front of the arguments and registers
+// the tiles in each folder named, so that every command sees them beside
+// the built-in ones. It returns the arguments that are left.
+//
+//	tilegen -tiles ./tiles explain spec.sexp
+//	tilegen -tiles ./tiles mcp -root ~/projects
+func ownTiles(args []string) ([]string, error) {
+	for len(args) > 0 {
+		dir, ok := strings.CutPrefix(args[0], "-tiles=")
+		if !ok {
+			dir, ok = strings.CutPrefix(args[0], "--tiles=")
+		}
+		switch {
+		case ok:
+			args = args[1:]
+		case args[0] == "-tiles" || args[0] == "--tiles":
+			if len(args) < 2 {
+				return nil, fmt.Errorf("-tiles needs a folder of tile files")
+			}
+			dir, args = args[1], args[2:]
+		default:
+			return args, nil
+		}
+		if _, err := tiles.LoadDir(dir); err != nil {
+			return nil, err
+		}
+	}
+	return args, nil
 }

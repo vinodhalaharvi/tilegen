@@ -48,7 +48,7 @@ func Cmd(args []string, stdout, log io.Writer) error {
 	if *tiles {
 		outDir := *out
 		if outDir == "spec" {
-			outDir = "tilespecs" // the default -out is for a project spec, not tiles
+			outDir = "tiles" // the default -out is for a project spec, not tiles
 		}
 		return Tiles(dir, outDir, *force, *withSymbols, stdout)
 	}

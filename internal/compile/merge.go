@@ -171,9 +171,18 @@ func Merge(forms []*sexp.Node) (*Linked, error) {
 	return &Linked{Project: merged, Config: config, Workspace: workspace, Policy: policy}, errorsFor(other)
 }
 
+// Elsewhere names the forms that are tilegen's and belong somewhere
+// other than a project's spec, each with where. Meeting one in a spec is
+// reported with that, rather than as an unknown form or a hole to fill.
+var Elsewhere = map[string]string{}
+
 func errorsFor(other []*sexp.Node) error {
 	var errs []error
 	for _, f := range other {
+		if where, ok := Elsewhere[f.Head()]; ok {
+			errs = append(errs, fmt.Errorf("%s: (%s ...) is not part of a project: %s", f.Pos, f.Head(), where))
+			continue
+		}
 		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace, policy)%s",
 			f.Pos, Short(f), DidYouMean(f.Head(), []string{"project", "package", "require", "repo", "config", "workspace", "policy"})))
 	}
