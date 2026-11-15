@@ -181,7 +181,7 @@ func TestImportTilesWithSymbols(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"(tile-spec kv", "; What the module exports. `tilegen symbols example.com/kv@v0.1.0` prints all of it.", ";   interface Store (implemented by File, Handle)", ";     Put(key string, value []byte, opts ...Option) error", ";   error ErrNotFound"} {
+	for _, want := range []string{"(tile kv", "; What the module exports. `tilegen symbols example.com/kv@v0.1.0` prints all of it.", ";   interface Store (implemented by File, Handle)", ";     Put(key string, value []byte, opts ...Option) error", ";   error ErrNotFound"} {
 		if !strings.Contains(string(kv), want) {
 			t.Errorf("the skeleton has no %q", want)
 		}
@@ -335,9 +335,9 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	skel := string(raw)
 
 	// Nothing is guessed: no kind, and no number that could pass for one.
-	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ", "; (operations N ",
-		`(satisfies (TODO) "TODO")`, `(illegal-when (TODO) "TODO")`, `(unverified (TODO) "TODO")`, "; store-backend: durable, cross-process, lookup-by-field, no-broker,",
-		"One of: " + strings.Join(tiles.TileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + importer.KindComparison("store-backend")} {
+	for _, want := range []string{"(offers TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ", "; (operations N ",
+		`(satisfies (TODO) "TODO")`, `(illegal-when (TODO) "TODO")`, `(unverified (TODO) "TODO")`, "; store: durable, cross-process, lookup-by-field, no-broker,",
+		"One of: " + strings.Join(tiles.Loadable(), ", ") + ".", "this module is not a tile: delete this file", "store: " + importer.KindComparison("store")} {
 		if !strings.Contains(skel, want) {
 			t.Errorf("the skeleton has no %q:\n%s", want, skel)
 		}
@@ -352,7 +352,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 			t.Errorf("a line too long or with trailing space: %q", line)
 		}
 	}
-	if cmp := importer.KindComparison("store-backend"); !strings.Contains(cmp, "llm-work runs from ") || importer.KindComparison("no-such-kind") != "" {
+	if cmp := importer.KindComparison("store"); !strings.Contains(cmp, "llm-work runs from ") || importer.KindComparison("no-such-kind") != "" {
 		t.Errorf("the comparison: %q", cmp)
 	}
 
@@ -361,21 +361,21 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	if err == nil {
 		t.Fatal("a skeleton with its TODOs open was loaded")
 	}
-	for _, want := range []string{"(kind TODO) is still a TODO", `(doc "TODO") is still a TODO`, `(satisfies (TODO) "TODO") is still a TODO`, `(illegal-when (TODO) "TODO") is still a TODO`,
+	for _, want := range []string{"(offers TODO) is still a TODO", `(doc "TODO") is still a TODO`, `(satisfies (TODO) "TODO") is still a TODO`, `(illegal-when (TODO) "TODO") is still a TODO`,
 		`(unverified (TODO) "TODO") is still a TODO`, "(cost (llm-work TODO", "(holds (TODO kv.TODO)) is still a TODO", "(new (params (TODO kv.TODO))", `(hint get "TODO") is still a TODO`,
 		`(hint count "TODO") is still a TODO`, "answer it before this tile can be used"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the refusal should say %q:\n%v", want, err)
 		}
 	}
-	if strings.Count(err.Error(), "is still a TODO") != 13 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
+	if strings.Count(err.Error(), "is still a TODO") != 13 || strings.Contains(err.Error(), "cannot offer") || strings.Contains(err.Error(), "whole number") {
 		t.Errorf("each open question should be reported once, and nothing else:\n%v", err)
 	}
 
 	// Answered, it is a tile.
 	answered := skel
 	for old, new := range map[string]string{
-		"(kind TODO)": "(kind store-backend)", `(doc "TODO")`: `(doc "a key-value store in one file")`,
+		"(offers TODO)": "(offers store)", `(doc "TODO")`: `(doc "a key-value store in one file")`,
 		"(llm-work TODO": "(llm-work 4", "(maintenance TODO": "(maintenance 2", "(dependency TODO": "(dependency 1", "(runtime TODO": "(runtime 1",
 		`"TODO: how much must be written by hand?"`: `"get, put and delete by key"`, `"TODO: what goes wrong over months?"`: `"no schema to migrate"`,
 		`"TODO: what does it pull in, and what must be installed?"`: `"one module, nothing to install"`, `"TODO: what does a call cost when the program runs?"`: `"a file read"`,

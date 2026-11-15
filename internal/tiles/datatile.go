@@ -16,18 +16,18 @@ import (
 )
 
 // A storage tile that only has to say how a library is used is a file of
-// data: a (tile-spec ...) with what it claims, what it costs, what the
+// data: a (tile ...) with what it claims, what it costs, what the
 // generated store holds, and a hint for each method. Nothing in it runs.
-// The tiles in specs/ are built into tilegen from those files.
+// The .sexp files beside this one are built into tilegen.
 //
 // A tile that has to work something out from the entity, such as a schema,
 // is Go: see store_postgres_sqlc.go.
 
-//go:embed specs/*.sexp
+//go:embed *.sexp
 var specFiles embed.FS
 
 func init() {
-	names, err := fs.Glob(specFiles, "specs/*.sexp")
+	names, err := fs.Glob(specFiles, "*.sexp")
 	if err != nil {
 		panic("tilegen: " + err.Error())
 	}
@@ -47,7 +47,7 @@ func init() {
 	}
 }
 
-// LoadTiles reads a file of (tile-spec ...) forms and returns the tiles
+// LoadTiles reads a file of (tile ...) forms and returns the tiles
 // they describe, checked but not registered.
 func LoadTiles(file, src string) ([]*compile.Backend, error) {
 	forms, err := sexp.Parse(file, src)
@@ -55,7 +55,7 @@ func LoadTiles(file, src string) ([]*compile.Backend, error) {
 		return nil, err
 	}
 	if len(forms) == 0 {
-		return nil, fmt.Errorf("%s: no (tile-spec ...) in it", file)
+		return nil, fmt.Errorf("%s: no (tile ...) in it", file)
 	}
 	var out []*compile.Backend
 	for _, n := range forms {
@@ -69,8 +69,8 @@ func LoadTiles(file, src string) ([]*compile.Backend, error) {
 }
 
 func loadTile(n *sexp.Node) (*compile.Backend, error) {
-	if n.Head() != "tile-spec" {
-		return nil, fmt.Errorf("%s: a tile file holds (tile-spec ...) forms, got %s", n.Pos, compile.Short(n))
+	if n.Head() != "tile" {
+		return nil, fmt.Errorf("%s: a tile file holds (tile NAME (offers CAPABILITY) ...) forms, got %s", n.Pos, compile.Short(n))
 	}
 	if err := compile.Check(func(v *compile.Validator) {
 		validateTileSpec(v, n)
@@ -78,13 +78,10 @@ func loadTile(n *sexp.Node) (*compile.Backend, error) {
 		return nil, err
 	}
 	name := n.List[1].Atom
-	if kind := n.Text("kind"); kind != "store-backend" {
-		return nil, fmt.Errorf("%s: (tile-spec %s ...): a tile read from a file is a store-backend, got %q", n.Pos, name, kind)
-	}
 	return storeBackend(name, n), nil
 }
 
-// storeBackend builds the registration from a checked tile-spec.
+// storeBackend builds the registration from a checked tile.
 func storeBackend(name string, n *sexp.Node) *compile.Backend {
 	b := &compile.Backend{
 		Name:         name,
@@ -100,7 +97,9 @@ func storeBackend(name string, n *sexp.Node) *compile.Backend {
 	for _, term := range n.Find("cost").Args() {
 		value, _ := strconv.Atoi(term.List[1].Atom)
 		ct := compile.CostTerm{Dim: term.List[0].Atom, Value: value}
-		if src := term.Find("source"); src != nil && len(src.Args()) > 0 {
+		if len(term.List) > 2 && !term.List[2].IsList {
+			ct.Source, ct.Note = "derived", term.List[2].Atom
+		} else if src := term.Find("source"); src != nil && len(src.Args()) > 0 {
 			ct.Source = src.Args()[0].Atom
 			if len(src.Args()) > 1 {
 				ct.Note = src.Args()[1].Atom
@@ -358,3 +357,10 @@ func nameTaken(name string) bool {
 	}
 	return false
 }
+
+// A shape is what tilegen needs to know about a capability to take a tile
+// for it from a file.
+type shape struct{}
+
+// shapes are the capabilities a tile written as a file can offer.
+var shapes = map[string]*shape{"store": {}}

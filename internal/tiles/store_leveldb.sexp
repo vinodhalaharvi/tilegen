@@ -1,5 +1,5 @@
-(tile-spec leveldb
-  (kind store-backend)
+(tile leveldb
+  (offers store)
   (doc "embedded key-value: LevelDB in pure Go, a directory of sorted tables, values as JSON")
   (import leveldb github.com/syndtr/goleveldb/leveldb)
   (error-package leveldb)

@@ -30,7 +30,7 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		t.Fatalf("the registry is inconsistent: %v", err)
 	}
 	for capability, want := range map[string][]string{
-		// The stores written in Go, and one for each file in specs/.
+		// The stores written in Go, and one for each store_NAME.sexp.
 		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t)...),
 		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
 		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
@@ -93,23 +93,17 @@ func TestEveryStoreBackendIsComplete(t *testing.T) {
 	}
 }
 
-// Each kind of tile a tile-spec can describe offers a capability that exists.
-func TestTileKinds(t *testing.T) {
-	if len(TileKinds) == 0 {
-		t.Fatal("no kinds")
+// Each capability a tile written as a file can offer is one tilegen has.
+func TestLoadable(t *testing.T) {
+	if len(Loadable()) == 0 {
+		t.Fatal("no capability can be offered by a file")
 	}
-	for _, kind := range TileKinds {
-		capability := TileKindCapability[kind]
-		if capability == "" || compile.Capabilities[capability] == nil {
-			t.Errorf("kind %s offers %q, which is not a capability", kind, capability)
+	for _, capability := range Loadable() {
+		if compile.Capabilities[capability] == nil {
+			t.Errorf("a file can offer %q, which is not a capability", capability)
 		}
-		if len(offered(capability)) == 0 {
-			t.Errorf("kind %s: nothing offers %s yet", kind, capability)
-		}
-	}
-	for kind := range TileKindCapability {
-		if !compile.Contains(TileKinds, kind) {
-			t.Errorf("%s has a capability and is not a kind", kind)
+		if filePrefix[capability] == "" {
+			t.Errorf("%q has no file prefix", capability)
 		}
 	}
 }
@@ -132,7 +126,7 @@ var filePrefix = map[string]string{"store": "store", "event-bus": "bus", "auth":
 
 // Every tile is one file, named for what it offers and what it is, and no
 // file holds two. A tile that offers two capabilities registers both in
-// its one file. A tile that is data is specs/NAME.sexp; one that is Go is
+// its one file. A tile that is data is PREFIX_NAME.sexp; one that is Go is
 // PREFIX_NAME.go.
 func TestOneFilePerTile(t *testing.T) {
 	fset := token.NewFileSet()
@@ -142,7 +136,7 @@ func TestOneFilePerTile(t *testing.T) {
 	}
 	found := map[string]string{} // tile -> file
 	for _, file := range pkgFiles {
-		if strings.HasSuffix(file, "_test.go") || file == "datatile.go" { // datatile.go registers what specs/ holds
+		if strings.HasSuffix(file, "_test.go") || file == "datatile.go" { // datatile.go registers what the .sexp files hold
 			continue
 		}
 		f, err := parser.ParseFile(fset, file, nil, 0)
@@ -209,7 +203,7 @@ func TestOneFilePerTile(t *testing.T) {
 			t.Errorf("%s holds %d tiles (%s); one file holds one", file, len(here), strings.Join(here, ", "))
 		}
 	}
-	specs, err := filepath.Glob(filepath.Join("specs", "*.sexp"))
+	specs, err := filepath.Glob("*.sexp")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -223,9 +217,12 @@ func TestOneFilePerTile(t *testing.T) {
 			t.Errorf("%v", err)
 			continue
 		}
-		if len(tiles) != 1 || tiles[0].Tile+".sexp" != filepath.Base(file) {
-			t.Errorf("%s holds %d tiles; a tile's file is named for it and holds only it", file, len(tiles))
+		if len(tiles) != 1 {
+			t.Errorf("%s holds %d tiles; one file holds one", file, len(tiles))
 			continue
+		}
+		if want := "store_" + strings.ReplaceAll(tiles[0].Tile, "-", "_") + ".sexp"; file != want {
+			t.Errorf("%s is in %s; a tile's file is named for it: %s", tiles[0].Tile, file, want)
 		}
 		if prev := found[tiles[0].Tile]; prev != "" {
 			t.Errorf("%s is in %s and in %s", tiles[0].Tile, prev, file)
@@ -245,16 +242,26 @@ func TestOneFilePerTile(t *testing.T) {
 	}
 }
 
-// dataTiles are the tiles that are files of data: specs/NAME.sexp.
+// dataTiles are the tiles that are files of data, by name.
 func dataTiles(t *testing.T) []string {
 	t.Helper()
-	files, err := filepath.Glob(filepath.Join("specs", "*.sexp"))
+	files, err := filepath.Glob("*.sexp")
 	if err != nil || len(files) < 7 {
 		t.Fatalf("the data tiles: %d files, %v", len(files), err)
 	}
 	var names []string
 	for _, f := range files {
-		names = append(names, strings.TrimSuffix(filepath.Base(f), ".sexp"))
+		src, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tiles, err := LoadTiles(f, string(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, b := range tiles {
+			names = append(names, b.Tile)
+		}
 	}
 	return names
 }

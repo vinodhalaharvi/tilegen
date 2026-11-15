@@ -1,5 +1,5 @@
-(tile-spec nats-kv
-  (kind store-backend)
+(tile nats-kv
+  (offers store)
   (doc "NATS JetStream key-value: a bucket per entity, values as JSON")
   (alias natskv)
   (engine nats)

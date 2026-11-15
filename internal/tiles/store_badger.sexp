@@ -1,5 +1,5 @@
-(tile-spec badger
-  (kind store-backend)
+(tile badger
+  (offers store)
   (doc "embedded key-value: an LSM store, one keyspace, values as JSON")
   (import badger github.com/dgraph-io/badger/v4)
   (error-package badger)

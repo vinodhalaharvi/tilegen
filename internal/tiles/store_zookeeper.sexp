@@ -1,5 +1,5 @@
-(tile-spec zookeeper
-  (kind store-backend)
+(tile zookeeper
+  (offers store)
   (doc "ZooKeeper: one znode per entity under a parent path, data as JSON")
   (engine zookeeper)
   (import zk github.com/go-zookeeper/zk)

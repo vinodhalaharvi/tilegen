@@ -17,13 +17,21 @@ import (
 // specTiles are the tiles that are data: the file, and the tile it holds.
 func specTiles(t *testing.T) map[string]string {
 	t.Helper()
-	specs, err := filepath.Glob(filepath.Join("internal", "tiles", "specs", "*.sexp"))
-	if err != nil || len(specs) == 0 {
-		t.Fatalf("no tile specs found: %v", err)
+	files, err := filepath.Glob(filepath.Join("internal", "tiles", "*.sexp"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no tile files found: %v", err)
 	}
 	out := map[string]string{}
-	for _, spec := range specs {
-		out[spec] = strings.TrimSuffix(filepath.Base(spec), ".sexp")
+	for _, file := range files {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		read, err := tiles.LoadTiles(file, string(src))
+		if err != nil || len(read) != 1 {
+			t.Fatalf("%s: %d tiles, %v", file, len(read), err)
+		}
+		out[file] = read[0].Tile
 	}
 	return out
 }
@@ -137,11 +145,11 @@ func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
 // A tile is a file of its own. Inside a project it is refused, with where
 // it belongs, rather than becoming a hole for a model to fill.
 func TestATileSpecIsNotPartOfAProject(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	src, err := os.ReadFile(filepath.Join("internal", "tiles", "store_pebble.sexp"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	tile := strings.Replace(string(src), "(tile-spec pebble", "(tile-spec rocks", 1)
+	tile := strings.Replace(string(src), "(tile pebble", "(tile rocks", 1)
 	for name, spec := range map[string]string{
 		"in a package": "(project p (module example.com/p) (go 1.22)\n  (package main (dir \".\")\n" + tile + "))",
 		"at the top":   "(project p (module example.com/p) (go 1.22)\n  (package main (dir \".\")))\n" + tile,
@@ -149,7 +157,7 @@ func TestATileSpecIsNotPartOfAProject(t *testing.T) {
 		dir := t.TempDir()
 		sp, _ := writeSpec(t, dir, spec, "")
 		err = run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
-		if err == nil || !strings.Contains(err.Error(), "(tile-spec ...) is not part of a project: a tile is a file of its own, in a folder tilegen is given with -tiles DIR") {
+		if err == nil || !strings.Contains(err.Error(), "(tile ...) is not part of a project: a tile is a file of its own, in a folder tilegen is given with -tiles DIR") {
 			t.Errorf("%s: got %v", name, err)
 		}
 		if left, _ := os.ReadDir(filepath.Join(dir, "out")); len(left) != 0 {
@@ -161,12 +169,12 @@ func TestATileSpecIsNotPartOfAProject(t *testing.T) {
 // A folder that cannot be a team's tiles is refused whole: nothing in it
 // is registered.
 func TestOwnTilesAreRefusedForWhatIsWrong(t *testing.T) {
-	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "store_pebble.sexp"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	as := func(name string) string {
-		return strings.Replace(string(pebble), "(tile-spec pebble", "(tile-spec "+name, 1)
+		return strings.Replace(string(pebble), "(tile pebble", "(tile "+name, 1)
 	}
 	before := len(compile.Backends)
 	for name, c := range map[string]struct {
@@ -175,7 +183,7 @@ func TestOwnTilesAreRefusedForWhatIsWrong(t *testing.T) {
 	}{
 		"empty":          {map[string]string{"README.md": "x"}, "no .sexp files in it"},
 		"a name taken":   {map[string]string{"a.sexp": as("rocks"), "b.sexp": string(pebble)}, "tilegen already has a tile called pebble; give this one a name of its own"},
-		"a short name":   {map[string]string{"a.sexp": strings.Replace(as("rocks"), "(kind store-backend)", "(kind store-backend) (alias pgx)", 1)}, "tilegen already has a tile called pgx"},
+		"a short name":   {map[string]string{"a.sexp": strings.Replace(as("rocks"), "(offers store)", "(offers store) (alias pgx)", 1)}, "tilegen already has a tile called pgx"},
 		"another kind's": {map[string]string{"a.sexp": as("kafka")}, "tilegen already has a tile called kafka"},
 		"the same twice": {map[string]string{"a.sexp": as("rocks"), "b.sexp": as("rocks")}, "rocks is also the name of a tile in"},
 		"a tile unfinished": {map[string]string{"a.sexp": as("rocks"), "b.sexp": strings.Replace(as("stone"), `(hint get`, `(hint get "TODO") (hint list`, 1)},
@@ -229,12 +237,12 @@ func TestOwnTilesTakePart(t *testing.T) {
 	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	pebble, err := os.ReadFile(filepath.Join("internal", "tiles", "store_pebble.sexp"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	own := t.TempDir()
-	rocks := strings.NewReplacer("(tile-spec pebble", "(tile-spec rocks", "(kind store-backend)", "(kind store-backend)\n  (alias rk)",
+	rocks := strings.NewReplacer("(tile pebble", "(tile rocks", "(offers store)", "(offers store)\n  (alias rk)",
 		"(llm-work 5", "(llm-work 0", "(maintenance 3", "(maintenance 0", "(dependency 3", "(dependency 0", "(runtime 2", "(runtime 0").Replace(string(pebble))
 	if err := os.WriteFile(filepath.Join(own, "rocks.sexp"), []byte(rocks), 0o644); err != nil {
 		t.Fatal(err)

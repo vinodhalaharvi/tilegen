@@ -1,5 +1,5 @@
-(tile-spec pebble
-  (kind store-backend)
+(tile pebble
+  (offers store)
   (doc "embedded key-value: Pebble, an LSM store in a directory, values as JSON")
   (import pebble github.com/cockroachdb/pebble)
   (error-package pebble)

@@ -9,7 +9,7 @@ works; everything else is under `internal/`.
 | `main` (the root) | the command line: `main.go` and the `explain`, `plan` and `tiles` commands. It also embeds the studio's files and the README, and hands them to the packages that serve them |
 | `internal/sexp` | S-expressions: `Node`, `Parse`, the printers, and pattern matching |
 | `internal/compile` | the compiler: capabilities, offers, costs and the registries; the solver, policy and the lock file; validation, the three passes, plan and emit; the workspace; and the forms for events, API, auth, secrets and transport. It declares what can be asked for and holds no tile of its own |
-| `internal/tiles` | every built-in tile, one file each: stores, event buses, API styles, auth schemes and secret sources; the `tile-spec` form, and the storage tiles written in it under `specs/`. Importing it registers them |
+| `internal/tiles` | every built-in tile, one file each: stores, event buses, API styles, auth schemes and secret sources; and the form a tile kept as a file is written in. Importing it registers them |
 | `internal/fill` | `tilegen fill`, `tilegen prompt`, and the API surface a prompt carries |
 | `internal/symbols` | what a library exports, read by the type checker; `symbolstest` beside it is the small module its tests read |
 | `internal/importer` | reading what a team already has: go.mod coverage, `tilegen import`, tile skeletons, and drafting a tile with a model |
@@ -40,7 +40,7 @@ the tile and holds the code that emits its Go, and a test refuses a file
 that holds two tiles or is named for another.
 
 A storage tile that only has to say how a library is used is a file of
-data, `internal/tiles/specs/NAME.sexp`: what the tile is, what each
+data, `internal/tiles/store_NAME.sexp`: what the tile is, what each
 requirement means for it (met, ruled out, or unchecked, each with its
 reason), what it costs, what the generated store holds, and a hint for
 each method. tilegen reads these when it starts; nothing in one runs, and

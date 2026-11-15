@@ -1,5 +1,5 @@
-(tile-spec redis-kv
-  (kind store-backend)
+(tile redis-kv
+  (offers store)
   (doc "Redis: one string key per entity under a prefix, values as JSON")
   (alias rediskv)
   (engine redis)

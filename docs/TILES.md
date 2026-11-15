@@ -572,11 +572,12 @@ Write the `IllegalWhen` strings for the person who will read them in
 architecture discussions.
 
 A storage tile that only has to say how a library is used needs no Go.
-It is a file in `internal/tiles/specs/`, read when tilegen starts:
+It is a file beside the Go tiles, `internal/tiles/store_pebble.sexp`,
+read when tilegen starts:
 
 ```lisp
-(tile-spec pebble
-  (kind store-backend)
+(tile pebble
+  (offers store)
   (doc "embedded key-value store: an LSM tree in a directory")
   (import pebble github.com/cockroachdb/pebble)
   (error-package pebble)
@@ -627,10 +628,15 @@ Any other `{word}` is refused as a misspelling; Go's own braces, as in
 language: no conditions and no loops. A tile that needs to compute
 something from the entity is asking for Go.
 
+The same text without `holds`, `new` and the hints is a draft: it takes
+part in every decision and explanation, in the studio or a compile, and
+generates nothing until they are added. A draft may write a cost's
+reason as `(llm-work 4 "why")`, and a file may too.
+
 A tile of your own goes in a folder of your own, and `-tiles DIR` before
 any command adds what is in it: `tilegen -tiles ./tiles explain
 spec.sexp`. `tilegen import -tiles` writes a skeleton there for each
-library in a go.mod that no tile covers. A (tile-spec ...) is not part of
+library in a go.mod that no tile covers. A (tile ...) is not part of
 a project's spec, and is refused in one.
 
 `tilegen tiles` lists the tiles there are, with what each claims.
