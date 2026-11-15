@@ -44,14 +44,14 @@ type LockEntry struct {
 
 // ProtoPin is the numbers one message or enum has handed out.
 type ProtoPin struct {
-	Nums     map[string]int // field or value name -> its number
+	Nums     map[string]int // Field or value name -> its number
 	Reserved []int          // numbers of names since removed
 }
 
-// pin gives each name its number under key: the pinned one where there
+// Pin gives each name its number under key: the pinned one where there
 // is one, the next unused one otherwise. Names that were pinned and are
 // gone have their numbers reserved.
-func (c *Ctx) pin(key string, names []string) (map[string]int, []int) {
+func (c *Ctx) Pin(key string, names []string) (map[string]int, []int) {
 	out := &ProtoPin{Nums: map[string]int{}}
 	old := c.Pins[key]
 	if old == nil {

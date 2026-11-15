@@ -72,3 +72,42 @@ func natsHint(method, event string) string {
 	}
 	return ""
 }
+
+// Core NATS registers a second time, as an inbound edge: nothing is kept,
+// so it is illegal for three of the six requirements and very cheap for
+// the rest.
+//
+// There is no alias here: the registration above already gives this tile
+// "nats", and one tile has one alias however many capabilities it offers.
+func init() {
+	compile.RegisterOffer(&compile.Offer{
+		Tile:       "nats-core",
+		Engine:     "nats",
+		Capability: "transport",
+		Doc:        "core NATS: subjects and queue groups, with nothing kept",
+		IllegalFor: map[string]string{
+			"durable":       "core NATS is fire-and-forget: a message with no connected consumer is gone",
+			"replay":        "core NATS keeps no stream; JetStream is the same broker with a log",
+			"at-least-once": "core NATS delivers at most once and does not redeliver on failure",
+			"no-broker":     "there is a server to run, though only one binary and no state",
+		},
+		Satisfies: map[string]string{
+			"cross-process": "publishers in other processes reach this subject over the network",
+		},
+		Unverified: map[string]string{
+			"ordered": "messages from one publisher arrive in order on one connection, but nobody has checked what holds across a reconnect",
+		},
+		Cost: compile.Cost{
+			{Dim: "llm-work", Value: 2, Source: "derived", Note: "subscribe to a subject and decode; there are no offsets to keep"},
+			{Dim: "maintenance", Value: 1},
+			{Dim: "dependency", Value: 2},
+			{Dim: "runtime", Value: 1},
+			{Dim: "operations", Value: 2, Source: "derived", Note: "one binary, no storage, nothing to size"},
+		},
+		Impl: &compile.Transport{
+			Suffix: "NatsSource",
+			Topics: []string{"nats"},
+			Import: [2]string{"nats", "github.com/nats-io/nats.go"},
+		},
+	})
+}

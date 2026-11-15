@@ -32,6 +32,9 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		"store":     {"badger", "bolt", "memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"},
 		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
 		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
+		"api":       {"connect", "grpc", "http-json"},
+		"secrets":   {"env-secrets", "file-secrets", "vault"},
+		"transport": {"kafka", "nats-core"},
 	} {
 		if got := offered(capability); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s is offered by %v, want %v", capability, got, want)
@@ -122,10 +125,11 @@ func TestValidTileName(t *testing.T) {
 }
 
 // filePrefix is how a tile's file is named for the capability it offers.
-var filePrefix = map[string]string{"store": "store", "event-bus": "bus", "auth": "auth"}
+var filePrefix = map[string]string{"store": "store", "event-bus": "bus", "auth": "auth", "api": "api", "secrets": "secrets"}
 
 // Every tile is one file, named for what it offers and what it is, and no
-// file holds two.
+// file holds two. A tile that offers two capabilities registers both in
+// its one file.
 func TestOneFilePerTile(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgFiles, err := filepath.Glob("*.go")
@@ -179,15 +183,20 @@ func TestOneFilePerTile(t *testing.T) {
 			if sel.Sel.Name == "RegisterStoreBackend" {
 				capability = "store"
 			}
-			here = append(here, tile)
-			want := filePrefix[capability] + "_" + strings.ReplaceAll(tile, "-", "_") + ".go"
-			if filePrefix[capability] == "" {
-				t.Errorf("%s registers %s for %q, which has no file prefix", file, tile, capability)
-			} else if file != want {
-				t.Errorf("%s is in %s; a tile's file is named for it: %s", tile, file, want)
+			if !compile.Contains(here, tile) {
+				here = append(here, tile)
 			}
-			if prev, twice := found[tile]; twice {
+			if prev, elsewhere := found[tile]; elsewhere && prev != file {
 				t.Errorf("%s is registered in %s and in %s", tile, prev, file)
+			}
+			if _, seen := found[tile]; !seen {
+				// The file is named for the first capability the tile registers.
+				want := filePrefix[capability] + "_" + strings.ReplaceAll(tile, "-", "_") + ".go"
+				if filePrefix[capability] == "" {
+					t.Errorf("%s registers %s for %q, which has no file prefix", file, tile, capability)
+				} else if file != want {
+					t.Errorf("%s is in %s; a tile's file is named for it: %s", tile, file, want)
+				}
 			}
 			found[tile] = file
 			return true
@@ -199,12 +208,12 @@ func TestOneFilePerTile(t *testing.T) {
 	// And the other way: every tile this package is known to offer was found in a file.
 	for capability := range filePrefix {
 		for _, tile := range offered(capability) {
-			if found[tile] == "" && tile != "local-bus" { // local-bus is the compiler's own: the bus with no broker
+			if found[tile] == "" {
 				t.Errorf("%s (%s) is registered and no file in this package holds it", tile, capability)
 			}
 		}
 	}
-	if len(found) < 16 {
+	if len(found) != 23 {
 		t.Errorf("%d tiles found in files", len(found))
 	}
 }

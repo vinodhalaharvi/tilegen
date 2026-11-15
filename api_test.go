@@ -1,7 +1,6 @@
 package main
 
 import (
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
@@ -10,6 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 )
 
 // apiSpec is an order service with an (api ...) block; reqs are the
@@ -297,7 +299,7 @@ func TestProtoGoName(t *testing.T) {
 		"id": "Id", "customer_email": "CustomerEmail", "total_cents": "TotalCents", "url2": "Url2",
 		"address_line_1": "AddressLine_1", "html5_url": "Html5Url", "orders": "Orders", "_x": "XX",
 	} {
-		if got := compile.ProtoGoName(in); got != want {
+		if got := tiles.ProtoGoName(in); got != want {
 			t.Errorf("protoGoName(%q) = %q, want %q", in, got, want)
 		}
 	}
