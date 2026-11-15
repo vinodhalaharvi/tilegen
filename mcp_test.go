@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
 )
@@ -656,7 +657,7 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantCheck, _ := checkTile(readSymbols)(ctx, tile); asJSON(gotCheck) != asJSON(wantCheck) || gotCheck.OK || len(gotCheck.Problems) == 0 {
+	if wantCheck, _ := checkTile(symbols.Read)(ctx, tile); asJSON(gotCheck) != asJSON(wantCheck) || gotCheck.OK || len(gotCheck.Problems) == 0 {
 		t.Errorf("over MCP the check differs: %s", asJSON(gotCheck))
 	}
 

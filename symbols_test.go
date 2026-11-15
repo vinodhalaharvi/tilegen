@@ -7,138 +7,34 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
-	"github.com/vinodhalaharvi/tilegen/internal/sexp"
-	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 	"io"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols/symbolstest"
+	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 )
 
-// A small module with one of everything the reader has to get right.
-var symbolFixture = map[string]string{
-	"go.mod": "module example.com/kv\n\ngo 1.22\n",
-	"kv.go": `// Package kv is a key-value store. It is small.
-package kv
-
-import (
-	"errors"
-	"io"
-)
-
-// Reader reads a value. It never blocks.
-type Reader interface {
-	// Get returns the value under key.
-	Get(key string) ([]byte, error)
-}
-
-// Store reads, writes and closes.
-type Store interface {
-	Reader
-	io.Closer
-	Put(key string, value []byte, opts ...Option) error
-}
-
-// Number is a constraint, not something to implement.
-type Number interface{ ~int | ~float64 }
-
-// File is a Store kept in one file.
-type File struct {
-	Path   string
-	hidden int
-}
-
-// Open opens the store at path.
-func Open(path string) (*File, error) { return &File{Path: path}, nil }
-
-// Must is Open that panics.
-func Must(f *File, err error) *File { return f }
-
-func (f *File) Get(key string) ([]byte, error) { return nil, ErrNotFound }
-
-// Put writes a value.
-func (f *File) Put(key string, value []byte, opts ...Option) error { return nil }
-func (f *File) Close() error                                        { return nil }
-func (f *File) secret()                                             {}
-
-// Mem is a Reader only: it has no Put.
-type Mem map[string][]byte
-
-func (m Mem) Get(key string) ([]byte, error) { return m[key], nil }
-
-// Option configures a Put.
-type Option func(*File)
-
-// Handle is another name for File.
-type Handle = File
-
-// Set is generic.
-type Set[T comparable] struct{ Items map[T]struct{} }
-
-func (s *Set[T]) Add(v T) {}
-
-// Mode is how a store is opened.
-type Mode int
-
-const (
-	ReadOnly Mode = iota
-	ReadWrite
-)
-
-// ErrNotFound is returned when a key has no value.
-var ErrNotFound = errors.New("kv: not found")
-
-// Default is not an error.
-var Default = Mem{}
-
-// ConflictError says a write lost a race.
-type ConflictError struct{ Key string }
-
-func (e *ConflictError) Error() string { return e.Key }
-
-func unexported() {}
-`,
-	"codec/codec.go": `// Package codec turns values into bytes.
-package codec
-
-// Codec encodes and decodes.
-type Codec interface {
-	Encode(v any) ([]byte, error)
-}
-
-// JSON is the JSON codec.
-type JSON struct{}
-
-func (JSON) Encode(v any) ([]byte, error) { return nil, nil }
-`,
-	"internal/wal/wal.go":   "package wal\n\ntype Log struct{}\n",
-	"cmd/kvctl/main.go":     "package main\n\nfunc main() {}\n",
-	"examples/basic/doc.go": "package basic\n\ntype Demo struct{}\n",
-	"kv_test.go":            "package kv\n\nimport \"testing\"\n\nfunc TestNothing(t *testing.T) {}\n\ntype OnlyInTests struct{}\n",
-}
-
-func fixtureSymbols(t *testing.T) *ModuleSymbols {
+func fixtureSymbols(t *testing.T) *symbols.ModuleSymbols {
 	t.Helper()
-	dir := writeModule(t, symbolFixture)
-	m, err := readModule(dir, "example.com/kv", "v0.1.0", nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return m
+	return symbolstest.Read(t)
 }
 
 // symbolsStubbed says a test has chosen what reading a module returns.
 var symbolsStubbed bool
 
 // stubSymbols makes every reader of symbols in tilegen see this answer.
-func stubSymbols(t *testing.T, m *ModuleSymbols, err error) *int {
+func stubSymbols(t *testing.T, m *symbols.ModuleSymbols, err error) *int {
 	t.Helper()
 	calls := new(int)
-	old := readSymbols
-	readSymbols = func(mod, version string) (*ModuleSymbols, error) {
+	old := symbols.Read
+	symbols.Read = func(mod, version string) (*symbols.ModuleSymbols, error) {
 		*calls++
 		if err != nil {
 			return nil, err
@@ -149,339 +45,8 @@ func stubSymbols(t *testing.T, m *ModuleSymbols, err error) *int {
 		return m, nil
 	}
 	symbolsStubbed = true
-	t.Cleanup(func() { readSymbols, symbolsStubbed = old, false })
+	t.Cleanup(func() { symbols.Read, symbolsStubbed = old, false })
 	return calls
-}
-
-func iface(t *testing.T, p PackageSymbols, name string) InterfaceSym {
-	t.Helper()
-	for _, i := range p.Interfaces {
-		if i.Name == name {
-			return i
-		}
-	}
-	t.Fatalf("no interface %s in %s", name, p.Path)
-	return InterfaceSym{}
-}
-
-func typ(t *testing.T, p PackageSymbols, name string) TypeSym {
-	t.Helper()
-	for _, x := range p.Types {
-		if x.Name == name {
-			return x
-		}
-	}
-	t.Fatalf("no type %s in %s", name, p.Path)
-	return TypeSym{}
-}
-
-func names[T any](xs []T, name func(T) string) []string {
-	out := make([]string, len(xs))
-	for i, x := range xs {
-		out[i] = name(x)
-	}
-	return out
-}
-
-func funcNames(fs []FuncSym) []string {
-	return names(fs, func(f FuncSym) string { return f.Name })
-}
-
-// What the reader says is what the type checker knows.
-func TestSymbolsAreWhatTheTypeCheckerKnows(t *testing.T) {
-	m := fixtureSymbols(t)
-	if m.Module != "example.com/kv" || m.Version != "v0.1.0" {
-		t.Fatalf("module %s %s", m.Module, m.Version)
-	}
-	// The packages a program could import, the module's own first; not
-	// internal ones, commands, examples or tests.
-	if got := names(m.Packages, func(p PackageSymbols) string { return p.Path }); !reflect.DeepEqual(got, []string{"example.com/kv", "example.com/kv/codec"}) {
-		t.Fatalf("packages read: %v", got)
-	}
-	kv := m.Packages[0]
-	if kv.Name != "kv" || kv.Doc != "Package kv is a key-value store." {
-		t.Errorf("package: %q %q", kv.Name, kv.Doc)
-	}
-
-	// An interface is its whole method set: its own methods, and the ones
-	// it embeds, from this package and from another.
-	store := iface(t, kv, "Store")
-	if got := funcNames(store.Methods); !reflect.DeepEqual(got, []string{"Close", "Get", "Put"}) {
-		t.Errorf("Store's methods: %v", got)
-	}
-	put := store.Methods[2]
-	if !put.Variadic || put.signature() != "Put(key string, value []byte, opts ...Option) error" {
-		t.Errorf("Put: %s", put.signature())
-	}
-	if get := iface(t, kv, "Reader").Methods[0]; get.Doc != "Get returns the value under key." || !reflect.DeepEqual(get.Results, []string{"[]byte", "error"}) {
-		t.Errorf("Reader.Get: %+v", get)
-	}
-
-	// Which type satisfies which interface is types.Implements: File does
-	// both through pointer methods, Mem has no Put, a generic type and an
-	// alias-free check are left alone.
-	if got := store.ImplementedBy; !reflect.DeepEqual(got, []string{"File", "Handle"}) {
-		t.Errorf("Store is implemented by %v", got)
-	}
-	if got := iface(t, kv, "Reader").ImplementedBy; !reflect.DeepEqual(got, []string{"File", "Handle", "Mem"}) {
-		t.Errorf("Reader is implemented by %v", got)
-	}
-	if n := iface(t, kv, "Number"); !n.Constraint || len(n.ImplementedBy) != 0 || len(n.Methods) != 0 {
-		t.Errorf("Number is a constraint: %+v", n)
-	}
-
-	file := typ(t, kv, "File")
-	if file.Kind != "struct" || !reflect.DeepEqual(file.Fields, []ParamSym{{Name: "Path", Type: "string"}}) {
-		t.Errorf("File's exported fields: %+v", file.Fields)
-	}
-	if got := funcNames(file.Methods); !reflect.DeepEqual(got, []string{"Close", "Get", "Put"}) {
-		t.Errorf("File's methods: %v", got)
-	}
-	if !reflect.DeepEqual(file.Implements, []string{"Reader", "Store"}) || !reflect.DeepEqual(file.Constructors, []string{"Must", "Open"}) || file.IsError {
-		t.Errorf("File: implements %v, from %v", file.Implements, file.Constructors)
-	}
-	if file.Methods[2].Doc != "Put writes a value." {
-		t.Errorf("a method's doc: %q", file.Methods[2].Doc)
-	}
-	if mem := typ(t, kv, "Mem"); mem.Kind != "map" || mem.Underlying != "map[string][]byte" || !reflect.DeepEqual(mem.Implements, []string{"Reader"}) {
-		t.Errorf("Mem: %+v", mem)
-	}
-	if h := typ(t, kv, "Handle"); h.Alias != "File" || len(h.Methods) != 0 {
-		t.Errorf("Handle is an alias: %+v", h)
-	}
-	if s := typ(t, kv, "Set"); s.TypeParams != "[T comparable]" || len(s.Implements) != 0 || !reflect.DeepEqual(funcNames(s.Methods), []string{"Add"}) {
-		t.Errorf("Set: %+v", s)
-	}
-	if o := typ(t, kv, "Option"); o.Kind != "func" || o.Underlying != "func(*File)" {
-		t.Errorf("Option: %+v", o)
-	}
-	if c := typ(t, kv, "ConflictError"); !c.IsError {
-		t.Error("ConflictError has an Error method and is not marked an error")
-	}
-	if md := typ(t, kv, "Mode"); md.Kind != "int" {
-		t.Errorf("Mode: %+v", md)
-	}
-
-	// Functions, and values: a sentinel error is known by its type.
-	if got := funcNames(kv.Funcs); !reflect.DeepEqual(got, []string{"Must", "Open"}) {
-		t.Errorf("funcs: %v", got)
-	}
-	vals := map[string]ValueSym{}
-	for _, v := range kv.Values {
-		vals[v.Name] = v
-	}
-	if v := vals["ErrNotFound"]; !v.IsError || v.Kind != "var" || v.Type != "error" {
-		t.Errorf("ErrNotFound: %+v", v)
-	}
-	if v := vals["Default"]; v.IsError || v.Type != "Mem" {
-		t.Errorf("Default: %+v", v)
-	}
-	if v := vals["ReadWrite"]; v.Kind != "const" || v.Type != "Mode" || v.Value != "1" {
-		t.Errorf("ReadWrite: %+v", v)
-	}
-
-	// Nothing unexported, and nothing from a test file.
-	raw, _ := json.Marshal(m)
-	for _, not := range []string{"hidden", "secret", "unexported", "OnlyInTests", "wal", "kvctl", "Demo"} {
-		if bytes.Contains(raw, []byte(`"`+not+`"`)) {
-			t.Errorf("the symbols carry %q", not)
-		}
-	}
-
-	codec := m.Packages[1]
-	if got := iface(t, codec, "Codec").ImplementedBy; !reflect.DeepEqual(got, []string{"JSON"}) {
-		t.Errorf("Codec is implemented by %v", got)
-	}
-}
-
-func TestSymbolsAnswerQuestions(t *testing.T) {
-	m := fixtureSymbols(t)
-	for _, ref := range []string{"kv.Store", "kv.Store.Put", "kv.Store.Close", "kv.File", "kv.File.Path", "kv.File.Get", "kv.Open", "kv.ErrNotFound", "kv.ReadOnly", "example.com/kv.Store", "codec.JSON", "example.com/kv/codec.Codec.Encode"} {
-		if !m.has(ref) {
-			t.Errorf("%s is exported and has says no", ref)
-		}
-	}
-	for _, ref := range []string{"kv.Stor", "kv.Store.Delete", "kv.File.hidden", "kv.Open.Path", "kv.unexported", "wal.Log", "kv.", "Store", "other.Store", "kv.OnlyInTests", "codec.Store"} {
-		if m.has(ref) {
-			t.Errorf("%s is not exported and has says yes", ref)
-		}
-	}
-
-	// A draft is held to the module it names.
-	ok := &compile.Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.File.Put", "kv.ErrNotFound"}}
-	if err := checkCited(ok, m); err != nil {
-		t.Errorf("real symbols were refused: %v", err)
-	}
-	bad := &compile.Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.Stores", "kv.Transaction"}}
-	err := checkCited(bad, m)
-	if err == nil || !strings.Contains(err.Error(), "example.com/kv v0.1.0 does not export kv.Stores (did you mean kv.Store?), kv.Transaction") {
-		t.Errorf("invented symbols: %v", err)
-	}
-
-	// The index is names; a detail is one symbol in full.
-	idx := m.index()
-	if len(idx.Packages) != 2 || !reflect.DeepEqual(idx.Packages[0].Errors, []string{"ErrNotFound"}) || idx.Packages[0].Values != 3 {
-		t.Errorf("index: %+v", idx.Packages[0])
-	}
-	for _, i := range idx.Packages[0].Interfaces {
-		if i.Name == "Store" && (i.Methods != 3 || !reflect.DeepEqual(i.ImplementedBy, []string{"File", "Handle"})) {
-			t.Errorf("index of Store: %+v", i)
-		}
-	}
-	if d, ok := m.detail("kv.Store"); !ok || d.Interface == nil || d.Package != "example.com/kv" || len(d.Interface.Methods) != 3 {
-		t.Errorf("detail of kv.Store: %+v", d)
-	}
-	if d, ok := m.detail("kv.Open"); !ok || d.Func == nil || d.Func.signature() != "Open(path string) (*File, error)" {
-		t.Errorf("detail of kv.Open: %+v", d)
-	}
-	if d, ok := m.detail("kv.ErrNotFound"); !ok || d.Value == nil || !d.Value.IsError {
-		t.Errorf("detail of kv.ErrNotFound: %+v", d)
-	}
-	if d, ok := m.detail("codec.JSON"); !ok || d.Type == nil {
-		t.Errorf("detail of codec.JSON: %+v", d)
-	}
-	if _, ok := m.detail("kv.Nope"); ok {
-		t.Error("detail of a symbol that is not there")
-	}
-
-	// The listing for a prompt says what matters, and says when it stops.
-	text := m.text(1 << 20)
-	for _, want := range []string{
-		"example.com/kv v0.1.0, as the Go type checker reads it:",
-		"package kv // example.com/kv",
-		"  interface Store (implemented by File, Handle)\n    Close() error\n    Get(key string) ([]byte, error)\n    Put(key string, value []byte, opts ...Option) error\n",
-		"  type File struct, from Must, Open, implements Reader, Store; methods: Close, Get, Put\n",
-		"  error ErrNotFound\n",
-		"package codec // example.com/kv/codec",
-	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("the listing has no %q in:\n%s", want, text)
-		}
-	}
-	if strings.Contains(text, "Number") {
-		t.Error("the listing offers a constraint as something to implement")
-	}
-	short := m.text(300)
-	if len(short) > 300+len("... (more symbols than fit here)\n") || !strings.Contains(short, "more symbols than fit here") {
-		t.Errorf("a listing over its budget: %d chars\n%s", len(short), short)
-	}
-
-	// Kinds.
-	only := fixtureSymbols(t)
-	only.only([]string{"interface"})
-	if p := only.Packages[0]; len(p.Interfaces) != 3 || p.Types != nil || p.Funcs != nil || p.Values != nil {
-		t.Errorf("-kind interface kept: %d interfaces, %d types, %d funcs, %d values", len(p.Interfaces), len(p.Types), len(p.Funcs), len(p.Values))
-	}
-	if _, err := parseKinds("interface,typ"); err == nil || !strings.Contains(err.Error(), "did you mean type?") {
-		t.Errorf("a mistyped kind: %v", err)
-	}
-}
-
-func TestSymbolsRefuseWhatTheyCannotRead(t *testing.T) {
-	for mod, want := range map[string]string{
-		"":                "not a module path",
-		"not a module":    "not a module path",
-		"../../etc":       "not a module path",
-		"-modfile=x":      "not a module path",
-		"example.com/ok;": "not a module path",
-	} {
-		if _, err := moduleSymbols(mod, ""); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("module %q: %v", mod, err)
-		}
-	}
-	for _, v := range []string{"v1 && rm", "-u", "v1@v2", "a\nb"} {
-		if _, err := moduleSymbols("example.com/kv", v); err == nil || !strings.Contains(err.Error(), "is not a version") {
-			t.Errorf("version %q: %v", v, err)
-		}
-	}
-	// A module that does not type-check is said so, not half read.
-	broken := writeModule(t, map[string]string{"go.mod": "module example.com/b\n\ngo 1.22\n", "b.go": "package b\n\nvar X int = \"no\"\n"})
-	if _, err := readModule(broken, "example.com/b", "v0", nil, nil); err == nil || !strings.Contains(err.Error(), "no package of example.com/b type-checks") {
-		t.Errorf("a broken module: %v", err)
-	}
-	empty := writeModule(t, map[string]string{"go.mod": "module example.com/e\n\ngo 1.22\n", "cmd/x/main.go": "package main\n\nfunc main() {}\n"})
-	if _, err := readModule(empty, "example.com/e", "v0", nil, nil); err == nil || !strings.Contains(err.Error(), "has no package a program can import") {
-		t.Errorf("a module of commands: %v", err)
-	}
-}
-
-// Reading a module leaves the directory it was read from as it was.
-func TestReadingSymbolsChangesNothing(t *testing.T) {
-	dir := writeModule(t, symbolFixture)
-	before := snapshot(t, dir)
-	if _, err := readModule(dir, "example.com/kv", "v0.1.0", nil, nil); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(before, snapshot(t, dir)) {
-		t.Error("reading symbols changed the module")
-	}
-}
-
-// A real module, fetched with the go tool: the one tilegen itself requires.
-func TestSymbolsOfARealModule(t *testing.T) {
-	if testing.Short() {
-		t.Skip("fetches a module")
-	}
-	m, err := moduleSymbols("golang.org/x/mod", "v0.41.0")
-	if err != nil {
-		t.Skipf("the module could not be fetched here: %v", err)
-	}
-	if m.Version != "v0.41.0" {
-		t.Errorf("resolved %s", m.Version)
-	}
-	for _, ref := range []string{"module.CheckPath", "module.Version.Path", "modfile.File.AddRequire", "semver.Compare", "golang.org/x/mod/modfile.Parse"} {
-		if !m.has(ref) {
-			t.Errorf("x/mod exports %s and has says no", ref)
-		}
-	}
-	for _, p := range m.Packages {
-		if strings.Contains(p.Path, "/internal/") {
-			t.Errorf("an internal package was read: %s", p.Path)
-		}
-	}
-	// Asked twice, fetched once.
-	n := 0
-	read := rememberSymbols(func(mod, v string) (*ModuleSymbols, error) { n++; return m, nil }, 1<<40)
-	read("a", "v1")
-	read("a", "v1")
-	read("a", "v2")
-	if n != 2 {
-		t.Errorf("fetched %d times for two versions", n)
-	}
-}
-
-func TestSymbolsCommand(t *testing.T) {
-	m := fixtureSymbols(t)
-	old := moduleSymbolsForCmd
-	moduleSymbolsForCmd = func(mod, v string) (*ModuleSymbols, error) {
-		if mod != "example.com/kv" || v != "v0.1.0" {
-			return nil, errors.New("asked for " + mod + "@" + v)
-		}
-		return fixtureSymbols(t), nil
-	}
-	t.Cleanup(func() { moduleSymbolsForCmd = old })
-
-	var out, errOut bytes.Buffer
-	if err := symbolsCmd([]string{"example.com/kv@v0.1.0"}, &out, &errOut); err != nil {
-		t.Fatal(err)
-	}
-	if out.String() != strings.TrimRight(m.text(1<<30), "\n")+"\n" {
-		t.Errorf("the listing:\n%s", out.String())
-	}
-	out.Reset()
-	if err := symbolsCmd([]string{"-json", "-kind", "interface", "example.com/kv@v0.1.0"}, &out, &errOut); err != nil {
-		t.Fatal(err)
-	}
-	var got []ModuleSymbols
-	if err := json.Unmarshal(out.Bytes(), &got); err != nil || len(got) != 1 || len(got[0].Packages[0].Interfaces) != 3 || got[0].Packages[0].Types != nil {
-		t.Errorf("-json -kind interface: %v\n%s", err, out.String())
-	}
-	if err := symbolsCmd(nil, &out, &errOut); err == nil {
-		t.Error("no module given was accepted")
-	}
-	if err := symbolsCmd([]string{"-kind", "enum", "example.com/kv"}, &out, &errOut); err == nil || !strings.Contains(err.Error(), "-kind takes") {
-		t.Errorf("a kind that is not one: %v", err)
-	}
 }
 
 // The draft form may cite symbols, and says what is wrong when it cannot.
@@ -556,7 +121,7 @@ func TestClaudeDraftsFromSymbols(t *testing.T) {
 	stubSymbols(t, m, nil)
 	calls, last := fakeClaude(t, good)
 	d := draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
-	if d.Error != "" || d.Name != "kv-file" || calls.Load() != 1 || d.Symbols != len(m.names()) || d.FromMemory != "" {
+	if d.Error != "" || d.Name != "kv-file" || calls.Load() != 1 || d.Symbols != len(m.Names()) || d.FromMemory != "" {
 		t.Fatalf("a grounded draft: %+v after %d call(s)", d, calls.Load())
 	}
 	sent := strings.ReplaceAll(*last, `\n`, "\n")
@@ -647,7 +212,7 @@ func TestImportTilesWithSymbols(t *testing.T) {
 func TestMCPSymbolTools(t *testing.T) {
 	ctx := context.Background()
 	m := fixtureSymbols(t)
-	read := func(mod, v string) (*ModuleSymbols, error) {
+	read := func(mod, v string) (*symbols.ModuleSymbols, error) {
 		if mod != "example.com/kv" {
 			return nil, errors.New("cannot fetch " + mod)
 		}
@@ -669,12 +234,12 @@ func TestMCPSymbolTools(t *testing.T) {
 	}
 
 	// symbols: the index, then the ones asked for
-	sym := symbols(read)
+	sym := symbolsTool(read)
 	out, err := sym(ctx, SymbolsIn{Module: "example.com/kv", Version: "v0.1.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.Index == nil || out.Details != nil || out.Version != "v0.1.0" || !reflect.DeepEqual(*out.Index, m.index()) {
+	if out.Index == nil || out.Details != nil || out.Version != "v0.1.0" || !reflect.DeepEqual(*out.Index, m.Index()) {
 		t.Errorf("the index: %+v", out)
 	}
 	out, err = sym(ctx, SymbolsIn{Module: " example.com/kv ", Symbols: []string{"kv.Store", "kv.Open", "kv.Stor", "codec.JSON"}})
@@ -696,7 +261,7 @@ func TestMCPSymbolTools(t *testing.T) {
 	}
 	gone, cancel := context.WithCancel(ctx)
 	cancel()
-	slow := symbols(func(string, string) (*ModuleSymbols, error) { select {} })
+	slow := symbolsTool(func(string, string) (*symbols.ModuleSymbols, error) { select {} })
 	if _, err := slow(gone, SymbolsIn{Module: "example.com/kv"}); !errors.Is(err, context.Canceled) {
 		t.Errorf("a cancelled call should stop waiting: %v", err)
 	}

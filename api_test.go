@@ -364,7 +364,7 @@ func watchSpec(api string) string {
 
 func TestWatchStreamsEventsFromTheBus(t *testing.T) {
 	// (watch ...) alone rules out the tile with no streams; nothing else
-	// has to be said.
+	// Has to be said.
 	if got := genAPI(t, t.TempDir(), watchSpec("(get Order) (watch OrderPlaced)"), false); got != "connect" {
 		t.Errorf("a watch needs a stream: chose %s, want connect", got)
 	}

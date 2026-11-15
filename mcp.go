@@ -19,6 +19,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
 )
@@ -379,24 +380,24 @@ type SymbolsIn struct {
 
 // SymbolsOut is the index of a module, or the symbols asked for.
 type SymbolsOut struct {
-	Module  string         `json:"module"`
-	Version string         `json:"version"`
-	Index   *SymbolIndex   `json:"index,omitempty"`
-	Details []SymbolDetail `json:"details,omitempty"`
-	Missing []string       `json:"not_exported,omitempty"`
+	Module  string                 `json:"module"`
+	Version string                 `json:"version"`
+	Index   *symbols.SymbolIndex   `json:"index,omitempty"`
+	Details []symbols.SymbolDetail `json:"details,omitempty"`
+	Missing []string               `json:"not_exported,omitempty"`
 }
 
 // maxSymbolDetails bounds how many symbols one call returns in full.
 const maxSymbolDetails = 25
 
 // resolve: a module and a version to what the type checker reads there.
-func resolve(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[SymbolsIn, *ModuleSymbols] {
-	return func(ctx context.Context, in SymbolsIn) (*ModuleSymbols, error) {
+func resolve(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[SymbolsIn, *symbols.ModuleSymbols] {
+	return func(ctx context.Context, in SymbolsIn) (*symbols.ModuleSymbols, error) {
 		if strings.TrimSpace(in.Module) == "" {
 			return nil, errors.New(`no module; send {"module": "github.com/nats-io/nats.go"}, with "version" if it matters`)
 		}
 		type result struct {
-			m   *ModuleSymbols
+			m   *symbols.ModuleSymbols
 			err error
 		}
 		done := make(chan result, 1)
@@ -413,13 +414,13 @@ func resolve(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[
 	}
 }
 
-// symbols: the index of a module, or the named symbols in full.
-func symbols(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[SymbolsIn, SymbolsOut] {
-	pick := func(p weft.Pair[SymbolsIn, *ModuleSymbols]) (SymbolsOut, error) {
+// symbolsTool: the index of a module, or the named symbols in full.
+func symbolsTool(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[SymbolsIn, SymbolsOut] {
+	pick := func(p weft.Pair[SymbolsIn, *symbols.ModuleSymbols]) (SymbolsOut, error) {
 		in, m := p.Fst, p.Snd
 		out := SymbolsOut{Module: m.Module, Version: m.Version}
 		if len(in.Symbols) == 0 {
-			idx := m.index()
+			idx := m.Index()
 			out.Index = &idx
 			return out, nil
 		}
@@ -427,16 +428,16 @@ func symbols(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[
 			return SymbolsOut{}, fmt.Errorf("%d symbols in one call; the most is %d, so ask in several calls", len(in.Symbols), maxSymbolDetails)
 		}
 		for _, ref := range in.Symbols {
-			if d, ok := m.detail(ref); ok {
+			if d, ok := m.Detail(ref); ok {
 				out.Details = append(out.Details, d)
 			} else {
-				out.Missing = append(out.Missing, ref+compile.DidYouMean(ref, m.names()))
+				out.Missing = append(out.Missing, ref+compile.DidYouMean(ref, m.Names()))
 			}
 		}
 		return out, nil
 	}
 	both := weft.Fanout(weft.Id[SymbolsIn](), resolve(read))
-	return weft.Apply(weft.Compose(both, weft.Arrow[weft.Pair[SymbolsIn, *ModuleSymbols], SymbolsOut](func(_ context.Context, p weft.Pair[SymbolsIn, *ModuleSymbols]) (SymbolsOut, error) {
+	return weft.Apply(weft.Compose(both, weft.Arrow[weft.Pair[SymbolsIn, *symbols.ModuleSymbols], SymbolsOut](func(_ context.Context, p weft.Pair[SymbolsIn, *symbols.ModuleSymbols]) (SymbolsOut, error) {
 		return pick(p)
 	})), recovering[SymbolsIn, SymbolsOut]())
 }
@@ -462,7 +463,7 @@ type CheckTileOut struct {
 
 // checkTile: the form, by the parser every tile passes; then each cited
 // symbol, by the module itself.
-func checkTile(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
+func checkTile(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
 	form := func(_ context.Context, in CheckTileIn) (*compile.Offer, error) {
 		if strings.TrimSpace(in.Tile) == "" {
 			return nil, errors.New(`no tile; send {"tile": "(tile NAME (offers ...) ...)"}`)
@@ -493,7 +494,7 @@ func checkTile(read func(mod, version string) (*ModuleSymbols, error)) weft.Arro
 			return out, nil
 		}
 		out.Version = m.Version
-		if err := checkCited(o, m); err != nil {
+		if err := symbols.CheckCited(o, m); err != nil {
 			out.Problems = []string{err.Error()}
 			return out, nil
 		}
@@ -578,10 +579,10 @@ func mcpServer(root string) *mcp.Server {
 		mcp.ServeAsTool("tilegen_gomod", gomod(),
 			mcp.WithDescription("Read a go.mod: which direct requirements a tile already speaks, which engines (postgres, nats, kafka ...) they show are in use, and which requirements no tile knows. Use it inside an existing project to see what tilegen covers before writing a spec, and to turn what is already running into a policy. Reads only the text sent; touches nothing."),
 			mcp.WithInputSchema([]byte(gomodSchema))),
-		mcp.ServeAsTool("tilegen_symbols", symbols(readSymbols),
+		mcp.ServeAsTool("tilegen_symbols", symbolsTool(symbols.Read),
 			mcp.WithDescription("What a Go module exports, as data read by the Go type checker (not from source text and not from memory): each interface with its whole method set and the types that satisfy it, each type with its methods and constructors, and the sentinel errors. Without \"symbols\" it returns the index, names only; with \"symbols\": [\"nats.JetStream\"] it returns those in full, with every signature. Use it before drafting a tile for a library, so each claim rests on something the library has. Fetches the module with the go tool if it is not on this machine; runs nothing from it."),
 			mcp.WithInputSchema([]byte(symbolsSchema))),
-		mcp.ServeAsTool("tilegen_check_tile", checkTile(readSymbols),
+		mcp.ServeAsTool("tilegen_check_tile", checkTile(symbols.Read),
 			mcp.WithDescription("Hold a drafted tile to tilegen's rules: the form, by the parser every tile passes, and each symbol it cites in (symbols ...), by the module itself. Returns ok, or every problem with how to fix it. A tile that passes can be given to tilegen_explain as \"tiles\"."),
 			mcp.WithInputSchema([]byte(checkSchema))),
 		mcp.ServeAsTool("tilegen_generate", generate(root),

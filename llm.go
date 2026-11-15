@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"io"
 	"net"
 	"net/http"
@@ -198,17 +199,17 @@ type DraftJSON struct {
 const draftSymbolBudget = 16000
 
 // symbolsFor reads a module's symbols for a draft, or says why it could not.
-func symbolsFor(ctx context.Context, module, version string) (*ModuleSymbols, string) {
-	if readSymbols == nil {
+func symbolsFor(ctx context.Context, module, version string) (*symbols.ModuleSymbols, string) {
+	if symbols.Read == nil {
 		return nil, "this build cannot read modules"
 	}
 	type result struct {
-		m   *ModuleSymbols
+		m   *symbols.ModuleSymbols
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		m, err := readSymbols(module, version)
+		m, err := symbols.Read(module, version)
 		done <- result{m, err}
 	}()
 	select {
@@ -270,8 +271,8 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 	ask := "Module: " + module + "\nVersion: " + version
 	syms, why := symbolsFor(ctx, module, version)
 	if syms != nil {
-		out.Symbols = len(syms.names())
-		ask += "\n\nSymbols:\n" + syms.text(draftSymbolBudget)
+		out.Symbols = len(syms.Names())
+		ask += "\n\nSymbols:\n" + syms.Text(draftSymbolBudget)
 	} else {
 		out.FromMemory = "the module's symbols could not be read (" + why + "), so this draft is from the model's memory of the library"
 	}
@@ -318,11 +319,11 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 	return out
 }
 
-func citedOrNil(o *compile.Offer, m *ModuleSymbols) error {
+func citedOrNil(o *compile.Offer, m *symbols.ModuleSymbols) error {
 	if m == nil {
 		return nil
 	}
-	return checkCited(o, m)
+	return symbols.CheckCited(o, m)
 }
 
 // trimFence drops a code fence an answer was wrapped in despite the
