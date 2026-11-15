@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 	"io"
 	"os"
@@ -185,16 +186,16 @@ const skeletonSymbolBudget = 8000
 // TODOs from: facts from the type checker, beside the judgment only a
 // person has.
 func symbolsComment(c tileCoverage) string {
-	if readSymbols == nil {
+	if symbols.Read == nil {
 		return "\n; The module's symbols cannot be read in this build.\n"
 	}
-	m, err := readSymbols(c.Module, c.Version)
+	m, err := symbols.Read(c.Module, c.Version)
 	if err != nil {
 		return "\n; The module's symbols could not be read: " + strings.ReplaceAll(err.Error(), "\n", " ") + "\n"
 	}
 	var b strings.Builder
 	b.WriteString("\n; What the module exports. `tilegen symbols " + c.Module + "@" + m.Version + "` prints all of it.\n;\n")
-	for _, line := range strings.Split(strings.TrimRight(m.text(skeletonSymbolBudget), "\n"), "\n") {
+	for _, line := range strings.Split(strings.TrimRight(m.Text(skeletonSymbolBudget), "\n"), "\n") {
 		b.WriteString(strings.TrimRight("; "+line, " ") + "\n")
 	}
 	return b.String()
@@ -220,7 +221,7 @@ func writeWrapped(b *strings.Builder, first, rest string, items []string) {
 }
 
 // kindComparison is the range of llm-work among the tiles tilegen already
-// has of a kind, with the tile at each end: something to set a number
+// Has of a kind, with the tile at each end: something to set a number
 // against.
 func kindComparison(kind string) string {
 	costs := map[string]compile.Cost{}

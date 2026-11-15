@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -140,11 +141,11 @@ func fakeClaude(t *testing.T, answers ...string) (calls *atomic.Int32, last *str
 	t.Cleanup(func() { anthropicURL = old; srv.Close() })
 	if !symbolsStubbed {
 		// No test fetches a module unless it says so.
-		oldRead := readSymbols
-		readSymbols = func(mod, version string) (*ModuleSymbols, error) {
+		oldRead := symbols.Read
+		symbols.Read = func(mod, version string) (*symbols.ModuleSymbols, error) {
 			return nil, errors.New("no module is fetched in this test")
 		}
-		t.Cleanup(func() { readSymbols = oldRead })
+		t.Cleanup(func() { symbols.Read = oldRead })
 	}
 	return calls, last
 }

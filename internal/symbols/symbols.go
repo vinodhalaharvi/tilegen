@@ -1,6 +1,6 @@
 //go:build !js
 
-package main
+package symbols
 
 import (
 	"bytes"
@@ -24,12 +24,12 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-// readSymbols is how the rest of tilegen asks for a module's symbols. An
+// Read is how the rest of tilegen asks for a module's symbols. An
 // answer is kept for a while, so looking at a module and then asking
 // about parts of it fetches it once.
-var readSymbols = rememberSymbols(moduleSymbols, 15*time.Minute)
+var Read = Remember(FetchModule, 15*time.Minute)
 
-func rememberSymbols(read func(mod, version string) (*ModuleSymbols, error), keep time.Duration) func(mod, version string) (*ModuleSymbols, error) {
+func Remember(read func(mod, version string) (*ModuleSymbols, error), keep time.Duration) func(mod, version string) (*ModuleSymbols, error) {
 	type entry struct {
 		m    *ModuleSymbols
 		when time.Time
@@ -345,11 +345,11 @@ func goRun(dir string, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// moduleSymbols resolves a module at a version (or "latest" when it is
+// FetchModule resolves a module at a version (or "latest" when it is
 // empty) and reads the packages a program would import from it. It runs
 // the go tool, which fetches the module if it is not already on this
 // machine; nothing from the module is run.
-func moduleSymbols(mod, version string) (*ModuleSymbols, error) {
+func FetchModule(mod, version string) (*ModuleSymbols, error) {
 	if err := module.CheckPath(mod); err != nil {
 		return nil, fmt.Errorf("%q is not a module path: %v", mod, err)
 	}
@@ -381,13 +381,13 @@ func moduleSymbols(mod, version string) (*ModuleSymbols, error) {
 	if err := json.Unmarshal(raw, &info); err != nil || info.Version == "" {
 		return nil, fmt.Errorf("go list did not say which version of %s it resolved", mod)
 	}
-	return readModule(dir, mod, info.Version, nil, append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off"))
+	return ReadModule(dir, mod, info.Version, nil, append(os.Environ(), "GOFLAGS=-mod=mod", "GOWORK=off"))
 }
 
-// readModule reads a module's packages from a directory whose go.mod
+// ReadModule reads a module's packages from a directory whose go.mod
 // requires it (or is its own). With only set, it reads exactly those
 // import paths. A nil env is this process's: nothing in dir is changed.
-func readModule(dir, mod, version string, only []string, env []string) (*ModuleSymbols, error) {
+func ReadModule(dir, mod, version string, only []string, env []string) (*ModuleSymbols, error) {
 	out := &ModuleSymbols{Module: mod, Version: version}
 	paths := only
 	if len(paths) == 0 {
@@ -468,12 +468,12 @@ func importable(mod, path, name string) bool {
 	return true
 }
 
-// moduleSymbolsForCmd is the command's own reader: it filters what it
+// CmdFetch is the command's own reader: it filters what it
 // reads, so it never shares an answer with anyone.
-var moduleSymbolsForCmd = moduleSymbols
+var CmdFetch = FetchModule
 
 // tilegen symbols MODULE[@VERSION]...
-func symbolsCmd(args []string, stdout, stderr io.Writer) error {
+func Cmd(args []string, stdout, stderr io.Writer) error {
 	fs := flag.NewFlagSet("symbols", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	asJSON := fs.Bool("json", false, "print the symbols as JSON")
@@ -487,18 +487,18 @@ func symbolsCmd(args []string, stdout, stderr io.Writer) error {
 		fs.Usage()
 		return errors.New("no module given")
 	}
-	kinds, err := parseKinds(*kind)
+	kinds, err := ParseKinds(*kind)
 	if err != nil {
 		return err
 	}
 	var all []*ModuleSymbols
 	for _, arg := range mods {
 		mod, version, _ := strings.Cut(arg, "@")
-		m, err := moduleSymbolsForCmd(mod, version)
+		m, err := CmdFetch(mod, version)
 		if err != nil {
 			return err
 		}
-		m.only(kinds)
+		m.Only(kinds)
 		all = append(all, m)
 	}
 	if *asJSON {
@@ -507,12 +507,12 @@ func symbolsCmd(args []string, stdout, stderr io.Writer) error {
 		return enc.Encode(all)
 	}
 	for _, m := range all {
-		fmt.Fprintln(stdout, strings.TrimRight(m.text(1<<30), "\n"))
+		fmt.Fprintln(stdout, strings.TrimRight(m.Text(1<<30), "\n"))
 	}
 	return nil
 }
 
-func parseKinds(s string) ([]string, error) {
+func ParseKinds(s string) ([]string, error) {
 	var out []string
 	for _, k := range strings.Split(s, ",") {
 		k = strings.TrimSpace(k)

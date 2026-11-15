@@ -1,4 +1,4 @@
-package main
+package symbols
 
 import (
 	"fmt"
@@ -88,8 +88,8 @@ type ValueSym struct {
 	IsError bool   `json:"is_error,omitempty"` // a sentinel: compare with errors.Is
 }
 
-// only keeps the symbols of the kinds asked for: interface, type, func, value.
-func (m *ModuleSymbols) only(kinds []string) {
+// Only keeps the symbols of the kinds asked for: interface, type, func, value.
+func (m *ModuleSymbols) Only(kinds []string) {
 	if len(kinds) == 0 {
 		return
 	}
@@ -116,9 +116,9 @@ func (m *ModuleSymbols) only(kinds []string) {
 
 var symbolKinds = []string{"interface", "type", "func", "value"}
 
-// has reports whether the module exports a symbol, written pkg.Name or
+// Has reports whether the module exports a symbol, written pkg.Name or
 // pkg.Type.Method, where pkg is a package's name or its import path.
-func (m *ModuleSymbols) has(ref string) bool {
+func (m *ModuleSymbols) Has(ref string) bool {
 	for _, p := range m.Packages {
 		for _, prefix := range []string{p.Path + ".", p.Name + "."} {
 			rest, ok := strings.CutPrefix(ref, prefix)
@@ -171,8 +171,8 @@ func hasValue(vs []ValueSym, name string) bool {
 	return false
 }
 
-// signature writes a function the way Go does, without the keyword.
-func (f FuncSym) signature() string {
+// Signature writes a function the way Go does, without the keyword.
+func (f FuncSym) Signature() string {
 	params := make([]string, len(f.Params))
 	for i, p := range f.Params {
 		params[i] = strings.TrimSpace(p.Name + " " + p.Type)
@@ -188,10 +188,10 @@ func (f FuncSym) signature() string {
 	return s
 }
 
-// text is the symbols as a short listing for a prompt: interfaces and
+// Text is the symbols as a short listing for a prompt: interfaces and
 // what satisfies them, then types and how to get one, then sentinel
 // errors, within a budget of characters. It says so when it stops early.
-func (m *ModuleSymbols) text(budget int) string {
+func (m *ModuleSymbols) Text(budget int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s %s, as the Go type checker reads it:\n", m.Module, m.Version)
 	full := false
@@ -222,7 +222,7 @@ func (m *ModuleSymbols) text(budget int) string {
 			}
 			line("\n")
 			for _, mth := range i.Methods {
-				line("    %s\n", mth.signature())
+				line("    %s\n", mth.Signature())
 			}
 		}
 		for _, t := range p.Types {
@@ -254,13 +254,13 @@ func (m *ModuleSymbols) text(budget int) string {
 	return b.String()
 }
 
-// checkCited holds a draft to the module it names: every symbol it cites
+// CheckCited holds a draft to the module it names: every symbol it cites
 // is one the module exports.
-func checkCited(o *compile.Offer, m *ModuleSymbols) error {
+func CheckCited(o *compile.Offer, m *ModuleSymbols) error {
 	var missing []string
 	for _, ref := range o.Symbols {
-		if !m.has(ref) {
-			missing = append(missing, ref+compile.DidYouMean(ref, m.names()))
+		if !m.Has(ref) {
+			missing = append(missing, ref+compile.DidYouMean(ref, m.Names()))
 		}
 	}
 	if len(missing) == 0 {
@@ -269,9 +269,9 @@ func checkCited(o *compile.Offer, m *ModuleSymbols) error {
 	return fmt.Errorf("%s %s does not export %s; cite only symbols it has", m.Module, m.Version, strings.Join(missing, ", "))
 }
 
-// names is every reference has would accept for a top-level symbol,
+// Names is every reference has would accept for a top-level symbol,
 // by package name.
-func (m *ModuleSymbols) names() []string {
+func (m *ModuleSymbols) Names() []string {
 	var out []string
 	for _, p := range m.Packages {
 		for _, i := range p.Interfaces {
@@ -329,7 +329,7 @@ type TypeIndex struct {
 	IsError      bool     `json:"is_error,omitempty"`
 }
 
-func (m *ModuleSymbols) index() SymbolIndex {
+func (m *ModuleSymbols) Index() SymbolIndex {
 	out := SymbolIndex{Module: m.Module, Version: m.Version, NotRead: m.NotRead}
 	for _, p := range m.Packages {
 		pi := PackageIndex{Path: p.Path, Name: p.Name, Doc: p.Doc}
@@ -364,9 +364,9 @@ type SymbolDetail struct {
 	Value     *ValueSym     `json:"value,omitempty"`
 }
 
-// detail finds a symbol written pkg.Name, where pkg is a package's name
+// Detail finds a symbol written pkg.Name, where pkg is a package's name
 // or its import path.
-func (m *ModuleSymbols) detail(ref string) (SymbolDetail, bool) {
+func (m *ModuleSymbols) Detail(ref string) (SymbolDetail, bool) {
 	for pi := range m.Packages {
 		p := &m.Packages[pi]
 		for _, prefix := range []string{p.Path + ".", p.Name + "."} {
