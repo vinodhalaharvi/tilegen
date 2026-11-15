@@ -359,6 +359,10 @@
           "reason": "the whole database lives in one process's memory, and the file is not locked against a second one"
         },
         {
+          "tile": "cassandra",
+          "reason": "unverified: a write is acknowledged by as many replicas as the session's consistency level asks, and each appends it to a commit log that is synced to disk periodically by default; what one node's crash can lose is the cluster's configuration"
+        },
+        {
           "tile": "leveldb",
           "reason": "goleveldb takes a file lock on the directory; a second process cannot open the same store"
         },
@@ -385,6 +389,10 @@
         {
           "tile": "pogreb",
           "reason": "Pogreb locks its directory; a second process cannot open the same database"
+        },
+        {
+          "tile": "redis-hash",
+          "reason": "unverified: what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure"
         },
         {
           "tile": "redis-kv",
@@ -754,6 +762,10 @@
           "reason": "the whole database lives in one process's memory, and the file is not locked against a second one"
         },
         {
+          "tile": "cassandra",
+          "reason": "unverified: a write is acknowledged by as many replicas as the session's consistency level asks, and each appends it to a commit log that is synced to disk periodically by default; what one node's crash can lose is the cluster's configuration"
+        },
+        {
           "tile": "leveldb",
           "reason": "goleveldb takes a file lock on the directory; a second process cannot open the same store"
         },
@@ -780,6 +792,10 @@
         {
           "tile": "pogreb",
           "reason": "Pogreb locks its directory; a second process cannot open the same database"
+        },
+        {
+          "tile": "redis-hash",
+          "reason": "unverified: what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure"
         },
         {
           "tile": "redis-kv",
@@ -1188,6 +1204,56 @@
               "dimension": "runtime",
               "value": 1,
               "weight": 1
+            }
+          ]
+        },
+        {
+          "tile": "redis-hash",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 3·4 + maint 4·3 + dep 2·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "five hash commands and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and every value of an entity lives under one key: a list reads them all in one reply, and one key cannot be spread over a cluster's slots"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -1604,6 +1670,56 @@
               "weight": 3,
               "source": "derived",
               "note": "an object server to run: disks, healing, upgrades and backups"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "cassandra",
+          "score": 73,
+          "own": 73,
+          "terms": "llm 5·4 + maint 5·3 + dep 2·1 + run 2·1 + ops 8·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "CQL by hand, an iterator to close, and results that arrive in token order"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "the table (id text PRIMARY KEY, data blob) is created outside this code, a list or a count scans every partition, and a delete leaves a tombstone"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "gocql and a few small modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 8,
+              "weight": 3,
+              "source": "derived",
+              "note": "a cluster of at least three nodes to run, repair, compact, back up and upgrade"
             },
             {
               "dimension": "uncertainty",
