@@ -1,4 +1,4 @@
-package main
+package serve
 
 import (
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
@@ -13,7 +13,7 @@ import (
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	page := strings.ReplaceAll(indexHTML, "__VERSION__", compile.Version)
+	page := strings.ReplaceAll(IndexHTML, "__VERSION__", compile.Version)
 	page = strings.ReplaceAll(page, "__TILES__", template.HTMLEscapeString(tilesDoc()))
 	w.Write([]byte(page))
 }
@@ -77,7 +77,7 @@ const exampleSpec = `(project bookmarks
     (source ops "ships as one binary; no database server")))
 `
 
-const indexHTML = `<!doctype html>
+const IndexHTML = `<!doctype html>
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -385,7 +385,7 @@ First time here? Open Docs.</pre>
   </div>
 </main>
 
-<div id="docs" hidden><div class="doc">` + docsHTML + `</div></div>
+<div id="docs" hidden><div class="doc">` + DocsHTML + `</div></div>
 
 <div class="foot">tilegen __VERSION__ · go install github.com/vinodhalaharvi/tilegen@latest</div>
 

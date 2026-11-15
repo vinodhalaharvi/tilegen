@@ -1,6 +1,6 @@
 //go:build !js
 
-package main
+package serve
 
 import (
 	"bufio"
@@ -39,7 +39,7 @@ func anthropicKey() (key, from string) {
 	return "", ""
 }
 
-func keyCmd(args []string, in io.Reader, out io.Writer) error {
+func KeyCmd(args []string, in io.Reader, out io.Writer) error {
 	if len(args) != 1 {
 		return errors.New("usage: tilegen key set | remove | status")
 	}

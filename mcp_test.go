@@ -16,6 +16,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
@@ -424,12 +425,12 @@ func TestMCPExplainIsExplain(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		cp, err := compileRequest(specRequest{Spec: c.spec, Config: c.config, Policy: c.policy})
+		cp, err := serve.CompileRequest(serve.SpecRequest{Spec: c.spec, Config: c.config, Policy: c.policy})
 		if err != nil {
 			t.Fatal(err)
 		}
 		a, _ := json.Marshal(got)
-		b, _ := json.Marshal(explainJSON(cp, nil))
+		b, _ := json.Marshal(serve.ExplainJSON(cp, nil))
 		if string(a) != string(b) || len(a) < 20 {
 			t.Errorf("%s: explain through MCP differs from explain", c.name)
 		}

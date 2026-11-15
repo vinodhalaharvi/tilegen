@@ -1,6 +1,6 @@
 //go:build js
 
-package main
+package serve
 
 import "io"
 
@@ -8,5 +8,5 @@ import "io"
 // the server does.
 func anthropicKey() (key, from string) { return "", "" }
 
-// keyCmd is the command line's; a page has none.
-func keyCmd([]string, io.Reader, io.Writer) error { return nil }
+// KeyCmd is the command line's; a page has none.
+func KeyCmd([]string, io.Reader, io.Writer) error { return nil }
