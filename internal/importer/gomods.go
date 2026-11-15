@@ -1,9 +1,7 @@
-package main
+package importer
 
 import (
-	"encoding/json"
 	"fmt"
-	"net/http"
 	"sort"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
@@ -45,8 +43,8 @@ type ModuleJSON struct {
 	In      int      `json:"in"`
 }
 
-// scanGoMods reads the text of several go.mod files.
-func scanGoMods(texts []string) GoModsJSON {
+// ScanGoMods reads the text of several go.mod files.
+func ScanGoMods(texts []string) GoModsJSON {
 	out := GoModsJSON{Engines: compile.Engines(), Modules: []string{}}
 	covered := coveredModules()
 	engineOfTile := map[string]string{}
@@ -126,22 +124,3 @@ func scanGoMods(texts []string) GoModsJSON {
 	sort.SliceStable(out.Running, func(i, j int) bool { return out.Running[i].In > out.Running[j].In })
 	return out
 }
-
-// handleGoMods answers POST /gomods: {"files": ["module x ...", ...]}.
-func handleGoMods(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Files []string `json:"files"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("the request is not valid JSON: %w", err))
-		return
-	}
-	if len(req.Files) > maxGoMods {
-		writeError(w, http.StatusBadRequest, fmt.Errorf(`send {"files": [...]} with at most %d go.mod files as text`, maxGoMods))
-		return
-	}
-	respondJSON(w, scanGoMods(req.Files))
-}
-
-// maxGoMods bounds one request: enough for a team's services, not a crawl.
-const maxGoMods = 50

@@ -7,6 +7,7 @@ import (
 	"syscall/js"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 )
 
 // In a browser there is no command line: tilegen is one function, taking
@@ -35,7 +36,7 @@ func wasmMain() bool {
 				files = append(files, a.String())
 			}
 		}
-		b, _ := json.Marshal(scanGoMods(files))
+		b, _ := json.Marshal(importer.ScanGoMods(files))
 		return string(b)
 	}))
 	js.Global().Set("tilegenVersion", compile.Version)

@@ -23,6 +23,7 @@ import (
 	"github.com/vinodhalaharvi/dyna"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/fill"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -2260,7 +2261,7 @@ func importSpec(t *testing.T, dir string, force bool) (map[string]string, string
 	if force {
 		args = append([]string{"-force"}, args...)
 	}
-	if err := importCmd(args, &out, &log); err != nil {
+	if err := importer.Cmd(args, &out, &log); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	files := map[string]string{}
@@ -2339,7 +2340,7 @@ func TestImportRefusesCodeThatDoesNotTypeCheck(t *testing.T) {
 		"bad/bad.go":         "package bad\n\nfunc F() int { return undefinedThing }\n",
 	})
 	var out, log strings.Builder
-	err := importCmd([]string{dir}, &out, &log)
+	err := importer.Cmd([]string{dir}, &out, &log)
 	if err == nil || !strings.Contains(err.Error(), "does not type-check") || !strings.Contains(err.Error(), "undefined: undefinedThing") {
 		t.Fatalf("want a refusal naming the error, got %v", err)
 	}
@@ -2375,7 +2376,7 @@ func TestImportSkipsGeneratedAndNeedsAModule(t *testing.T) {
 		t.Errorf("want the project form and real: %v", compile.SortedKeys(files))
 	}
 	var out, log strings.Builder
-	if err := importCmd([]string{t.TempDir()}, &out, &log); err == nil || !strings.Contains(err.Error(), "no go.mod") {
+	if err := importer.Cmd([]string{t.TempDir()}, &out, &log); err == nil || !strings.Contains(err.Error(), "no go.mod") {
 		t.Errorf("want a clear error outside a module, got %v", err)
 	}
 }
@@ -2394,7 +2395,7 @@ func TestImportSelfRoundTrip(t *testing.T) {
 		t.Skipf("go mod tidy needs the module proxy: %v\n%s", err, b)
 	}
 	var out, log strings.Builder
-	if err := importCmd([]string{first}, &out, &log); err != nil {
+	if err := importer.Cmd([]string{first}, &out, &log); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "imported 10 of 10 exported type(s)") {

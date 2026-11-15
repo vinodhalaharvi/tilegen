@@ -18,6 +18,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/fill"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	_ "github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
@@ -66,7 +67,7 @@ func main() {
 			}
 			return
 		case "import":
-			if err := importCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			if err := importer.Cmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}

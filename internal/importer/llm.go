@@ -1,4 +1,4 @@
-package main
+package importer
 
 import (
 	"bytes"
@@ -6,16 +6,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
-	"github.com/vinodhalaharvi/tilegen/internal/sexp"
-	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"strings"
-	"sync"
-	"time"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 )
 
 // Asking Claude to draft a tile.
@@ -33,62 +31,22 @@ import (
 // is set and the server is listening on this machine only, so a public
 // deployment can never spend its owner's key for a stranger.
 
-const (
-	defaultModel    = "claude-sonnet-5-5"
-	maxDraftModules = 25
-	maxDraftTimeout = 120 * time.Second
-)
+// DefaultModel is the model a draft is asked of, unless TILEGEN_MODEL names another.
+const DefaultModel = "claude-sonnet-5-5"
 
-// anthropicURL is where the Messages API is; a test points it elsewhere.
-var anthropicURL = "https://api.anthropic.com/v1/messages"
+// AnthropicURL is where the Messages API is; a test points it elsewhere.
+var AnthropicURL = "https://api.anthropic.com/v1/messages"
 
-// llmState is whether drafting is available, and why not when it is not.
-type llmState struct {
-	Enabled bool   `json:"enabled"`
-	Why     string `json:"why,omitempty"`
-	Model   string `json:"model,omitempty"`
-}
-
-var (
-	serveLoopback bool // set by serveCmd: the listener is reachable from this machine only
-	llmMu         sync.Mutex
-)
-
-func llmStatus() llmState {
-	key, _ := anthropicKey()
-	switch {
-	case key == "":
-		return llmState{Why: "no Anthropic API key is set: run `tilegen key set`, or set ANTHROPIC_API_KEY, and start serve again"}
-	case !serveLoopback:
-		return llmState{Why: "this server can be reached from other machines, and a key is never spent for them: start it with -addr localhost:8080"}
-	}
-	return llmState{Enabled: true, Model: llmModel()}
-}
-
-func llmModel() string {
+func Model() string {
 	if m := strings.TrimSpace(os.Getenv("TILEGEN_MODEL")); m != "" {
 		return m
 	}
-	return defaultModel
+	return DefaultModel
 }
 
-// isLoopback reports whether a listen address accepts connections from
-// this machine only.
-func isLoopback(addr string) bool {
-	host, _, err := net.SplitHostPort(addr)
-	if err != nil || host == "" {
-		return false // ":8080" is every interface
-	}
-	if host == "localhost" {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
-}
-
-// draftForm writes an offer as a (tile ...) form. Claude is shown
+// DraftForm writes an offer as a (tile ...) form. Claude is shown
 // tilegen's own tiles this way, so what it imitates is real.
-func draftForm(o *compile.Offer) string {
+func DraftForm(o *compile.Offer) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "(tile %s\n  (offers %s)\n  (doc %q)", o.Tile, o.Capability, o.Doc)
 	if o.Module != "" {
@@ -166,7 +124,7 @@ Three of tilegen's own tiles, for the level of detail and the scale of the costs
 		for _, name := range compile.CapabilityNames() {
 			for _, o := range compile.OffersOf(name) {
 				if o.Tile == pick {
-					b.WriteString(draftForm(o) + "\n\n")
+					b.WriteString(DraftForm(o) + "\n\n")
 				}
 			}
 		}
@@ -225,8 +183,8 @@ func symbolsFor(ctx context.Context, module, version string) (*symbols.ModuleSym
 
 // askClaude sends one conversation and returns the text of the answer.
 func askClaude(ctx context.Context, key, system string, turns []map[string]string) (string, error) {
-	body, _ := json.Marshal(map[string]any{"model": llmModel(), "max_tokens": 2000, "system": system, "messages": turns})
-	req, err := http.NewRequestWithContext(ctx, "POST", anthropicURL, bytes.NewReader(body))
+	body, _ := json.Marshal(map[string]any{"model": Model(), "max_tokens": 2000, "system": system, "messages": turns})
+	req, err := http.NewRequestWithContext(ctx, "POST", AnthropicURL, bytes.NewReader(body))
 	if err != nil {
 		return "", err
 	}
@@ -264,9 +222,9 @@ func askClaude(ctx context.Context, key, system string, turns []map[string]strin
 	return strings.TrimSpace(text.String()), nil
 }
 
-// draftModule asks for one module's tile. A draft that fails tilegen's
+// DraftModule asks for one module's tile. A draft that fails tilegen's
 // checks goes back once, with the reason.
-func draftModule(ctx context.Context, key, module, version string) DraftJSON {
+func DraftModule(ctx context.Context, key, module, version string) DraftJSON {
 	out := DraftJSON{Module: module, Version: version}
 	ask := "Module: " + module + "\nVersion: " + version
 	syms, why := symbolsFor(ctx, module, version)
@@ -337,39 +295,4 @@ func trimFence(s string) string {
 		s = strings.TrimSuffix(strings.TrimSpace(s), "```")
 	}
 	return strings.TrimSpace(s)
-}
-
-// handleDraft answers POST /draft: {"modules": [{"module": "...", "version": "..."}]}.
-func handleDraft(w http.ResponseWriter, r *http.Request) {
-	st := llmStatus()
-	if !st.Enabled {
-		writeError(w, http.StatusForbidden, errors.New(st.Why))
-		return
-	}
-	var req struct {
-		Modules []struct{ Module, Version string } `json:"modules"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("the request is not valid JSON: %w", err))
-		return
-	}
-	if len(req.Modules) == 0 || len(req.Modules) > maxDraftModules {
-		writeError(w, http.StatusBadRequest, fmt.Errorf(`send {"modules": [...]} with 1 to %d modules`, maxDraftModules))
-		return
-	}
-	key, _ := anthropicKey()
-	out := make([]DraftJSON, len(req.Modules))
-	var wg sync.WaitGroup
-	slots := make(chan struct{}, 4) // a few at a time: quick, and gentle on a small rate limit
-	for i, m := range req.Modules {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			slots <- struct{}{}
-			defer func() { <-slots }()
-			out[i] = draftModule(r.Context(), key, strings.TrimSpace(m.Module), strings.TrimSpace(m.Version))
-		}()
-	}
-	wg.Wait()
-	respondJSON(w, map[string]any{"model": st.Model, "drafts": out})
 }

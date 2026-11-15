@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols/symbolstest"
@@ -73,7 +74,7 @@ func TestDraftCitesSymbols(t *testing.T) {
 	}
 	// What a draft says round-trips through the form tilegen shows.
 	offers, _ = compile.ParseDrafts(with("(symbols kv.Store kv.Open)"))
-	if form := draftForm(offers[0]); !strings.Contains(form, "\n  (symbols kv.Store kv.Open)") {
+	if form := importer.DraftForm(offers[0]); !strings.Contains(form, "\n  (symbols kv.Store kv.Open)") {
 		t.Errorf("the form drops the symbols:\n%s", form)
 	}
 	for name, c := range map[string]struct{ symbols, want string }{
@@ -120,7 +121,7 @@ func TestClaudeDraftsFromSymbols(t *testing.T) {
 	// The request carries what the type checker read; a draft citing it passes.
 	stubSymbols(t, m, nil)
 	calls, last := fakeClaude(t, good)
-	d := draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d := importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Error != "" || d.Name != "kv-file" || calls.Load() != 1 || d.Symbols != len(m.Names()) || d.FromMemory != "" {
 		t.Fatalf("a grounded draft: %+v after %d call(s)", d, calls.Load())
 	}
@@ -133,18 +134,18 @@ func TestClaudeDraftsFromSymbols(t *testing.T) {
 
 	// A symbol the module does not have goes back with the reason, once.
 	calls, last = fakeClaude(t, invented, good)
-	d = draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d = importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Error != "" || d.Name != "kv-file" || calls.Load() != 2 || !strings.Contains(*last, "does not export kv.Transaction") {
 		t.Fatalf("an invented symbol, corrected: %+v after %d call(s)", d, calls.Load())
 	}
 	calls, _ = fakeClaude(t, invented)
-	d = draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d = importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Tile != "" || calls.Load() != 2 || !strings.Contains(d.Error, "does not export kv.Transaction") {
 		t.Fatalf("an invented symbol, kept: %+v", d)
 	}
 	// Shown the symbols, a draft that cites none is not accepted.
 	calls, last = fakeClaude(t, uncited, good)
-	d = draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d = importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Error != "" || calls.Load() != 2 || !strings.Contains(*last, "cite in (symbols ...) the ones the claims rest on") {
 		t.Fatalf("an uncited draft: %+v after %d call(s)", d, calls.Load())
 	}
@@ -153,7 +154,7 @@ func TestClaudeDraftsFromSymbols(t *testing.T) {
 	// cannot pretend to cite anything.
 	stubSymbols(t, nil, errors.New("cannot fetch example.com/kv@v0.1.0: no network"))
 	calls, last = fakeClaude(t, uncited)
-	d = draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d = importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Error != "" || d.Name != "kv-file" || d.Symbols != 0 || !strings.Contains(d.FromMemory, "could not be read (cannot fetch example.com/kv@v0.1.0: no network)") {
 		t.Fatalf("a draft from memory: %+v", d)
 	}
@@ -161,7 +162,7 @@ func TestClaudeDraftsFromSymbols(t *testing.T) {
 		t.Error("no symbols were read and the request claims some")
 	}
 	calls, _ = fakeClaude(t, good)
-	d = draftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
+	d = importer.DraftModule(ctx, "sk-ant-test", "example.com/kv", "v0.1.0")
 	if d.Tile != "" || !strings.Contains(d.Error, "none can be cited") {
 		t.Fatalf("citing symbols nobody read: %+v", d)
 	}
@@ -173,7 +174,7 @@ func TestImportTilesWithSymbols(t *testing.T) {
 	stubSymbols(t, m, nil)
 	dir := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire (\n\texample.com/kv v0.1.0\n\texample.com/gone v1.0.0\n)\n"})
 	var out bytes.Buffer
-	if err := importTiles(dir, "tilespecs", false, true, &out); err != nil {
+	if err := importer.Tiles(dir, "tilespecs", false, true, &out); err != nil {
 		t.Fatal(err)
 	}
 	kv, err := os.ReadFile(filepath.Join(dir, "tilespecs", "kv.sexp"))
@@ -200,7 +201,7 @@ func TestImportTilesWithSymbols(t *testing.T) {
 	// Without the flag the skeleton is what go.mod states and nothing more.
 	plain := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire example.com/kv v0.1.0\n"})
 	calls := stubSymbols(t, m, nil)
-	if err := importTiles(plain, "tilespecs", false, false, &out); err != nil {
+	if err := importer.Tiles(plain, "tilespecs", false, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(plain, "tilespecs", "kv.sexp")); strings.Contains(string(b), "What the module exports") || *calls != 0 {
@@ -231,6 +232,9 @@ func TestMCPSymbolTools(t *testing.T) {
 		if _, err := gomod()(ctx, GoModIn{GoMod: bad}); err == nil {
 			t.Errorf("gomod accepted %q", bad)
 		}
+	}
+	if _, err := gomod()(ctx, GoModIn{GoMod: "this is not a go.mod {"}); err == nil || strings.Count(err.Error(), "not a go.mod") != 1 || !strings.HasPrefix(err.Error(), "that is not a go.mod: ") {
+		t.Errorf("the refusal should say it once: %v", err)
 	}
 
 	// symbols: the index, then the ones asked for
@@ -320,7 +324,7 @@ func TestMCPSymbolTools(t *testing.T) {
 func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	dir := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire example.com/kv v0.1.0\n"})
 	var out bytes.Buffer
-	if err := importTiles(dir, "tilespecs", false, false, &out); err != nil {
+	if err := importer.Tiles(dir, "tilespecs", false, false, &out); err != nil {
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, "tilespecs", "kv.sexp")
@@ -332,7 +336,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 
 	// Nothing is guessed: no kind, and no number that could pass for one.
 	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ",
-		"One of: " + strings.Join(tiles.TileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + kindComparison("store-backend")} {
+		"One of: " + strings.Join(tiles.TileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + importer.KindComparison("store-backend")} {
 		if !strings.Contains(skel, want) {
 			t.Errorf("the skeleton has no %q:\n%s", want, skel)
 		}
@@ -347,7 +351,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 			t.Errorf("a line too long or with trailing space: %q", line)
 		}
 	}
-	if cmp := kindComparison("store-backend"); !strings.Contains(cmp, "llm-work runs from ") || kindComparison("no-such-kind") != "" {
+	if cmp := importer.KindComparison("store-backend"); !strings.Contains(cmp, "llm-work runs from ") || importer.KindComparison("no-such-kind") != "" {
 		t.Errorf("the comparison: %q", cmp)
 	}
 
