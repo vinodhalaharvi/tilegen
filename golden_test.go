@@ -37,6 +37,9 @@ func golden(t *testing.T, name string, got []byte) {
 // The catalogue, in the order tilegen prints it. Where tiles are
 // registered from must not change it.
 func TestGoldenCatalogue(t *testing.T) {
+	// The listing says whether each tool a tile needs is installed. With
+	// no PATH none is, on every machine.
+	t.Setenv("PATH", "")
 	var text bytes.Buffer
 	if err := tilesCmd(nil, &text); err != nil {
 		t.Fatal(err)
