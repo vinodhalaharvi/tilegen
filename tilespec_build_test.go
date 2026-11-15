@@ -7,11 +7,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 )
 
 // A tile-spec generates a file of tilegen's own. Whatever tilegen's
@@ -121,6 +124,11 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The copy has badger once: as the Go file just generated, in place of
+	// the data file tilegen ships.
+	if err := os.Remove(filepath.Join(copyOf, "internal", "tiles", "specs", "badger.sexp")); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(copyOf, "internal", "tiles", "store_badger.go"), tile, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +141,7 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 	}
 }
 
-// specTiles are the tiles that have a spec checked in beside them: the
-// spec's path, and the tile it describes.
+// specTiles are the tiles that are data: the file, and the tile it holds.
 func specTiles(t *testing.T) map[string]string {
 	t.Helper()
 	specs, err := filepath.Glob(filepath.Join("internal", "tiles", "specs", "*.sexp"))
@@ -148,49 +155,52 @@ func specTiles(t *testing.T) map[string]string {
 	return out
 }
 
-// registration is a tile file's init function: everything the spec states.
-func registration(t *testing.T, src string) string {
-	t.Helper()
-	a := strings.Index(src, "func init() {\n")
-	if a < 0 {
-		t.Fatal("no init in the tile")
-	}
-	b := strings.Index(src[a:], "\n}\n")
-	return src[a : a+b+3]
-}
-
-// A tile's spec and its Go file say the same thing: generating from the
-// spec gives the registration that is checked in, and the holes it left
-// have been filled.
-func TestSpecsMatchTheirTiles(t *testing.T) {
+// A tile that is data is the tile tilegen runs with: what the file says is
+// what is registered, down to each hint.
+func TestDataTilesAreWhatIsRegistered(t *testing.T) {
 	for spec, tile := range specTiles(t) {
-		gen := t.TempDir()
-		if err := run(compile.Options{Spec: spec, Out: gen}, io.Discard); err != nil {
-			t.Errorf("%s: %v", spec, err)
-			continue
-		}
-		made, _ := filepath.Glob(filepath.Join(gen, "internal", "tiles", "*.go"))
-		if len(made) != 1 {
-			t.Errorf("%s generated %d files in internal/tiles", spec, len(made))
-			continue
-		}
-		fresh, err := os.ReadFile(made[0])
+		src, err := os.ReadFile(spec)
 		if err != nil {
 			t.Fatal(err)
 		}
-		kept, err := os.ReadFile(filepath.Join("internal", "tiles", filepath.Base(made[0])))
-		if err != nil {
-			t.Errorf("%s describes %s, and %s is not checked in", spec, tile, filepath.Base(made[0]))
+		read, err := tiles.LoadTiles(spec, string(src))
+		if err != nil || len(read) != 1 {
+			t.Errorf("%s: %d tiles, %v", spec, len(read), err)
 			continue
 		}
-		if registration(t, string(fresh)) != registration(t, string(kept)) {
-			t.Errorf("%s and %s have drifted: change the spec, generate, and keep the two holes' bodies", spec, filepath.Base(made[0]))
-		}
-		if strings.Contains(string(kept), compile.HolePrefix) {
-			t.Errorf("%s still has an open hole", filepath.Base(made[0]))
-		}
-		if _, ok := compile.Backends[shortNameOf(tile)]; !ok {
+		reg := compile.Backends[shortNameOf(tile)]
+		if reg == nil {
 			t.Errorf("%s is not registered as a store", tile)
+			continue
+		}
+		a, b := *read[0], *reg
+		a.Implement, b.Implement = nil, nil
+		if !reflect.DeepEqual(a, b) {
+			t.Errorf("%s: the file and the registry disagree:\n%+v\n%+v", tile, a, b)
+		}
+		offered := false
+		for _, o := range compile.Offers["store"] {
+			offered = offered || (o.Tile == tile && o.Doc == reg.Doc)
+		}
+		if !offered {
+			t.Errorf("%s is not offered as a store", tile)
+		}
+		// Each plain method has its hint, and nothing in it is left unfilled.
+		parts, err := reg.Implement(compile.StoreInput{Entity: "LineItem", Impl: "XLineItemStore", IDType: "string"})
+		if err != nil || len(parts.Fields) == 0 || !strings.Contains(parts.Body, "XLineItemStore") {
+			t.Errorf("%s: parts %+v, %v", tile, parts, err)
+			continue
+		}
+		for _, op := range []string{"get", "list", "save", "delete", "count"} {
+			hint := parts.Hint(sexp.L(sexp.Sym("method"), sexp.Sym("M"), sexp.L(sexp.Sym("op"), sexp.Sym(op))))
+			if hint == "" {
+				t.Errorf("%s has no hint for %s", tile, op)
+			}
+			for _, left := range []string{"{impl}", "{entity}", "{name}", "{names}", "{id}", "{field}", "{param}"} {
+				if strings.Contains(hint+parts.Body, left) {
+					t.Errorf("%s: %s is left unfilled", tile, left)
+				}
+			}
 		}
 	}
 }
@@ -248,5 +258,24 @@ func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A tile-spec that is whole has nothing to scaffold: inside a project it
+// is refused, with where it belongs.
+func TestAWholeTileSpecIsNotScaffolded(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("internal", "tiles", "specs", "pebble.sexp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	whole := strings.Replace(string(src), "(tile-spec pebble", "(tile-spec rocks", 1)
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, "(project tiles (module example.com/tiles) (go 1.22)\n  (package main (dir \".\")\n"+whole+"))", "")
+	err = run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+	if err == nil || !strings.Contains(err.Error(), "(tile-spec rocks ...) is whole") || !strings.Contains(err.Error(), "there is nothing to scaffold") {
+		t.Fatalf("got %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(dir, "out", "store_rocks.go")); statErr == nil {
+		t.Error("a file was written for it")
 	}
 }

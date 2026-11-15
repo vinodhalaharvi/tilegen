@@ -4,6 +4,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -129,7 +130,8 @@ var filePrefix = map[string]string{"store": "store", "event-bus": "bus", "auth":
 
 // Every tile is one file, named for what it offers and what it is, and no
 // file holds two. A tile that offers two capabilities registers both in
-// its one file.
+// its one file. A tile that is data is specs/NAME.sexp; one that is Go is
+// PREFIX_NAME.go.
 func TestOneFilePerTile(t *testing.T) {
 	fset := token.NewFileSet()
 	pkgFiles, err := filepath.Glob("*.go")
@@ -138,7 +140,7 @@ func TestOneFilePerTile(t *testing.T) {
 	}
 	found := map[string]string{} // tile -> file
 	for _, file := range pkgFiles {
-		if strings.HasSuffix(file, "_test.go") {
+		if strings.HasSuffix(file, "_test.go") || file == "datatile.go" { // datatile.go registers what specs/ holds
 			continue
 		}
 		f, err := parser.ParseFile(fset, file, nil, 0)
@@ -204,6 +206,29 @@ func TestOneFilePerTile(t *testing.T) {
 		if len(here) > 1 {
 			t.Errorf("%s holds %d tiles (%s); one file holds one", file, len(here), strings.Join(here, ", "))
 		}
+	}
+	specs, err := filepath.Glob(filepath.Join("specs", "*.sexp"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range specs {
+		src, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tiles, err := LoadTiles(file, string(src))
+		if err != nil {
+			t.Errorf("%v", err)
+			continue
+		}
+		if len(tiles) != 1 || tiles[0].Tile+".sexp" != filepath.Base(file) {
+			t.Errorf("%s holds %d tiles; a tile's file is named for it and holds only it", file, len(tiles))
+			continue
+		}
+		if prev := found[tiles[0].Tile]; prev != "" {
+			t.Errorf("%s is in %s and in %s", tiles[0].Tile, prev, file)
+		}
+		found[tiles[0].Tile] = file
 	}
 	// And the other way: every tile this package is known to offer was found in a file.
 	for capability := range filePrefix {
