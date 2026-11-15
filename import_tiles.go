@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 	"io"
 	"os"
 	"path"
@@ -89,9 +90,9 @@ func tilesFor(module string, covered map[string][]string) []string {
 		return t
 	}
 	var out []string
-	for p, tiles := range covered {
+	for p, names := range covered {
 		if strings.HasPrefix(p, module+"/") {
-			for _, t := range tiles {
+			for _, t := range names {
 				if !compile.Contains(out, t) {
 					out = append(out, t)
 				}
@@ -227,7 +228,7 @@ func kindComparison(kind string) string {
 		costs[row.Name] = row.Cost
 	}
 	lo, hi, loTile, hiTile := 0, 0, "", ""
-	for _, o := range compile.OffersOf(tileKindCapability[kind]) {
+	for _, o := range compile.OffersOf(tiles.TileKindCapability[kind]) {
 		for _, term := range costs[o.Tile] {
 			if term.Dim != "llm-work" {
 				continue
@@ -266,7 +267,7 @@ func tileNameFor(module string) string {
 		}
 	}
 	name := strings.Trim(b.String(), "-")
-	if name == "" || !validTileName(name) {
+	if name == "" || !tiles.ValidTileName(name) {
 		return "tile"
 	}
 	return name
@@ -291,10 +292,10 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("  (module github.com/vinodhalaharvi/tilegen)\n")
 	b.WriteString("  (go 1.26)\n")
 	fmt.Fprintf(&b, "  (require (%s %s %s))\n\n", qual, c.Module, c.Version)
-	b.WriteString("  (package main\n    (dir \".\")\n\n")
+	b.WriteString("  (package tiles\n    (dir \"internal/tiles\")\n\n")
 
 	fmt.Fprintf(&b, "    (tile-spec %s\n", name)
-	fmt.Fprintf(&b, "      ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tileKinds, ", "))
+	fmt.Fprintf(&b, "      ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tiles.TileKinds, ", "))
 	b.WriteString("      ; If it is none of them, this module is not a tile: delete this file.\n")
 	b.WriteString("      (kind TODO)\n\n")
 	b.WriteString("      ; TODO: the one line `tilegen tiles` prints.\n")
@@ -310,7 +311,7 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("      ; (illegal-when (REQUIREMENT) \"...\")\n\n")
 
 	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
-	for _, kind := range tileKinds {
+	for _, kind := range tiles.TileKinds {
 		if cmp := kindComparison(kind); cmp != "" {
 			fmt.Fprintf(&b, "      ;   %s: %s\n", kind, cmp)
 		}

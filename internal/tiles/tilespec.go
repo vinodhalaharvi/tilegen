@@ -1,4 +1,4 @@
-package main
+package tiles
 
 import (
 	"fmt"
@@ -39,9 +39,9 @@ import (
 // functions, because fill splices by receiver and method name. The struct
 // holds nothing; it exists to give the two holes an address.
 
-// tileKinds are the shapes a tile-spec can describe. Each is a different
+// TileKinds are the shapes a tile-spec can describe. Each is a different
 // registration and a different pair of holes.
-var tileKinds = []string{"store-backend"}
+var TileKinds = []string{"store-backend"}
 
 // tilePackages are the packages of tilegen a generated tile's signatures
 // name, by qualifier.
@@ -50,18 +50,18 @@ var tilePackages = map[string]string{
 	"sexp":    "github.com/vinodhalaharvi/tilegen/internal/sexp",
 }
 
-// tileKindCapability is the capability each kind of tile offers.
-var tileKindCapability = map[string]string{"store-backend": "store"}
+// TileKindCapability is the capability each kind of tile offers.
+var TileKindCapability = map[string]string{"store-backend": "store"}
 
-// unanswered reports whether a form still carries a TODO: the atom, or a
+// Unanswered reports whether a form still carries a TODO: the atom, or a
 // string that starts with it. A skeleton is full of them, and none may
 // reach a decision.
-func unanswered(n *sexp.Node) bool {
+func Unanswered(n *sexp.Node) bool {
 	if !n.IsList {
 		return n.Atom == "TODO" || strings.HasPrefix(n.Atom, "TODO:") || strings.HasPrefix(n.Atom, "TODO ")
 	}
 	for _, k := range n.List {
-		if unanswered(k) {
+		if Unanswered(k) {
 			return true
 		}
 	}
@@ -96,7 +96,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 		return
 	}
 	name := b.One("name")
-	if name == nil || name.IsList || !validTileName(name.Atom) {
+	if name == nil || name.IsList || !ValidTileName(name.Atom) {
 		v.Bad(n, "a tile name is lower-case letters, digits and hyphens, like postgres-sqlc, got %s", compile.Short(n))
 		return
 	}
@@ -114,7 +114,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 	// nothing here to check, and nothing that may be generated from.
 	open := false
 	for _, it := range b.Rest("items") {
-		if unanswered(it) {
+		if Unanswered(it) {
 			v.Bad(it, "(tile-spec %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, compile.Short(it))
 			open = true
 		}
@@ -130,9 +130,9 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 		case "kind":
 			if kb := v.Shape(it, "(kind ?name)"); kb != nil {
 				kind = kb.Atom("name")
-				if !compile.Contains(tileKinds, kind) {
+				if !compile.Contains(TileKinds, kind) {
 					v.Bad(it, "unknown tile kind %q%s; tilegen knows %s", kind,
-						compile.DidYouMean(kind, tileKinds), strings.Join(tileKinds, ", "))
+						compile.DidYouMean(kind, TileKinds), strings.Join(TileKinds, ", "))
 				}
 			}
 		case "doc":
@@ -171,7 +171,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 		seen[it.Head()] = true
 	}
 	if kind == "" {
-		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(tileKinds, ", "))
+		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(TileKinds, ", "))
 	}
 	if n.Text("doc") == "" {
 		v.Bad(n, "(tile-spec %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
@@ -244,9 +244,9 @@ func validateTileCost(v *compile.Validator, it *sexp.Node) {
 // two holes live at.
 func tileStructName(tile string) string { return compile.LowerFirstWord(compile.GoName(tile)) + "Tile" }
 
-// validTileName accepts the shape every tile in the registry already has:
+// ValidTileName accepts the shape every tile in the registry already has:
 // lower-case letters, digits and hyphens, starting with a letter.
-func validTileName(s string) bool {
+func ValidTileName(s string) bool {
 	if s == "" || s[0] < 'a' || s[0] > 'z' {
 		return false
 	}
@@ -271,7 +271,7 @@ func selectTileSpec(m *compile.Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.No
 	kind := n.Text("kind")
 	if kind != "store-backend" {
 		return nil, fmt.Errorf("tile-spec %s: kind %q is not implemented yet; tilegen knows %s",
-			name, kind, strings.Join(tileKinds, ", "))
+			name, kind, strings.Join(TileKinds, ", "))
 	}
 
 	// A tile is a file of tilegen's own, so it may name tilegen's packages.
@@ -287,7 +287,7 @@ func selectTileSpec(m *compile.Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.No
 	methods := storeBackendHoles()
 	stubs, tasks := compile.StubsAndTasks(pkg, impl, "the "+name+" tile", file, methods,
 		func(meth *sexp.Node) string { return storeBackendIntent(meth.List[1].Atom, name, n) },
-		[]string{"backend_memory.go", "internal/compile/registry.go", "internal/sexp/sexp.go"},
+		[]string{"internal/tiles/backend_memory.go", "internal/compile/registry.go", "internal/sexp/sexp.go"},
 		[]string{
 			"Return only the method asked for, with the signature given.",
 			"Emit target forms with sexp.L, sexp.Sym and sexp.Str; never write files.",
@@ -334,7 +334,7 @@ func storeBackendIntent(method, tile string, n *sexp.Node) string {
 			"implementation struct's fields as (field name Type) nodes, Params is the constructor's "+
 			"(params ...), Body is the constructor's body as a single return statement building "+
 			"&in.Impl{...}, and Hint is this tile's Hint method. Build every node with sexp.L, sexp.Sym and sexp.Str. "+
-			"backend_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
+			"internal/tiles/backend_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
 	case "Hint":
 		return fmt.Sprintf("Describe what each store method must do in the %s tile's own terms, for the LLM "+
 			"that will write the body. Switch on compile.MethodOp(meth), which returns the op kind and field: "+

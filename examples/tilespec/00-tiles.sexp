@@ -5,7 +5,7 @@
 ;   tilegen fill examples/tilespec          # the LLM writes the two holes
 ;   make check
 ;
-; (dir ".") puts the tile beside the ones already there, and the module
+; (dir "internal/tiles") puts the tile beside the ones already there, and the module
 ; path is tilegen's own, so <out> is a real module: fill can build it, and
 ; a hole that does not compile is put back rather than shipped.
 (project tilegen-tiles
@@ -13,8 +13,8 @@
   (go 1.26)
   (require (badger github.com/dgraph-io/badger/v4 v4.5.1))
 
-  (package main
-    (dir ".")
+  (package tiles
+    (dir "internal/tiles")
 
     (tile-spec badger
       (kind store-backend)
