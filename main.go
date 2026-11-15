@@ -18,6 +18,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	_ "github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
 )
 
 func main() {

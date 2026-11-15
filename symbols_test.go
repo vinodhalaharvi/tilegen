@@ -9,6 +9,7 @@ import (
 	"errors"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 	"io"
 	"os"
 	"path/filepath"
@@ -766,7 +767,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 
 	// Nothing is guessed: no kind, and no number that could pass for one.
 	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ",
-		"One of: " + strings.Join(tileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + kindComparison("store-backend")} {
+		"One of: " + strings.Join(tiles.TileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + kindComparison("store-backend")} {
 		if !strings.Contains(skel, want) {
 			t.Errorf("the skeleton has no %q:\n%s", want, skel)
 		}
@@ -822,18 +823,18 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	if err := run(compile.Options{Spec: file, Out: target}, io.Discard); err != nil {
 		t.Fatalf("an answered skeleton was refused: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(target, "tile_kv.go")); err != nil {
+	if _, err := os.Stat(filepath.Join(target, "internal", "tiles", "tile_kv.go")); err != nil {
 		t.Errorf("an answered skeleton generated no tile: %v", err)
 	}
 	// A TODO left in one place is still caught, and words that merely
 	// contain it are not.
 	for _, n := range []*sexp.Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {IsList: true, List: []*sexp.Node{{Atom: "TODO"}}}}}} {
-		if !unanswered(n) {
+		if !tiles.Unanswered(n) {
 			t.Errorf("%s should count as unanswered", compile.Short(n))
 		}
 	}
 	for _, n := range []*sexp.Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {Atom: "done"}}}} {
-		if unanswered(n) {
+		if tiles.Unanswered(n) {
 			t.Errorf("%s should not count as unanswered", compile.Short(n))
 		}
 	}

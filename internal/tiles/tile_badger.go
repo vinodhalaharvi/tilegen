@@ -1,6 +1,6 @@
 // Scaffolded by tilegen. This file is yours: tilegen never overwrites it.
 
-package main
+package tiles
 
 import (
 	"fmt"
