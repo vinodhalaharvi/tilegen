@@ -1,0 +1,540 @@
+{
+  "policy": {
+    "weights": {
+      "dependency": 1,
+      "llm-work": 4,
+      "maintenance": 3,
+      "operations": 3,
+      "runtime": 1,
+      "uncertainty": 5
+    }
+  },
+  "coverage": [
+    {
+      "need": "orders.OrderStore",
+      "capability": "store",
+      "requirements": [
+        "durable",
+        "cross-process"
+      ],
+      "chosen": "postgres-sqlc",
+      "score": 44,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "postgres-sqlc",
+          "score": 44,
+          "own": 37,
+          "terms": "llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes only row-to-domain mapping; sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx, plus sqlc as a build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, plus sqlc in the build"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 7,
+              "detail": "1 entity"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-pgx",
+          "score": 60,
+          "own": 60,
+          "terms": "llm 7·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 7,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes every query and scan by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "hand-written SQL drifts from the schema silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            }
+          ]
+        }
+      ],
+      "illegal": [
+        {
+          "tile": "badger",
+          "reason": "badger takes a directory lock; a second process cannot open the same store"
+        },
+        {
+          "tile": "bolt",
+          "reason": "bbolt takes an exclusive lock on the file; a second process cannot open it"
+        },
+        {
+          "tile": "memory",
+          "reason": "an in-memory map loses its data on restart"
+        },
+        {
+          "tile": "mongo",
+          "reason": "unverified: a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it"
+        },
+        {
+          "tile": "sqlite-sqlc",
+          "reason": "a sqlite file serves one process; another would need its own connection to the same disk"
+        }
+      ],
+      "position": "spec.sexp:13:7"
+    },
+    {
+      "need": "profiles.ProfileStore",
+      "capability": "store",
+      "requirements": [
+        "durable",
+        "cross-process"
+      ],
+      "chosen": "postgres-pgx",
+      "score": 60,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "postgres-pgx",
+          "score": 60,
+          "own": 60,
+          "terms": "llm 7·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 7,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes every query and scan by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "hand-written SQL drifts from the schema silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-sqlc",
+          "score": 66,
+          "own": 37,
+          "terms": "llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes only row-to-domain mapping; sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx, plus sqlc as a build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, plus sqlc in the build"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 29,
+              "detail": "1 entity, 1 parsed field, 3 nullable fields"
+            }
+          ]
+        }
+      ],
+      "illegal": [
+        {
+          "tile": "badger",
+          "reason": "badger takes a directory lock; a second process cannot open the same store"
+        },
+        {
+          "tile": "bolt",
+          "reason": "bbolt takes an exclusive lock on the file; a second process cannot open it"
+        },
+        {
+          "tile": "memory",
+          "reason": "an in-memory map loses its data on restart"
+        },
+        {
+          "tile": "mongo",
+          "reason": "unverified: a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it"
+        },
+        {
+          "tile": "sqlite-sqlc",
+          "reason": "a sqlite file serves one process; another would need its own connection to the same disk"
+        }
+      ],
+      "position": "spec.sexp:33:7"
+    },
+    {
+      "need": "sessions.SessionStore",
+      "capability": "store",
+      "chosen": "memory",
+      "score": 12,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "memory",
+          "score": 12,
+          "own": 12,
+          "terms": "llm 2·4 + maint 1·3 + dep 0·1 + run 1·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 2,
+              "weight": 4
+            },
+            {
+              "dimension": "maintenance",
+              "value": 1,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 0,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            }
+          ]
+        },
+        {
+          "tile": "badger",
+          "score": 29,
+          "own": 29,
+          "terms": "llm 4·4 + maint 3·3 + dep 2·1 + run 2·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "id-keyed get, save and delete in one transaction; secondary indexes are excluded by illegal-when, not priced here"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations: a field added to the struct changes stored values silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "badger and its own dependencies, but no server and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an LSM tree with background compaction, unlike bbolt's single file"
+            }
+          ]
+        },
+        {
+          "tile": "sqlite-sqlc",
+          "score": 31,
+          "own": 20,
+          "terms": "llm 3·4 + maint 2·3 + dep 1·1 + run 1·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "same as postgres-sqlc: sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a driver and sqlc, but no server to run"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 11,
+              "detail": "1 entity, 1 parsed field"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-sqlc",
+          "score": 44,
+          "own": 37,
+          "terms": "llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes only row-to-domain mapping; sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx, plus sqlc as a build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, plus sqlc in the build"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 7,
+              "detail": "1 entity"
+            }
+          ]
+        },
+        {
+          "tile": "bolt",
+          "score": 48,
+          "own": 48,
+          "terms": "llm 7·4 + maint 6·3 + dep 1·1 + run 1·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 7,
+              "weight": 4,
+              "source": "derived",
+              "note": "every read, write and scan written by hand, including the key encoding"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 6,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations: a field added to the struct changes stored documents silently, and nothing reports it"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "bbolt only, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            }
+          ]
+        },
+        {
+          "tile": "mongo",
+          "score": 56,
+          "own": 49,
+          "terms": "llm 5·4 + maint 3·3 + dep 3·1 + run 2·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "filters and updates written by hand, but no schema to keep in step"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver, and a server to run"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, and a replica set if you want durable writes"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "doc-mapper",
+              "score": 7,
+              "detail": "1 entity"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-pgx",
+          "score": 60,
+          "own": 60,
+          "terms": "llm 7·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 7,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes every query and scan by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "hand-written SQL drifts from the schema silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            }
+          ]
+        }
+      ],
+      "position": "spec.sexp:22:7"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"os"
@@ -306,11 +307,11 @@ func TestSymbolsAnswerQuestions(t *testing.T) {
 	}
 
 	// A draft is held to the module it names.
-	ok := &Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.File.Put", "kv.ErrNotFound"}}
+	ok := &compile.Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.File.Put", "kv.ErrNotFound"}}
 	if err := checkCited(ok, m); err != nil {
 		t.Errorf("real symbols were refused: %v", err)
 	}
-	bad := &Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.Stores", "kv.Transaction"}}
+	bad := &compile.Offer{Tile: "kv", Module: "example.com/kv", Symbols: []string{"kv.Store", "kv.Stores", "kv.Transaction"}}
 	err := checkCited(bad, m)
 	if err == nil || !strings.Contains(err.Error(), "example.com/kv v0.1.0 does not export kv.Stores (did you mean kv.Store?), kv.Transaction") {
 		t.Errorf("invented symbols: %v", err)
@@ -494,18 +495,18 @@ func TestDraftCitesSymbols(t *testing.T) {
   (cost (llm-work 4) (maintenance 2) (dependency 1)))`
 	with := func(s string) string { return strings.Replace(tile, "SYMBOLS", s, 1) }
 
-	offers, err := parseDrafts(with("(symbols kv.Store kv.File.Put example.com/kv.ErrNotFound)"))
+	offers, err := compile.ParseDrafts(with("(symbols kv.Store kv.File.Put example.com/kv.ErrNotFound)"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(offers[0].Symbols, []string{"kv.Store", "kv.File.Put", "example.com/kv.ErrNotFound"}) {
 		t.Errorf("cited: %v", offers[0].Symbols)
 	}
-	if offers, err = parseDrafts(with("")); err != nil || offers[0].Symbols != nil {
+	if offers, err = compile.ParseDrafts(with("")); err != nil || offers[0].Symbols != nil {
 		t.Errorf("a draft that cites nothing: %v", err)
 	}
 	// What a draft says round-trips through the form tilegen shows.
-	offers, _ = parseDrafts(with("(symbols kv.Store kv.Open)"))
+	offers, _ = compile.ParseDrafts(with("(symbols kv.Store kv.Open)"))
 	if form := draftForm(offers[0]); !strings.Contains(form, "\n  (symbols kv.Store kv.Open)") {
 		t.Errorf("the form drops the symbols:\n%s", form)
 	}
@@ -519,12 +520,12 @@ func TestDraftCitesSymbols(t *testing.T) {
 		"two symbols forms":  {"(symbols kv.Store) (symbols kv.Open)", "duplicate (symbols ...)"},
 		"a mistyped heading": {"(symbol kv.Store)", "did you mean symbols?"},
 	} {
-		if _, err := parseDrafts(with(c.symbols)); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := compile.ParseDrafts(with(c.symbols)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want %q, got: %v", name, c.want, err)
 		}
 	}
 	noModule := strings.Replace(with("(symbols kv.Store)"), "(module example.com/kv)", "", 1)
-	if _, err := parseDrafts(noModule); err == nil || !strings.Contains(err.Error(), "cites symbols and names no (module ...)") {
+	if _, err := compile.ParseDrafts(noModule); err == nil || !strings.Contains(err.Error(), "cites symbols and names no (module ...)") {
 		t.Errorf("symbols without a module: %v", err)
 	}
 }
@@ -770,7 +771,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 			t.Errorf("the skeleton has no %q:\n%s", want, skel)
 		}
 	}
-	for _, req := range knownRequirements() {
+	for _, req := range compile.KnownRequirements() {
 		if !strings.Contains(skel, " "+req) {
 			t.Errorf("the skeleton does not offer the requirement %s", req)
 		}
@@ -786,7 +787,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 
 	// As written it is refused, one line per open question, and writes nothing.
 	target := t.TempDir()
-	err = run(Options{Spec: file, Out: target}, io.Discard)
+	err = run(compile.Options{Spec: file, Out: target}, io.Discard)
 	if err == nil {
 		t.Fatal("a skeleton with its TODOs open was generated from")
 	}
@@ -818,7 +819,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	if err := os.WriteFile(file, []byte(answered), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(Options{Spec: file, Out: target}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: file, Out: target}, io.Discard); err != nil {
 		t.Fatalf("an answered skeleton was refused: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(target, "tile_kv.go")); err != nil {
@@ -828,12 +829,12 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	// contain it are not.
 	for _, n := range []*sexp.Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {IsList: true, List: []*sexp.Node{{Atom: "TODO"}}}}}} {
 		if !unanswered(n) {
-			t.Errorf("%s should count as unanswered", short(n))
+			t.Errorf("%s should count as unanswered", compile.Short(n))
 		}
 	}
 	for _, n := range []*sexp.Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {Atom: "done"}}}} {
 		if unanswered(n) {
-			t.Errorf("%s should not count as unanswered", short(n))
+			t.Errorf("%s should not count as unanswered", compile.Short(n))
 		}
 	}
 }

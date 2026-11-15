@@ -9,6 +9,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/term"
 )
 
@@ -27,18 +28,18 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		fs.PrintDefaults()
 	}
 	pos := parseAnywhere(fs, args)
-	var rows []TileInfo
-	for _, t := range Registry() {
+	var rows []compile.TileInfo
+	for _, t := range compile.Registry() {
 		if len(pos) == 0 || strings.Contains(t.Name+" "+t.Pass+" "+t.Produces, pos[0]) {
 			rows = append(rows, t)
 		}
 	}
 	if *asJSON {
-		return writeJSON(stdout, tilesJSON(rows))
+		return compile.WriteJSON(stdout, compile.NewTilesJSON(rows))
 	}
 	if *asSexp {
 		for _, t := range rows {
-			fmt.Fprintln(stdout, tileSexp(t).String())
+			fmt.Fprintln(stdout, compile.TileSexp(t).String())
 		}
 		return nil
 	}
@@ -70,9 +71,9 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, strings.TrimRight(line, " "))
 	}
 	fmt.Fprintf(stdout, "\n%d tile(s).\n", len(rows))
-	for _, name := range capabilityNames() {
+	for _, name := range compile.CapabilityNames() {
 		var tiles []string
-		for _, o := range offersOf(name) {
+		for _, o := range compile.OffersOf(name) {
 			tiles = append(tiles, o.Tile)
 		}
 		fmt.Fprintf(stdout, "capability %-10s offered by %s\n", name, strings.Join(tiles, ", "))

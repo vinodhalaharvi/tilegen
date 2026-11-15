@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"net"
@@ -86,13 +87,13 @@ func isLoopback(addr string) bool {
 
 // draftForm writes an offer as a (tile ...) form. Claude is shown
 // tilegen's own tiles this way, so what it imitates is real.
-func draftForm(o *Offer) string {
+func draftForm(o *compile.Offer) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "(tile %s\n  (offers %s)\n  (doc %q)", o.Tile, o.Capability, o.Doc)
 	if o.Module != "" {
 		fmt.Fprintf(&b, "\n  (module %s)", o.Module)
 	}
-	if e := engineOf(o); e != "" && operated(o) {
+	if e := compile.EngineOf(o); e != "" && compile.Operated(o) {
 		fmt.Fprintf(&b, "\n  (engine %s)", e)
 	}
 	if len(o.Symbols) > 0 {
@@ -102,7 +103,7 @@ func draftForm(o *Offer) string {
 		head string
 		m    map[string]string
 	}{{"satisfies", o.Satisfies}, {"illegal-when", o.IllegalFor}} {
-		for _, req := range capabilities[o.Capability].Requirements {
+		for _, req := range compile.Capabilities[o.Capability].Requirements {
 			if why := claims.m[req]; why != "" {
 				fmt.Fprintf(&b, "\n  (%s (%s) %q)", claims.head, req, why)
 			}
@@ -132,8 +133,8 @@ You are given one Go module path from a team's go.mod. Decide whether it shows t
 
 Capabilities, and the requirements a service may ask of each:
 `)
-	for _, name := range draftCapabilities() {
-		c := capabilities[name]
+	for _, name := range compile.DraftCapabilities() {
+		c := compile.Capabilities[name]
 		fmt.Fprintf(&b, "- %s: %s. Requirements: %s\n", c.Name, c.Doc, strings.Join(c.Requirements, ", "))
 	}
 	b.WriteString(`
@@ -161,8 +162,8 @@ Three of tilegen's own tiles, for the level of detail and the scale of the costs
 
 `)
 	for _, pick := range []string{"postgres-sqlc", "nats-jetstream", "vault"} {
-		for _, name := range capabilityNames() {
-			for _, o := range offersOf(name) {
+		for _, name := range compile.CapabilityNames() {
+			for _, o := range compile.OffersOf(name) {
 				if o.Tile == pick {
 					b.WriteString(draftForm(o) + "\n\n")
 				}
@@ -292,8 +293,8 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 			out.NotTile = forms[0].List[1].Atom
 			return out
 		default:
-			var offers []*Offer
-			if offers, problem = parseDrafts(form); problem == nil {
+			var offers []*compile.Offer
+			if offers, problem = compile.ParseDrafts(form); problem == nil {
 				// The module it was asked about is the module it is for.
 				if offers[0].Module != "" && offers[0].Module != module {
 					problem = fmt.Errorf("the tile's (module ...) is %s, and it was asked about %s", offers[0].Module, module)
@@ -317,7 +318,7 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 	return out
 }
 
-func citedOrNil(o *Offer, m *ModuleSymbols) error {
+func citedOrNil(o *compile.Offer, m *ModuleSymbols) error {
 	if m == nil {
 		return nil
 	}

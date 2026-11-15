@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
@@ -15,14 +16,14 @@ import (
 // illegal. The mapper costs more than postgres's: sqlite stores uuid and
 // time as TEXT, so every such field is parsed by hand.
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name:     "sqlite",
 		Tile:     "sqlite-sqlc",
 		Engine:   "sqlite",
 		Doc:      "sqlite via sqlc: one file, no server; uuid and time are TEXT",
 		Form:     "db-rows",
 		Requires: []string{"sqlc"},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "same as postgres-sqlc: sqlc writes the queries"},
 			{Dim: "maintenance", Value: 2},
 			{Dim: "dependency", Value: 1, Source: "derived", Note: "a driver and sqlc, but no server to run"},
@@ -44,13 +45,13 @@ func init() {
 		Packages:     map[string]string{"db": "internal/db"},
 		Generate:     "sqlc generate",
 		GenerateDoc:  "generate internal/db from db/*.sql",
-		Dialect:      SQLite,
+		Dialect:      compile.SQLite,
 		ErrorPackage: "", // database/sql errors are standard library
-		ProjectForms: func(c *Ctx) []*sexp.Node { return []*sexp.Node{sqlcConfig(c)} },
-		Implement: func(in StoreInput) (StoreParts, error) {
-			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
+		ProjectForms: func(c *compile.Ctx) []*sexp.Node { return []*sexp.Node{compile.SQLCConfig(c)} },
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) {
+			sql, err := compile.SQLFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {
-				return StoreParts{}, err
+				return compile.StoreParts{}, err
 			}
 			// sqlite hands back TEXT for anything it has no type for, so
 			// the mapper parses more than postgres's does. Say which.
@@ -58,7 +59,7 @@ func init() {
 			for _, f := range in.Struct.FindAll("field") {
 				typ := strings.TrimPrefix(f.List[2].Atom, "*")
 				switch {
-				case in.C.enumFor(f.List[2].Atom, in.Pkg.Name) != nil:
+				case in.C.EnumFor(f.List[2].Atom, in.Pkg.Name) != nil:
 					parse = append(parse, fmt.Sprintf("%s with Parse%s", f.List[1].Atom, typ))
 				case typ == "uuid.UUID":
 					parse = append(parse, f.List[1].Atom+" with uuid.Parse")
@@ -66,13 +67,13 @@ func init() {
 					parse = append(parse, f.List[1].Atom+" with time.Parse(time.RFC3339, ...)")
 				}
 			}
-			return StoreParts{
+			return compile.StoreParts{
 				Fields: []*sexp.Node{sexp.L(sexp.Sym("field"), sexp.Sym("q"), sexp.Sym("*db.Queries"))},
 				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("q"), sexp.Sym("*db.Queries"))),
 				Body:   fmt.Sprintf("return &%s{q: q}", in.Impl),
 				Hint: func(meth *sexp.Node) string {
-					h := sqlcHint(meth, in.Entity, "sql.ErrNoRows") // database/sql, not pgx
-					kind, _ := methodOp(meth)
+					h := compile.SQLCHint(meth, in.Entity, "sql.ErrNoRows") // database/sql, not pgx
+					kind, _ := compile.MethodOp(meth)
 					if len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {
 						h += " sqlite stores these as TEXT, so convert " + strings.Join(parse, ", ") + "; never a bare cast."
 					}

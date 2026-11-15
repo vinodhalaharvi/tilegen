@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/mod/modfile"
 	"io"
 	"os"
@@ -21,7 +22,7 @@ import (
 
 func promptCmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen prompt", flag.ExitOnError)
-	var o Options
+	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
 	fs.StringVar(&o.Out, "out", "", "the generated project (default: the workspace's (out ...), else ./out)")
 	fs.StringVar(&o.Name, "name", "", "project name, as given to generation")
@@ -37,18 +38,18 @@ func promptCmd(args []string, stdout, log io.Writer) error {
 			o.Spec, ids = ids[0], ids[1:]
 		}
 	}
-	cp, err := compile(o, log)
+	cp, err := compile.Compile(o, log)
 	if err != nil {
 		return err
 	}
-	rep, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	rep, err := compile.Emit(cp.Nodes, cp.Opts.Out, cp.Ctx, false)
 	if err != nil {
 		return err
 	}
 	if len(ids) == 0 && !*all {
-		return listTasks(rep.TaskList, cp.o.Spec, stdout)
+		return listTasks(rep.TaskList, cp.Opts.Spec, stdout)
 	}
-	byID := map[string]Task{}
+	byID := map[string]compile.Task{}
 	var known []string
 	for _, t := range rep.TaskList {
 		byID[t.ID] = t
@@ -60,7 +61,7 @@ func promptCmd(args []string, stdout, log io.Writer) error {
 		for _, id := range ids {
 			t, ok := byID[id]
 			if !ok {
-				return fmt.Errorf("no open task %q%s; run `tilegen prompt %s` to list them", id, didYouMean(id, known), cp.o.Spec)
+				return fmt.Errorf("no open task %q%s; run `tilegen prompt %s` to list them", id, compile.DidYouMean(id, known), cp.Opts.Spec)
 			}
 			selected = append(selected, t)
 		}
@@ -69,12 +70,12 @@ func promptCmd(args []string, stdout, log io.Writer) error {
 		if i > 0 {
 			fmt.Fprint(stdout, "\n---\n\n")
 		}
-		fmt.Fprint(stdout, renderPrompt(t, rep, cp.c))
+		fmt.Fprint(stdout, renderPrompt(t, rep, cp.Ctx))
 	}
 	return nil
 }
 
-func listTasks(tasks []Task, spec string, w io.Writer) error {
+func listTasks(tasks []compile.Task, spec string, w io.Writer) error {
 	if len(tasks) == 0 {
 		fmt.Fprintln(w, "no open tasks")
 		return nil
@@ -100,7 +101,7 @@ func listTasks(tasks []Task, spec string, w io.Writer) error {
 }
 
 // renderPrompt writes one task as a self-contained Markdown prompt.
-func renderPrompt(t Task, r *Report, c *Ctx) string {
+func renderPrompt(t compile.Task, r *compile.Report, c *compile.Ctx) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Task %s\n\n", t.ID)
 	fmt.Fprintf(&b, "You are writing one piece of a Go project, module `%s`, that tilegen generated from a spec. ", c.Module)
@@ -115,7 +116,7 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 	case t.Status == "drift":
 		fmt.Fprintf(&b, "The method `%s` in `%s` (line %d) no longer matches the spec. Change its signature to exactly this, and adapt its body:\n\n```go\n%s\n```\n\n", t.Symbol, t.File, t.Line, decl)
 	case t.File != "":
-		fmt.Fprintf(&b, "Implement this method in `%s`. Its body is currently `panic(\"%s%s\")` at line %d:\n\n```go\n%s\n```\n\n", t.File, holePrefix, t.ID, t.Line, decl)
+		fmt.Fprintf(&b, "Implement this method in `%s`. Its body is currently `panic(\"%s%s\")` at line %d:\n\n```go\n%s\n```\n\n", t.File, compile.HolePrefix, t.ID, t.Line, decl)
 	default:
 		pkg, _, _ := strings.Cut(t.ID, ".")
 		fmt.Fprintf(&b, "Write new Go code in package `%s`, in new files in that package's folder.\n\n", pkg)
@@ -163,7 +164,7 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 			continue
 		}
 		seen[f] = true
-		data, err := r.read(f)
+		data, err := r.Read(f)
 		if err != nil {
 			hint := "not generated yet"
 			if strings.HasPrefix(f, "internal/db/") {
@@ -181,7 +182,7 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n```%s\n%s\n```\n", f, lang, strings.TrimRight(string(data), "\n"))
 	}
-	b.WriteString(apiSurface(r.out, files, r, c.Module, append([]string{t.Intent, t.Contract}, t.APIPackages...)...))
+	b.WriteString(apiSurface(r.Out, files, r, c.Module, append([]string{t.Intent, t.Contract}, t.APIPackages...)...))
 	return b.String()
 }
 
@@ -189,8 +190,8 @@ func renderPrompt(t Task, r *Report, c *Ctx) string {
 // can state them: a filler should work within what the spec declares, and
 // telling it the exact import paths is the difference between a working
 // import and a remembered one.
-func availableModules(r *Report) string {
-	src, err := r.read("go.mod")
+func availableModules(r *compile.Report) string {
+	src, err := r.Read("go.mod")
 	if err != nil {
 		return ""
 	}

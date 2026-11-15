@@ -2,11 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -20,7 +22,7 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 		t.Skip("builds tilegen")
 	}
 	gen := t.TempDir()
-	if err := run(Options{Spec: "examples/tilespec", Out: gen}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: "examples/tilespec", Out: gen}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	tile, err := os.ReadFile(filepath.Join(gen, "tile_badger.go"))
@@ -57,6 +59,27 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 			if _, err := os.Stat(f); err != nil {
 				t.Errorf("%s tells the model to read %s, which tilegen does not have", task.ID, f)
 			}
+		}
+	}
+
+	// Every function of tilegen's a task names is one tilegen has.
+	named := regexp.MustCompile(`\b(compile|sexp)\.([A-Z][A-Za-z0-9_]*)`).FindAllStringSubmatch(string(raw), -1)
+	if len(named) < 5 {
+		t.Errorf("the tasks name %d of tilegen's functions; the intents should say what to call", len(named))
+	}
+	sources := map[string]string{}
+	for _, m := range named {
+		pkg, name := m[1], m[2]
+		if sources[pkg] == "" {
+			files, _ := filepath.Glob(filepath.Join("internal", pkg, "*.go"))
+			for _, f := range files {
+				b, _ := os.ReadFile(f)
+				sources[pkg] += string(b)
+			}
+		}
+		declared := regexp.MustCompile(`(?m)^(func |type |var |const |\t)` + name + `\b|^func \([^)]*\) ` + name + `\(`)
+		if !declared.MatchString(sources[pkg]) {
+			t.Errorf("a task names %s.%s, which internal/%s does not declare", pkg, name, pkg)
 		}
 	}
 

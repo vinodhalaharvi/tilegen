@@ -16,11 +16,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/tools/imports"
 )
 
@@ -36,52 +34,9 @@ import (
 // and re-ask with the errors. A hole it cannot fill stays a hole, so the
 // project never ends up broken.
 
-// FillConfig is how `tilegen fill` talks to an LLM on this machine.
-type FillConfig struct {
-	Command string
-	Retries int
-	Timeout time.Duration
-	Build   string
-}
-
-func defaultFill() FillConfig {
-	return FillConfig{Retries: 1, Timeout: 5 * time.Minute, Build: "go build ./..."}
-}
-
-func parseFill(n *sexp.Node, fc *FillConfig, bad func(*sexp.Node, string, ...any)) {
-	for _, it := range n.Args() {
-		if len(it.List) != 2 || it.List[1].IsList {
-			bad(it, "expected (%s value), got %s", it.Head(), short(it))
-			continue
-		}
-		val := it.List[1].Atom
-		switch it.Head() {
-		case "command":
-			fc.Command = val
-		case "build":
-			fc.Build = val
-		case "retries":
-			r, err := strconv.Atoi(val)
-			if err != nil || r < 0 || r > 5 {
-				bad(it, "retries must be 0 to 5, got %s", val)
-			}
-			fc.Retries = r
-		case "timeout":
-			d, err := time.ParseDuration(val)
-			if err != nil || d <= 0 {
-				bad(it, "timeout must be a duration like \"5m\", got %s", val)
-			}
-			fc.Timeout = d
-		default:
-			bad(it, "fill takes (command ...), (retries N), (timeout \"5m\") and (build ...), got %s%s",
-				short(it), didYouMean(it.Head(), []string{"command", "retries", "timeout", "build"}))
-		}
-	}
-}
-
 func fillCmd(args []string, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen fill", flag.ExitOnError)
-	var o Options
+	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
 	fs.StringVar(&o.Out, "out", "", "the generated project (default: the workspace's (out ...), else ./out)")
 	fs.StringVar(&o.Name, "name", "", "project name, as given to generation")
@@ -99,13 +54,13 @@ func fillCmd(args []string, log io.Writer) error {
 			o.Spec, pats = pats[0], pats[1:]
 		}
 	}
-	cp, err := compile(o, log)
+	cp, err := compile.Compile(o, log)
 	if err != nil {
 		return err
 	}
-	fc := defaultFill()
-	if cp.ws != nil {
-		fc = cp.ws.Fill
+	fc := compile.DefaultFill()
+	if cp.Workspace != nil {
+		fc = cp.Workspace.Fill
 	}
 	if *llm != "" {
 		fc.Command = *llm
@@ -113,14 +68,14 @@ func fillCmd(args []string, log io.Writer) error {
 	if *retries >= 0 {
 		fc.Retries = *retries
 	}
-	out := cp.o.Out
+	out := cp.Opts.Out
 
 	// Regenerate first, so the code matches the spec before anything is filled.
-	rep, err := Emit(cp.nodes, out, cp.c, !*dry)
+	rep, err := compile.Emit(cp.Nodes, out, cp.Ctx, !*dry)
 	if err != nil {
 		return err
 	}
-	var todo []Task
+	var todo []compile.Task
 	var skipped []string
 	for _, t := range rep.TaskList {
 		if !matchesAny(t.ID, pats) {
@@ -133,7 +88,7 @@ func fillCmd(args []string, log io.Writer) error {
 		todo = append(todo, t)
 	}
 	for _, id := range skipped {
-		fmt.Fprintf(log, "  skip   %s: needs new files; use `tilegen prompt %s %s`\n", id, cp.o.Spec, id)
+		fmt.Fprintf(log, "  skip   %s: needs new files; use `tilegen prompt %s %s`\n", id, cp.Opts.Spec, id)
 	}
 	if len(todo) == 0 {
 		fmt.Fprintln(log, "nothing to fill")
@@ -168,7 +123,7 @@ func fillCmd(args []string, log io.Writer) error {
 	var failed []string
 	for _, t := range todo {
 		delete(pending, driftKey(t)) // this task's own drift must be gone after filling it
-		attempts, err := fillOne(t, out, cp.c, fc, log, pending)
+		attempts, err := fillOne(t, out, cp.Ctx, fc, log, pending)
 		if err != nil {
 			if t.Status == "drift" {
 				pending[driftKey(t)] = true // still drifted: keep tolerating it
@@ -185,7 +140,7 @@ func fillCmd(args []string, log io.Writer) error {
 	}
 
 	// Regenerate again so tilegen.tasks.json reflects what is left.
-	if rep, err = Emit(cp.nodes, out, cp.c, true); err != nil {
+	if rep, err = compile.Emit(cp.Nodes, out, cp.Ctx, true); err != nil {
 		return err
 	}
 	fmt.Fprintf(log, "filled %d of %d (%d on the first try); %d open task(s) remain\n", filled, len(todo), first, rep.Tasks)
@@ -208,7 +163,7 @@ func matchesAny(id string, pats []string) bool {
 }
 
 // fillOne fills a task, returning the number of attempts it took.
-func fillOne(t Task, out string, c *Ctx, fc FillConfig, log io.Writer, pending map[string]bool) (int, error) {
+func fillOne(t compile.Task, out string, c *compile.Ctx, fc compile.FillConfig, log io.Writer, pending map[string]bool) (int, error) {
 	file := filepath.Join(out, filepath.FromSlash(t.File))
 	recv, name, want, err := expectedMethod(t)
 	if err != nil {
@@ -221,9 +176,9 @@ func fillOne(t Task, out string, c *Ctx, fc FillConfig, log io.Writer, pending m
 		if err != nil {
 			return attempt, err
 		}
-		disk := &Report{out: out, staged: map[string][]byte{}, unlinked: map[string]bool{}}
+		disk := &compile.Report{Out: out, Staged: map[string][]byte{}, Unlinked: map[string]bool{}}
 
-		if holes, err := findHolesSrc(t.File, orig); err == nil && holes[t.ID] > 0 {
+		if holes, err := compile.FindHolesSrc(t.File, orig); err == nil && holes[t.ID] > 0 {
 			t.Line = holes[t.ID] // earlier fills may have moved it
 		}
 		prompt := renderPrompt(t, disk, c)
@@ -266,7 +221,7 @@ func fillOne(t Task, out string, c *Ctx, fc FillConfig, log io.Writer, pending m
 
 // expectedMethod turns a task into the receiver type, method name and
 // signature (types only) the reply must have.
-func expectedMethod(t Task) (recv, name, sig string, err error) {
+func expectedMethod(t compile.Task) (recv, name, sig string, err error) {
 	if t.Symbol == "" || t.Contract == "" {
 		return "", "", "", fmt.Errorf("task %s has no method contract", t.ID)
 	}
@@ -278,7 +233,7 @@ func expectedMethod(t Task) (recv, name, sig string, err error) {
 	if err != nil {
 		return "", "", "", err
 	}
-	return strings.TrimPrefix(recv, "*"), name, funcType(fset, af.Decls[0].(*ast.FuncDecl).Type), nil
+	return strings.TrimPrefix(recv, "*"), name, compile.FuncType(fset, af.Decls[0].(*ast.FuncDecl).Type), nil
 }
 
 var goFence = regexp.MustCompile("(?s)```(?:go|golang)?[ \t]*\n(.*?)```")
@@ -309,14 +264,14 @@ func splice(src []byte, code, recv, name, want string) ([]byte, error) {
 	}
 	var got *ast.FuncDecl
 	for _, d := range af.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name && fd.Recv != nil && recvType(fd.Recv.List[0].Type) == recv {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name && fd.Recv != nil && compile.RecvType(fd.Recv.List[0].Type) == recv {
 			got = fd
 		}
 	}
 	if got == nil {
 		return nil, fmt.Errorf("the reply has no method %s on %s; reply with exactly that method", name, recv)
 	}
-	if sig := funcType(fset, got.Type); sig != want {
+	if sig := compile.FuncType(fset, got.Type); sig != want {
 		return nil, fmt.Errorf("the reply changed the signature to %s; keep it exactly %s", sig, want)
 	}
 	newText := body[fset.Position(got.Pos()).Offset:fset.Position(got.End()).Offset]
@@ -327,7 +282,7 @@ func splice(src []byte, code, recv, name, want string) ([]byte, error) {
 		return nil, err
 	}
 	for _, d := range of.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name && fd.Recv != nil && recvType(fd.Recv.List[0].Type) == recv {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name && fd.Recv != nil && compile.RecvType(fd.Recv.List[0].Type) == recv {
 			start, end := ofset.Position(fd.Pos()).Offset, ofset.Position(fd.End()).Offset
 			return append(append(append([]byte{}, src[:start]...), newText...), src[end:]...), nil
 		}
@@ -336,7 +291,7 @@ func splice(src []byte, code, recv, name, want string) ([]byte, error) {
 }
 
 // ask sends the prompt to the configured command on stdin.
-func ask(fc FillConfig, prompt string) (string, error) {
+func ask(fc compile.FillConfig, prompt string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), fc.Timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "sh", "-c", fc.Command)
@@ -355,7 +310,7 @@ func ask(fc FillConfig, prompt string) (string, error) {
 
 // runBuild runs the build command in the project; it returns the output
 // (trimmed to what fits in a prompt) and whether it succeeded.
-func runBuild(out string, fc FillConfig) (string, bool) {
+func runBuild(out string, fc compile.FillConfig) (string, bool) {
 	cmd := exec.Command("sh", "-c", fc.Build)
 	cmd.Dir = out
 	b, err := cmd.CombinedOutput()
@@ -387,7 +342,7 @@ func orUnset(s string) string {
 }
 
 // driftKey names a drifted method as the build reports it: Type.Method.
-func driftKey(t Task) string {
+func driftKey(t compile.Task) string {
 	if t.Status != "drift" {
 		return ""
 	}

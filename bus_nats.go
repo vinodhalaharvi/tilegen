@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -12,7 +13,7 @@ import (
 // for a spec asking (durable) and (replay), and the code it generated
 // satisfied neither: core NATS drops a message with no connected
 // subscriber. The tile was not lying, it was silent, and silence used to
-// read as yes.
+// Read as yes.
 //
 // The two halves are different systems that happen to ship in one binary,
 // and they hold different types, which is what makes a claim reachable
@@ -20,7 +21,7 @@ import (
 // *nats.Conn, JetStream gets a jetstream.JetStream. A reviewer who sees a
 // durability claim next to a *nats.Conn now has something to object to.
 func init() {
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "nats-core",
 		Engine:     "nats",
 		Capability: "event-bus",
@@ -39,14 +40,14 @@ func init() {
 		Unverified: map[string]string{
 			"ordered": "messages from one publisher arrive in order on one connection, but nobody has checked what holds across a reconnect",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 4, Source: "derived", Note: "subscribe and publish on a subject; there is nothing to acknowledge"},
 			{Dim: "maintenance", Value: 2},
 			{Dim: "dependency", Value: 4},
 			{Dim: "runtime", Value: 1},
 			{Dim: "operations", Value: 2, Source: "derived", Note: "one binary, no storage, nothing to size"},
 		},
-		Impl: &BusTransport{
+		Impl: &compile.BusTransport{
 			Suffix: "NatsBus",
 			Emit:   emitNatsBus,
 			Topics: []string{"nats"},
@@ -54,9 +55,9 @@ func init() {
 			Hint:   natsHint,
 		},
 	})
-	registerAlias("nats-core", "nats")
+	compile.RegisterAlias("nats-core", "nats")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "nats-jetstream",
 		Engine:     "nats",
 		Capability: "event-bus",
@@ -73,14 +74,14 @@ func init() {
 			"consumer-groups": "a queue consumer shares its messages among its members",
 			"ordered":         "a stream is an ordered log, and a consumer reads it in sequence",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 5, Source: "derived", Note: "publish with an ack, and a consumer with explicit acknowledgement"},
 			{Dim: "maintenance", Value: 3},
 			{Dim: "dependency", Value: 4},
 			{Dim: "runtime", Value: 2},
 			{Dim: "operations", Value: 4, Source: "derived", Note: "one binary with no dependencies, but streams, consumers and retention to configure"},
 		},
-		Impl: &BusTransport{
+		Impl: &compile.BusTransport{
 			Suffix: "JetStreamBus",
 			Emit:   emitJetStreamBus,
 			Topics: []string{"nats", "jetstream"},
@@ -88,13 +89,13 @@ func init() {
 			Hint:   jetStreamHint,
 		},
 	})
-	registerAlias("nats-jetstream", "jetstream")
+	compile.RegisterAlias("nats-jetstream", "jetstream")
 }
 
 // emitNatsBus declares the implementation and leaves one hole per method:
 // publishing and subscribing are a few lines of NATS API each, and which
 // encoding and subject naming a team wants is not tilegen's to decide.
-func emitNatsBus(in BusInput) ([]*sexp.Node, error) {
+func emitNatsBus(in compile.BusInput) ([]*sexp.Node, error) {
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by core NATS. Events are published on a subject\nper event type, so handlers in other processes receive them. Nothing is\nkept: a message published with no subscriber connected is gone.", in.Impl))),
 		sexp.L(sexp.Sym("field"), sexp.Sym("conn"), sexp.Sym("*nats.Conn")),
@@ -123,7 +124,7 @@ func natsHint(method, event string) string {
 // so the durability this tile claims is something the hole can reach for.
 // A tile that claims (durable) and hands the LLM a bare connection is
 // claiming something it gave nobody the means to do.
-func emitJetStreamBus(in BusInput) ([]*sexp.Node, error) {
+func emitJetStreamBus(in compile.BusInput) ([]*sexp.Node, error) {
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by NATS JetStream. Events go to a stream, so a\nconsumer that was not running still receives them, and a consumer can read\nback from any point.", in.Impl))),
 		sexp.L(sexp.Sym("field"), sexp.Sym("js"), sexp.Sym("jetstream.JetStream")),

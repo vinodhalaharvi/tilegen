@@ -8,44 +8,17 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
-	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
-
-//go:generate go run gen_std.go
-
-const version = "v0.3.5"
-
-// Pipeline is the ordered list of local tiling passes. Each maps
-// S-expressions to S-expressions; run with -dump to see every stage.
-var Pipeline = []*Pass{Expand, Concretize, Select}
-
-// Options are the command-line settings.
-type Options struct {
-	Spec       string // a .sexp file or a directory of them
-	Config     string // config file; overrides a (config ...) form in the spec
-	PolicyFile string // policy file; overrides a (policy ...) form in the spec
-	Out        string
-	Name       string // overrides the project (and repository) name
-	Dump       bool
-	Strict     bool
-	Git        bool // clone the GitHub repo if it exists, else create it
-	DryRun     bool // run every pass, print the -git plan, write nothing
-
-	Reselect   bool // ignore tilegen.lock and choose every backend again
-	Check      bool // plan only, and fail if the output differs or holes remain
-	JSON       bool // print structured output instead of a report
-	AllowHoles bool // with Check: open holes are not a failure
-	Runner     Runner
-	Tiles      string // (tile ...) drafts given with the spec, as text
-}
 
 func main() {
 	if wasmMain() {
@@ -133,7 +106,7 @@ func main() {
 			return
 		}
 	}
-	var o Options
+	var o compile.Options
 	flag.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec, else built-in defaults)")
 	flag.StringVar(&o.PolicyFile, "policy", "", "policy .sexp file: weights, prefer and avoid (default: a (policy ...) form in the spec)")
 	flag.StringVar(&o.Out, "out", "", "output directory (default: the workspace's (out ...), else ./out)")
@@ -165,7 +138,7 @@ func main() {
 	}
 	flag.Parse()
 	if *showVersion {
-		fmt.Println("tilegen", version)
+		fmt.Println("tilegen", compile.Version)
 		return
 	}
 	if flag.NArg() != 1 {
@@ -179,139 +152,13 @@ func main() {
 	}
 }
 
-// compiled is a spec after every pass: the target forms, the shared
-// context, the -dump stages, and the options with workspace defaults.
-type compiled struct {
-	nodes  []*sexp.Node
-	stages []string
-	c      *Ctx
-	o      Options
-	ws     *Workspace // nil when the spec has no (workspace ...)
-}
-
-// compile runs parse, merge, validation and every pass. It writes nothing.
-func compile(o Options, log io.Writer) (*compiled, error) {
-	if err := checkRegistry(); err != nil {
-		return nil, fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
-	}
-	if o.Runner == nil {
-		o.Runner = execRunner{log: log, dry: o.DryRun}
-	}
-	forms, err := ReadSpec(o.Spec)
-	if err != nil {
-		return nil, err
-	}
-	return compileForms(forms, o, log)
-}
-
-// compileForms is compile once the spec has been read, so a caller that
-// already has the forms - the HTTP service, whose "files" are request
-// fields - runs exactly the same compiler.
-func compileForms(forms []*sexp.Node, o Options, log io.Writer) (*compiled, error) {
-	if err := checkRegistry(); err != nil {
-		return nil, fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
-	}
-	if o.Runner == nil {
-		o.Runner = execRunner{log: log, dry: o.DryRun}
-	}
-	var err error
-	stages := []string{sexp.Dump(forms)}
-	linked, err := Merge(forms)
-	if err != nil {
-		return nil, err
-	}
-	if linked.Project == nil {
-		return nil, fmt.Errorf("%s has no (project NAME ...) form, so there is nothing to generate%s", o.Spec, workspaceHint(linked))
-	}
-	project, inlineCfg := linked.Project, linked.Config
-	var ws *Workspace
-	if linked.Workspace != nil {
-		if ws, err = ParseWorkspace(linked.Workspace, specBase(o.Spec)); err != nil {
-			return nil, err
-		}
-		if o.Name == "" {
-			o.Name = ws.Name
-		}
-		if o.Out == "" {
-			o.Out = ws.Out
-		}
-	}
-	if o.Out == "" {
-		o.Out = "out"
-	}
-	cfg := DefaultConfig()
-	switch {
-	case o.Config != "":
-		if cfg, err = LoadConfig(o.Config); err != nil {
-			return nil, err
-		}
-	case inlineCfg != nil:
-		if cfg, err = ParseConfig(inlineCfg); err != nil {
-			return nil, err
-		}
-	}
-	pol := DefaultPolicy()
-	switch {
-	case o.PolicyFile != "":
-		if pol, err = LoadPolicy(o.PolicyFile); err != nil {
-			return nil, err
-		}
-	case linked.Policy != nil:
-		if pol, err = ParsePolicy(linked.Policy); err != nil {
-			return nil, err
-		}
-	}
-	if err := pol.checkTileNames(); err != nil {
-		return nil, err
-	}
-	c := &Ctx{Cfg: cfg, Strict: o.Strict, Policy: pol}
-	if c.Extra, err = parseDrafts(o.Tiles); err != nil {
-		return nil, err
-	}
-	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
-		return nil, err
-	}
-	nodes := []*sexp.Node{project}
-	stages = append(stages, sexp.Dump(nodes))
-	if err := Validate(nodes, c); err != nil {
-		return nil, err
-	}
-	if c.Lock, c.Pins, err = loadLock(o.Out); err != nil {
-		var stale staleLock
-		if !errors.As(err, &stale) {
-			return nil, err
-		}
-		c.warn(sexp.Pos{}, "%v", err)
-	}
-	c.Reselect = o.Reselect
-	if err := errors.Join(coverAll(project, c), checkReserved(project, c)); err != nil {
-		return nil, err
-	}
-	var drafted []string
-	for _, id := range sortedKeys(c.Cover) {
-		if cov := c.Cover[id]; cov.Offer.Draft {
-			drafted = append(drafted, id+": "+cov.Offer.Tile)
-		}
-	}
-	if len(drafted) > 0 { // decided, and that is as far as a draft goes
-		return nil, &draftsChosen{cp: &compiled{nodes: nodes, stages: stages, c: c, o: o, ws: ws}, needs: drafted}
-	}
-	for _, p := range Pipeline {
-		if nodes, err = p.Run(c, nodes); err != nil {
-			return nil, err
-		}
-		stages = append(stages, sexp.Dump(nodes))
-	}
-	return &compiled{nodes: nodes, stages: stages, c: c, o: o, ws: ws}, nil
-}
-
-func run(o Options, log io.Writer) error {
-	cp, err := compile(o, log)
+func run(o compile.Options, log io.Writer) error {
+	cp, err := compile.Compile(o, log)
 	if err != nil {
 		return err
 	}
-	nodes, stages, c := cp.nodes, cp.stages, cp.c
-	o = cp.o
+	nodes, stages, c := cp.Nodes, cp.Stages, cp.Ctx
+	o = cp.Opts
 
 	var gitRepo *sexp.Node
 	for _, n := range nodes {
@@ -323,7 +170,7 @@ func run(o Options, log io.Writer) error {
 		gitRepo = sexp.L(sexp.Sym("git/repo"), sexp.L(sexp.Sym("visibility"), sexp.Sym("private"))) // local repository only
 	}
 	if o.Check {
-		rep, err := Emit(nodes, o.Out, c, false)
+		rep, err := compile.Emit(nodes, o.Out, c, false)
 		if err != nil {
 			return err
 		}
@@ -335,7 +182,7 @@ func run(o Options, log io.Writer) error {
 
 	mode := ""
 	if o.Git {
-		if mode, err = gitPrepare(o.Out, gitRepo, o.Runner, o.DryRun); err != nil {
+		if mode, err = compile.GitPrepare(o.Out, gitRepo, o.Runner, o.DryRun); err != nil {
 			return err
 		}
 	}
@@ -344,7 +191,7 @@ func run(o Options, log io.Writer) error {
 			fmt.Fprintln(log, "warning:", w)
 		}
 		if o.Git {
-			if err := gitFinish(o.Out, mode, gitRepo, c, o.Runner, io.Discard); err != nil {
+			if err := compile.GitFinish(o.Out, mode, gitRepo, c, o.Runner, io.Discard); err != nil {
 				return err
 			}
 		}
@@ -354,7 +201,7 @@ func run(o Options, log io.Writer) error {
 
 	if o.Dump {
 		names := []string{"parse", "merge"}
-		for _, p := range Pipeline {
+		for _, p := range compile.Pipeline {
 			names = append(names, p.Name)
 		}
 		dir := filepath.Join(o.Out, ".tilegen")
@@ -369,7 +216,7 @@ func run(o Options, log io.Writer) error {
 		}
 	}
 
-	rep, err := Emit(nodes, o.Out, c, true)
+	rep, err := compile.Emit(nodes, o.Out, c, true)
 	for _, w := range c.Warnings {
 		fmt.Fprintln(log, "warning:", w)
 	}
@@ -410,15 +257,15 @@ func run(o Options, log io.Writer) error {
 	fmt.Fprintf(log, "%d open LLM task(s), %d hole(s) already filled -> %s\n",
 		rep.Tasks, rep.Done, filepath.Join(o.Out, "tilegen.tasks.json"))
 
-	if cp.ws != nil && cp.ws.Session != "" {
-		fmt.Fprintf(log, "run `tilegen up %s` to open the %s session (%d window(s))\n", o.Spec, cp.ws.Session, len(cp.ws.Windows))
+	if cp.Workspace != nil && cp.Workspace.Session != "" {
+		fmt.Fprintf(log, "run `tilegen up %s` to open the %s session (%d window(s))\n", o.Spec, cp.Workspace.Session, len(cp.Workspace.Windows))
 	}
 	if !o.Git { // -git runs these itself
 		fmt.Fprintln(log, nextLine(c, o.Out, exec.LookPath))
 	}
 	switch {
 	case o.Git:
-		return gitFinish(o.Out, mode, gitRepo, c, o.Runner, log)
+		return compile.GitFinish(o.Out, mode, gitRepo, c, o.Runner, log)
 	case gitRepo != nil && gitRepo.Text("github") != "":
 		fmt.Fprintf(log, "run with -git to clone or create github.com/%s\n", gitRepo.Text("github"))
 	}
@@ -443,25 +290,25 @@ func workspaceCmd(cmd string, args []string, stdout, log io.Writer) error {
 	if len(pos) > 0 {
 		spec = pos[0]
 	}
-	ws, err := loadWorkspace(spec)
+	ws, err := compile.LoadWorkspace(spec)
 	if err != nil {
 		return err
 	}
-	r := execRunner{log: log, dry: dry}
+	r := compile.ExecRunner{Log: log, Dry: dry}
 	switch cmd {
 	case "up":
-		return Up(ws, r, log, detach || dry)
+		return compile.Up(ws, r, log, detach || dry)
 	case "down":
-		return Down(ws, r, log, prune)
+		return compile.Down(ws, r, log, prune)
 	}
-	return Status(ws, r, stdout)
+	return compile.Status(ws, r, stdout)
 }
 
 // checkCmd runs `tilegen check`: the same plan as generation, compared
 // with the disk. Nothing is written.
 func checkCmd(args []string, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen check", flag.ExitOnError)
-	var o Options
+	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
 	fs.StringVar(&o.Out, "out", "", "the generated project (default: the workspace's (out ...), else ./out)")
 	fs.StringVar(&o.Name, "name", "", "project name, as given to generation")
@@ -483,12 +330,12 @@ func checkCmd(args []string, log io.Writer) error {
 
 // checkResult is what generating would change, computed once and rendered
 // either as a report or as JSON.
-func checkResult(rep *Report, o Options) CheckJSON {
+func checkResult(rep *compile.Report, o compile.Options) compile.CheckJSON {
 	updated := map[string]bool{}
 	for _, f := range rep.Updated {
 		updated[f] = true
 	}
-	out := CheckJSON{Missing: rep.New, OpenHoles: rep.Tasks, UpToDate: rep.Unchanged}
+	out := compile.CheckJSON{Missing: rep.New, OpenHoles: rep.Tasks, UpToDate: rep.Unchanged}
 	for _, f := range rep.Changed {
 		if !updated[f] {
 			out.Stale = append(out.Stale, f)
@@ -505,7 +352,7 @@ func checkResult(rep *Report, o Options) CheckJSON {
 		out.Stubs = append(out.Stubs, a+": no longer in the spec")
 	}
 	for _, nt := range rep.Notes {
-		n := NoteJSON{File: nt.File, Symbol: nt.Symbol, Detail: nt.Detail}
+		n := compile.NoteJSON{File: nt.File, Symbol: nt.Symbol, Detail: nt.Detail}
 		if nt.Kind == "drift" {
 			out.Drift = append(out.Drift, n)
 		} else {
@@ -525,7 +372,7 @@ func checkResult(rep *Report, o Options) CheckJSON {
 	return out
 }
 
-func checkFailure(res CheckJSON, o Options) error {
+func checkFailure(res compile.CheckJSON, o compile.Options) error {
 	if res.OK {
 		return nil
 	}
@@ -533,16 +380,16 @@ func checkFailure(res CheckJSON, o Options) error {
 }
 
 // checkJSON prints the same result as structured data.
-func checkJSON(rep *Report, c *Ctx, o Options, log io.Writer) error {
+func checkJSON(rep *compile.Report, c *compile.Ctx, o compile.Options, log io.Writer) error {
 	res := checkResult(rep, o)
-	if err := writeJSON(os.Stdout, res); err != nil {
+	if err := compile.WriteJSON(os.Stdout, res); err != nil {
 		return err
 	}
 	return checkFailure(res, o)
 }
 
 // checkReport prints what generation would change and decides pass/fail.
-func checkReport(rep *Report, c *Ctx, o Options, log io.Writer) error {
+func checkReport(rep *compile.Report, c *compile.Ctx, o compile.Options, log io.Writer) error {
 	for _, w := range c.Warnings {
 		fmt.Fprintln(log, "warning:", w)
 	}
@@ -598,22 +445,13 @@ func parseAnywhere(fs *flag.FlagSet, args []string) []string {
 	}
 }
 
-// workspaceHint points at the commands that work without a project, when
-// the spec has a workspace but nothing to generate yet.
-func workspaceHint(l *Linked) string {
-	if l.Workspace == nil {
-		return ""
-	}
-	return " (the workspace is there, so `tilegen up` still works)"
-}
-
 // nextLine is the line that turns a generated tree into a building one.
 // The tools come first: until sqlc or buf has written its package, Go
 // looks for it on the network and reports a repository that is not there.
-func nextLine(c *Ctx, out string, look func(string) (string, error)) string {
+func nextLine(c *compile.Ctx, out string, look func(string) (string, error)) string {
 	cmds := []string{"cd " + out}
 	var missing []string
-	for _, st := range toolSteps(c) {
+	for _, st := range compile.ToolSteps(c) {
 		cmds = append(cmds, st.Cmd)
 		if _, err := look(st.Target()); err != nil {
 			missing = append(missing, st.Target())

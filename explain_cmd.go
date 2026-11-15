@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"io"
 	"os"
 	"sort"
@@ -13,7 +14,7 @@ import (
 // which one won and why.
 func explainCmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen explain", flag.ExitOnError)
-	var o Options
+	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
 	fs.StringVar(&o.Out, "out", "", "the generated project, whose tilegen.lock pins choices (default: the workspace's (out ...), else ./out)")
 	fs.BoolVar(&o.Reselect, "reselect", false, "ignore tilegen.lock: show what a fresh choice would be")
@@ -31,12 +32,12 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 			o.Spec, pos = pos[0], pos[1:]
 		}
 	}
-	cp, err := compile(o, log)
+	cp, err := compile.Compile(o, log)
 	if err != nil {
 		return err
 	}
-	names := make([]string, 0, len(cp.c.Cover))
-	for n := range cp.c.Cover {
+	names := make([]string, 0, len(cp.Ctx.Cover))
+	for n := range cp.Ctx.Cover {
 		names = append(names, n)
 	}
 	sort.Strings(names)
@@ -44,35 +45,35 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		return fmt.Errorf("-project reports on the whole spec, as text: drop -json and the need names")
 	}
 	if *asJSON {
-		jsonWeights = cp.c.Policy.Weights
-		out := ExplainJSON{Policy: policyJSON(cp.c.Policy)}
+		compile.JSONWeights = cp.Ctx.Policy.Weights
+		out := compile.ExplainJSON{Policy: compile.NewPolicyJSON(cp.Ctx.Policy)}
 		for _, n := range names {
 			if len(pos) == 0 || matchesAny(n, pos) {
-				out.Coverage = append(out.Coverage, coverageJSON(cp.c.Cover[n]))
+				out.Coverage = append(out.Coverage, compile.NewCoverageJSON(cp.Ctx.Cover[n]))
 			}
 		}
 		if len(out.Coverage) == 0 && len(pos) > 0 {
-			return fmt.Errorf("no need %s%s", pos[0], didYouMean(pos[0], names))
+			return fmt.Errorf("no need %s%s", pos[0], compile.DidYouMean(pos[0], names))
 		}
-		return writeJSON(stdout, out)
+		return compile.WriteJSON(stdout, out)
 	}
-	fmt.Fprintf(stdout, "%s\n\n", cp.c.Policy.describe())
+	fmt.Fprintf(stdout, "%s\n\n", cp.Ctx.Policy.Describe())
 	shown := 0
 	for _, n := range names {
 		if len(pos) > 0 && !matchesAny(n, pos) {
 			continue
 		}
-		fmt.Fprintln(stdout, explainCovering(cp.c.Cover[n]))
+		fmt.Fprintln(stdout, compile.ExplainCovering(cp.Ctx.Cover[n]))
 		shown++
 	}
 	if shown == 0 {
 		if len(pos) > 0 {
-			return fmt.Errorf("no store %s%s", pos[0], didYouMean(pos[0], names))
+			return fmt.Errorf("no store %s%s", pos[0], compile.DidYouMean(pos[0], names))
 		}
 		fmt.Fprintln(stdout, "no stores in this spec")
 	}
 	if *whole {
-		projectView(cp.c).print(stdout)
+		compile.NewProjectView(cp.Ctx).Print(stdout)
 	}
 	return nil
 }

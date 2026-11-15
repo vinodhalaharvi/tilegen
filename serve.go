@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"net/http"
@@ -61,7 +62,7 @@ func serveCmd(args []string, log io.Writer) error {
 		srv.Addr = *addr
 	}
 	serveLoopback = isLoopback(*addr)
-	fmt.Fprintf(log, "tilegen %s serving on %s\n", version, *addr)
+	fmt.Fprintf(log, "tilegen %s serving on %s\n", compile.Version, *addr)
 	if st := llmStatus(); st.Enabled {
 		fmt.Fprintf(log, "asking Claude to draft tiles is on (%s)\n", st.Model)
 	} else {
@@ -85,7 +86,7 @@ func serveMux() http.Handler {
 	mux.HandleFunc("POST /compile", handleAll)
 	mux.HandleFunc("POST /gomods", handleGoMods)
 	mux.HandleFunc("GET /version", func(w http.ResponseWriter, r *http.Request) {
-		respondJSON(w, map[string]any{"version": version, "llm": llmStatus()})
+		respondJSON(w, map[string]any{"version": compile.Version, "llm": llmStatus()})
 	})
 	// Asking Claude takes longer than compiling a spec, so it has its own
 	// deadline; everything else keeps the short one.
@@ -117,7 +118,7 @@ func withTimeout(h http.Handler, d time.Duration) http.Handler {
 		r.Body = http.MaxBytesReader(w, r.Body, maxSpecBytes)
 		ctx, cancel := context.WithTimeout(r.Context(), d)
 		defer cancel()
-		w.Header().Set("X-Tilegen-Version", version)
+		w.Header().Set("X-Tilegen-Version", compile.Version)
 		h.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -158,12 +159,12 @@ func readSpec(r *http.Request) (specRequest, error) {
 
 // compileRequest turns a request into a compiled spec, without touching
 // the filesystem: the parser takes text, so the "files" are in memory.
-func compileRequest(req specRequest) (*compiled, error) {
+func compileRequest(req specRequest) (*compile.Compiled, error) {
 	forms, err := parseParts(req.Spec, req.Config, req.Policy)
 	if err != nil {
 		return nil, err
 	}
-	return compileForms(forms, Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
+	return compile.CompileForms(forms, compile.Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
 }
 
 // parseParts reads a spec sent as text, with the config and policy that
@@ -211,7 +212,7 @@ func checkSpecSize(forms []*sexp.Node) error {
 }
 
 // handleSpec answers a question about a spec as JSON.
-func handleSpec(answer func(*compiled, *Report) any) http.HandlerFunc {
+func handleSpec(answer func(*compile.Compiled, *compile.Report) any) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		req, err := readSpec(r)
 		if err != nil {
@@ -223,7 +224,7 @@ func handleSpec(answer func(*compiled, *Report) any) http.HandlerFunc {
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
 		}
-		rep, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+		rep, err := compile.Emit(cp.Nodes, cp.Opts.Out, cp.Ctx, false)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
@@ -232,31 +233,33 @@ func handleSpec(answer func(*compiled, *Report) any) http.HandlerFunc {
 	}
 }
 
-func explainJSON(cp *compiled, _ *Report) any {
-	jsonWeights = cp.c.Policy.Weights
-	out := ExplainJSON{Policy: policyJSON(cp.c.Policy)}
-	names := make([]string, 0, len(cp.c.Cover))
-	for n := range cp.c.Cover {
+func explainJSON(cp *compile.Compiled, _ *compile.Report) any {
+	compile.JSONWeights = cp.Ctx.Policy.Weights
+	out := compile.ExplainJSON{Policy: compile.NewPolicyJSON(cp.Ctx.Policy)}
+	names := make([]string, 0, len(cp.Ctx.Cover))
+	for n := range cp.Ctx.Cover {
 		names = append(names, n)
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		out.Coverage = append(out.Coverage, coverageJSON(cp.c.Cover[n]))
+		out.Coverage = append(out.Coverage, compile.NewCoverageJSON(cp.Ctx.Cover[n]))
 	}
 	return out
 }
 
-func planJSONFor(cp *compiled, rep *Report) any {
-	g := buildPlanGraph(rep, cp.c)
+func planJSONFor(cp *compile.Compiled, rep *compile.Report) any {
+	g := compile.BuildPlanGraph(rep, cp.Ctx)
 	levels, cycleErr := g.Levels()
-	return planJSON(g, levels, cycleErr)
+	return compile.NewPlanJSON(g, levels, cycleErr)
 }
 
-func handleTiles(w http.ResponseWriter, r *http.Request) { respondJSON(w, tilesJSON(Registry())) }
+func handleTiles(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, compile.NewTilesJSON(compile.Registry()))
+}
 
 // usesSqlc reports whether the generated project is finished by running
 // sqlc, which is true when tilegen wrote an sqlc.yaml for it.
-func usesSqlc(rep *Report) bool {
+func usesSqlc(rep *compile.Report) bool {
 	for _, f := range append(append([]string{}, rep.Written...), rep.Kept...) {
 		if strings.HasSuffix(f, "sqlc.yaml") {
 			return true
@@ -278,7 +281,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
 	}
-	rep, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	rep, err := compile.Emit(cp.Nodes, cp.Opts.Out, cp.Ctx, false)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
@@ -301,11 +304,11 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 
 // projectName is what the zip and its top folder are called: the spec's
 // project name, or the last element of its module path.
-func projectName(cp *compiled) string {
-	if cp.o.Name != "" {
-		return cp.o.Name
+func projectName(cp *compile.Compiled) string {
+	if cp.Opts.Name != "" {
+		return cp.Opts.Name
 	}
-	if m := cp.c.Module; m != "" {
+	if m := cp.Ctx.Module; m != "" {
 		if i := strings.LastIndex(m, "/"); i >= 0 {
 			return m[i+1:]
 		}
@@ -317,10 +320,10 @@ func projectName(cp *compiled) string {
 // writeZip packs the plan, plus a README saying what to do next, since a
 // generated project needs sqlc and go mod tidy that the service will not
 // run for you.
-func writeZip(out io.Writer, name string, rep *Report, cp *compiled) error {
+func writeZip(out io.Writer, name string, rep *compile.Report, cp *compile.Compiled) error {
 	z := zip.NewWriter(out)
 	files := rep.PlanFiles()
-	for _, rel := range sortedKeys(files) {
+	for _, rel := range compile.SortedKeys(files) {
 		f, err := z.Create(name + "/" + rel)
 		if err != nil {
 			return err
@@ -339,15 +342,15 @@ func writeZip(out io.Writer, name string, rep *Report, cp *compiled) error {
 	return z.Close()
 }
 
-func nextSteps(name string, rep *Report, cp *compiled) []byte {
+func nextSteps(name string, rep *compile.Report, cp *compile.Compiled) []byte {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# %s\n\nScaffolded by tilegen %s from your spec.\n\n", name, version)
+	fmt.Fprintf(&b, "# %s\n\nScaffolded by tilegen %s from your spec.\n\n", name, compile.Version)
 	b.WriteString("## What this is\n\n")
 	b.WriteString("Everything here follows from the spec: the types, the interfaces, the SQL,\n")
 	b.WriteString("the routing. What tilegen could not know is left as a typed hole, a method\n")
 	b.WriteString("whose body is `panic(\"tilegen:hole ...\")`, with its intent in\n`tilegen.tasks.json`. Fill them with whatever you like.\n\n")
 	b.WriteString("## Next\n\n```sh\n")
-	for _, st := range toolSteps(cp.c) {
+	for _, st := range compile.ToolSteps(cp.Ctx) {
 		fmt.Fprintf(&b, "%s        # %s\n", st.Cmd, st.Doc)
 	}
 	b.WriteString("go mod tidy\ngo build ./...\n```\n\n")
@@ -358,7 +361,7 @@ func nextSteps(name string, rep *Report, cp *compiled) []byte {
 // respondJSON writes a value as the response body.
 func respondJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	writeJSON(w, v)
+	compile.WriteJSON(w, v)
 }
 
 // writeError reports a failure as JSON. A spec that does not compile is
@@ -387,23 +390,23 @@ type everything struct {
 }
 
 func compileAll(req specRequest) (out everything) {
-	out.Version = version
+	out.Version = compile.Version
 	defer func() { // a page must get an answer, even to a spec that finds a bug
 		if r := recover(); r != nil {
-			out = everything{Version: version, Error: fmt.Sprintf("tilegen stopped unexpectedly on this spec (a bug in tilegen): %v", r)}
+			out = everything{Version: compile.Version, Error: fmt.Sprintf("tilegen stopped unexpectedly on this spec (a bug in tilegen): %v", r)}
 		}
 	}()
 	cp, err := compileRequest(req)
-	var won *draftsChosen
+	var won *compile.DraftsChosen
 	if errors.As(err, &won) {
-		out.Name, out.Explain, out.Drafted = projectName(won.cp), explainJSON(won.cp, nil), won.needs
+		out.Name, out.Explain, out.Drafted = projectName(won.Compiled), explainJSON(won.Compiled, nil), won.Needs
 		return out
 	}
 	if err != nil {
 		out.Error = err.Error()
 		return out
 	}
-	rep, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	rep, err := compile.Emit(cp.Nodes, cp.Opts.Out, cp.Ctx, false)
 	if err != nil {
 		out.Error = err.Error()
 		return out
@@ -416,7 +419,7 @@ func compileAll(req specRequest) (out everything) {
 	}
 	out.Files["GENERATED.md"] = string(nextSteps(out.Name, rep, cp))
 	out.Holes = rep.Tasks
-	for _, st := range toolSteps(cp.c) {
+	for _, st := range compile.ToolSteps(cp.Ctx) {
 		out.Next = append(out.Next, st.Cmd)
 	}
 	out.Next = append(out.Next, "go mod tidy", "go build ./...")

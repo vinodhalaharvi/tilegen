@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -12,11 +13,11 @@ import (
 // key, so finding an entity by any other field means a second index that
 // somebody writes and keeps repaired.
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name: "bolt",
 		Tile: "bolt",
 		Doc:  "embedded key-value: one file, a bucket per entity, values as JSON",
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 7, Source: "derived", Note: "every read, write and scan written by hand, including the key encoding"},
 			{Dim: "maintenance", Value: 6, Source: "derived", Note: "no schema and no migrations: a field added to the struct changes stored documents silently, and nothing reports it"},
 			{Dim: "dependency", Value: 1, Source: "derived", Note: "bbolt only, and no build-time tool"},
@@ -37,8 +38,8 @@ func init() {
 		Imports:      map[string]string{"bbolt": "go.etcd.io/bbolt"},
 		Topics:       []string{"bbolt", "embedded-database"},
 		ErrorPackage: "bbolt",
-		Implement: func(in StoreInput) (StoreParts, error) {
-			return StoreParts{
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) {
+			return compile.StoreParts{
 				Fields: []*sexp.Node{
 					sexp.L(sexp.Sym("field"), sexp.Sym("db"), sexp.Sym("*bbolt.DB")),
 					sexp.L(sexp.Sym("field"), sexp.Sym("bucket"), sexp.Sym("string")),
@@ -53,12 +54,12 @@ func init() {
 }
 
 // bucketName is the bucket an entity's documents live in.
-func bucketName(entity string) string { return lowerFirstWord(entity) + "s" }
+func bucketName(entity string) string { return compile.LowerFirstWord(entity) + "s" }
 
 // boltHint says what each method has to do in bbolt's terms: a read is a
 // View, a write is an Update, and the value is JSON either way.
 func boltHint(meth *sexp.Node) string {
-	kind, _ := methodOp(meth)
+	kind, _ := compile.MethodOp(meth)
 	switch kind {
 	case "get":
 		return "In a View transaction, read the key from the bucket and unmarshal the JSON into the value. Return ErrNotFound when the key is absent."
@@ -73,5 +74,5 @@ func boltHint(meth *sexp.Node) string {
 	}
 	// The *-by ops never reach here: a bucket is keyed by ID alone, and
 	// illegal-when rules this tile out of any store that asks for one.
-	return customHint(meth)
+	return compile.CustomHint(meth)
 }

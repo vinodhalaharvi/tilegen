@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -20,7 +21,7 @@ import (
 // something is actually asked for.
 
 func init() {
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "jwt-local",
 		Capability: "auth",
 		Doc:        "a token this service signs and verifies itself, with no lookup",
@@ -33,14 +34,14 @@ func init() {
 			"offline-verify": "the token carries its claims and its signature; verifying it touches nothing else",
 			"expiring":       "the exp claim is inside the signed payload, so it cannot be altered",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "parse a bearer header, verify a signature, check iss and exp"},
 			{Dim: "maintenance", Value: 2, Source: "derived", Note: "the signing key has to be rotated, and rotation is a second key for a while"},
 			{Dim: "dependency", Value: 1},
 			{Dim: "runtime", Value: 0, Source: "derived", Note: "one HMAC per request, no I/O"},
 			{Dim: "operations", Value: 1, Source: "derived", Note: "a secret to distribute, nothing to run"},
 		},
-		Impl: &AuthScheme{
+		Impl: &compile.AuthScheme{
 			Suffix: "JWTAuthenticator",
 			Import: [2]string{"jwt", "github.com/golang-jwt/jwt/v5"},
 			Topics: []string{"jwt"},
@@ -48,9 +49,9 @@ func init() {
 			Hint:   jwtAuthHint,
 		},
 	})
-	registerAlias("jwt-local", "jwt")
+	compile.RegisterAlias("jwt-local", "jwt")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "oidc",
 		Capability: "auth",
 		Doc:        "an identity provider issues tokens; this verifies them against its keys",
@@ -60,14 +61,14 @@ func init() {
 			"offline-verify":  "verification uses cached public keys, with no call per request",
 			"expiring":        "the exp claim is inside the signed payload",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 4, Source: "derived", Note: "verify with the provider's verifier, then map claims to a principal"},
 			{Dim: "maintenance", Value: 2},
 			{Dim: "dependency", Value: 2},
 			{Dim: "runtime", Value: 1, Source: "derived", Note: "keys are cached; a refresh is occasional"},
 			{Dim: "operations", Value: 5, Source: "derived", Note: "an identity provider to run or pay for, with clients, scopes and redirect URIs to keep right"},
 		},
-		Impl: &AuthScheme{
+		Impl: &compile.AuthScheme{
 			Suffix: "OIDCAuthenticator",
 			Import: [2]string{"oidc", "github.com/coreos/go-oidc/v3/oidc"},
 			Topics: []string{"oidc"},
@@ -75,9 +76,9 @@ func init() {
 			Hint:   oidcAuthHint,
 		},
 	})
-	registerAlias("oidc", "oidc")
+	compile.RegisterAlias("oidc", "oidc")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "session-store",
 		Capability: "auth",
 		Doc:        "an opaque session id in a cookie, looked up in a store on every request",
@@ -90,22 +91,22 @@ func init() {
 			"revocable": "the session is read on every request, so deleting it takes effect on the next one",
 			"expiring":  "the stored session carries an expiry, checked on every read",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 3, Source: "derived", Note: "read a cookie, load the session, check it has not expired"},
 			{Dim: "maintenance", Value: 2, Source: "derived", Note: "expired sessions have to be swept, or the store grows forever"},
 			{Dim: "dependency", Value: 0, Source: "derived", Note: "net/http cookies and a store the project already has"},
 			{Dim: "runtime", Value: 2, Source: "derived", Note: "one store read per request"},
 			{Dim: "operations", Value: 1, Source: "derived", Note: "nothing new to run: the sessions live in a store already chosen"},
 		},
-		Impl: &AuthScheme{
+		Impl: &compile.AuthScheme{
 			Suffix: "SessionAuthenticator",
 			Emit:   emitSessionAuth,
 			Hint:   sessionAuthHint,
 		},
 	})
-	registerAlias("session-store", "session")
+	compile.RegisterAlias("session-store", "session")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "api-key",
 		Capability: "auth",
 		Doc:        "a long-lived key per caller, resolved by a lookup you supply",
@@ -117,23 +118,23 @@ func init() {
 		Satisfies: map[string]string{
 			"revocable": "the key is resolved on every request, so removing it takes effect on the next one",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 2, Source: "derived", Note: "read a header and call the lookup; the store is the caller's"},
 			{Dim: "maintenance", Value: 2, Source: "derived", Note: "keys are long-lived, so leaks are found late and rotation is manual"},
 			{Dim: "dependency", Value: 0},
 			{Dim: "runtime", Value: 2, Source: "derived", Note: "one lookup per request"},
 			{Dim: "operations", Value: 1},
 		},
-		Impl: &AuthScheme{
+		Impl: &compile.AuthScheme{
 			Suffix: "APIKeyAuthenticator",
 			Emit:   emitAPIKeyAuth,
 			Hint:   apiKeyAuthHint,
 		},
 	})
-	registerAlias("api-key", "api-key")
+	compile.RegisterAlias("api-key", "api-key")
 }
 
-func emitJWTAuth(in AuthInput) ([]*sexp.Node, error) {
+func emitJWTAuth(in compile.AuthInput) ([]*sexp.Node, error) {
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s verifies bearer tokens this service signed itself. A token is\ntrusted until it expires: there is no lookup, and so no way to take one back.", in.Impl))),
 		sexp.L(sexp.Sym("field"), sexp.Sym("key"), sexp.Str("[]byte")),
@@ -146,7 +147,7 @@ func emitJWTAuth(in AuthInput) ([]*sexp.Node, error) {
 	return []*sexp.Node{decl, ctor}, nil
 }
 
-func jwtAuthHint(in AuthInput) string {
+func jwtAuthHint(in compile.AuthInput) string {
 	return "Take the bearer token from the Authorization header, verify its signature with s.key, " +
 		"and check that the issuer is s.issuer and the expiry has not passed. Return a Principal " +
 		"whose Subject is the sub claim and whose Scopes are the scope claim split on spaces. " +
@@ -155,7 +156,7 @@ func jwtAuthHint(in AuthInput) string {
 		"is not the one you sign with, since accepting whatever the token claims is how this scheme is broken."
 }
 
-func emitOIDCAuth(in AuthInput) ([]*sexp.Node, error) {
+func emitOIDCAuth(in compile.AuthInput) ([]*sexp.Node, error) {
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s verifies ID tokens issued by an identity provider, against the\nkeys that provider publishes. Nothing here issues a token.", in.Impl))),
 		sexp.L(sexp.Sym("field"), sexp.Sym("verifier"), sexp.Sym("*oidc.IDTokenVerifier")))
@@ -167,7 +168,7 @@ func emitOIDCAuth(in AuthInput) ([]*sexp.Node, error) {
 	return []*sexp.Node{decl, ctor}, nil
 }
 
-func oidcAuthHint(in AuthInput) string {
+func oidcAuthHint(in compile.AuthInput) string {
 	return "Take the bearer token from the Authorization header and verify it with s.verifier. " +
 		"Return a Principal whose Subject is the verified token's Subject, and whose Scopes come " +
 		"from the scope claim. Keep two failures apart: a missing or unverifiable token is " +
@@ -175,7 +176,7 @@ func oidcAuthHint(in AuthInput) string {
 		"as it is, so Protect answers 500 rather than telling a caller with a perfectly good token that it was rejected."
 }
 
-func emitSessionAuth(in AuthInput) ([]*sexp.Node, error) {
+func emitSessionAuth(in compile.AuthInput) ([]*sexp.Node, error) {
 	// The sessions live in a store, and the store comes from the spec:
 	// this scheme reads what is there rather than inventing an entity.
 	if in.Pkg.Ifaces["SessionStore"] == nil {
@@ -196,7 +197,7 @@ func emitSessionAuth(in AuthInput) ([]*sexp.Node, error) {
 	return []*sexp.Node{decl, ctor}, nil
 }
 
-func sessionAuthHint(in AuthInput) string {
+func sessionAuthHint(in compile.AuthInput) string {
 	return "Read the session id from the cookie named s.cookie and load it with s.sessions.Get. " +
 		"Return a Principal built from the session. A missing cookie, an unknown id and an expired " +
 		"session are all ErrUnauthenticated, and they must be indistinguishable to the client: " +
@@ -204,7 +205,7 @@ func sessionAuthHint(in AuthInput) string {
 		"the expired session here; Authenticate is a read, and sweeping belongs elsewhere."
 }
 
-func emitAPIKeyAuth(in AuthInput) ([]*sexp.Node, error) {
+func emitAPIKeyAuth(in compile.AuthInput) ([]*sexp.Node, error) {
 	lookup := fmt.Sprintf("func(%sstring) (*Principal, error)", in.CtxType)
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s resolves a long-lived key to a caller. Where the keys are kept is\nthe caller's business: this takes a lookup and asks it.", in.Impl))),
@@ -217,7 +218,7 @@ func emitAPIKeyAuth(in AuthInput) ([]*sexp.Node, error) {
 	return []*sexp.Node{decl, ctor}, nil
 }
 
-func apiKeyAuthHint(in AuthInput) string {
+func apiKeyAuthHint(in compile.AuthInput) string {
 	return "Take the key from the Authorization header (accept both \"Bearer x\" and a bare key) and " +
 		"pass it to s.lookup. Return the principal it gives back. A missing key, and a key the lookup " +
 		"does not know, are both ErrUnauthenticated. If you ever compare a key to another string " +

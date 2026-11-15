@@ -5,6 +5,8 @@ package main
 import (
 	"encoding/json"
 	"syscall/js"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 )
 
 // In a browser there is no command line: tilegen is one function, taking
@@ -23,7 +25,7 @@ func wasmMain() bool {
 		return string(b)
 	}))
 	js.Global().Set("tilegenTiles", js.FuncOf(func(js.Value, []js.Value) any {
-		b, _ := json.Marshal(tilesJSON(Registry()))
+		b, _ := json.Marshal(compile.NewTilesJSON(compile.Registry()))
 		return string(b)
 	}))
 	js.Global().Set("tilegenGoMods", js.FuncOf(func(_ js.Value, args []js.Value) any {
@@ -36,7 +38,7 @@ func wasmMain() bool {
 		b, _ := json.Marshal(scanGoMods(files))
 		return string(b)
 	}))
-	js.Global().Set("tilegenVersion", version)
+	js.Global().Set("tilegenVersion", compile.Version)
 	if ready := js.Global().Get("tilegenReady"); ready.Type() == js.TypeFunction {
 		ready.Invoke()
 	}

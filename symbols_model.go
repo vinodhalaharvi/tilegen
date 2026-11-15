@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"sort"
 	"strings"
 )
@@ -255,11 +256,11 @@ func (m *ModuleSymbols) text(budget int) string {
 
 // checkCited holds a draft to the module it names: every symbol it cites
 // is one the module exports.
-func checkCited(o *Offer, m *ModuleSymbols) error {
+func checkCited(o *compile.Offer, m *ModuleSymbols) error {
 	var missing []string
 	for _, ref := range o.Symbols {
 		if !m.has(ref) {
-			missing = append(missing, ref+didYouMean(ref, m.names()))
+			missing = append(missing, ref+compile.DidYouMean(ref, m.names()))
 		}
 	}
 	if len(missing) == 0 {

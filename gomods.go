@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/mod/modfile"
 )
 
@@ -22,7 +23,7 @@ import (
 type GoModsJSON struct {
 	Engines []string      `json:"engines"`           // every engine a tile can run on
 	Modules []string      `json:"modules"`           // the module each file declares
-	Running []RunningJSON `json:"running,omitempty"` // engines in use, most used first
+	Running []RunningJSON `json:"running,omitempty"` // Engines in use, most used first
 	Known   []ModuleJSON  `json:"known,omitempty"`   // requirements a tile speaks
 	Unknown []ModuleJSON  `json:"unknown,omitempty"` // direct requirements no tile speaks
 	Errors  []string      `json:"errors,omitempty"`  // files that are not a go.mod
@@ -46,13 +47,13 @@ type ModuleJSON struct {
 
 // scanGoMods reads the text of several go.mod files.
 func scanGoMods(texts []string) GoModsJSON {
-	out := GoModsJSON{Engines: engines(), Modules: []string{}}
+	out := GoModsJSON{Engines: compile.Engines(), Modules: []string{}}
 	covered := coveredModules()
 	engineOfTile := map[string]string{}
-	for _, capability := range capabilityNames() {
-		for _, o := range offersOf(capability) {
-			if operated(o) { // badger in a go.mod is a library in use, not a server being run
-				engineOfTile[o.Tile] = engineOf(o)
+	for _, capability := range compile.CapabilityNames() {
+		for _, o := range compile.OffersOf(capability) {
+			if compile.Operated(o) { // badger in a go.mod is a library in use, not a server being run
+				engineOfTile[o.Tile] = compile.EngineOf(o)
 			}
 		}
 	}
@@ -85,7 +86,7 @@ func scanGoMods(texts []string) GoModsJSON {
 	}
 	engines := map[string]*RunningJSON{}
 	engineFiles := map[string]int{}
-	for _, m := range sortedKeys(mods) {
+	for _, m := range compile.SortedKeys(mods) {
 		s := mods[m]
 		tiles := tilesFor(m, covered)
 		mj := ModuleJSON{Module: m, Version: s.version, Tiles: tiles, In: s.in}
@@ -104,7 +105,7 @@ func scanGoMods(texts []string) GoModsJSON {
 				r = &RunningJSON{Engine: e}
 				engines[e] = r
 			}
-			if !contains(r.Modules, m) {
+			if !compile.Contains(r.Modules, m) {
 				r.Modules = append(r.Modules, m)
 				if s.in > engineFiles[e] {
 					engineFiles[e] = s.in
@@ -112,9 +113,9 @@ func scanGoMods(texts []string) GoModsJSON {
 			}
 		}
 	}
-	for _, e := range sortedKeys(engines) {
+	for _, e := range compile.SortedKeys(engines) {
 		r := engines[e]
-		for _, t := range sortedKeys(engineOfTile) { // every tile that would share it, not only the one whose library was seen
+		for _, t := range compile.SortedKeys(engineOfTile) { // every tile that would share it, not only the one whose library was seen
 			if engineOfTile[t] == e {
 				r.Tiles = append(r.Tiles, t)
 			}

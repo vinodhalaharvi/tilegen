@@ -1,0 +1,58 @@
+PASS        TILE            PRODUCES       COST                                 NEEDS                                                              WHAT IT DOES
+expand      entity          struct, store                                                                                                          splits an entity into a struct, a store interface and an impl
+concretize  package-layout  package                                                                                                                places a package per (layout ...)
+concretize  json-tag        field                                                                                                                  adds json tags per (json-tags ...)
+concretize  context-first   method                                                                                                                 prepends ctx context.Context per (context-first ...)
+concretize  backend         impl                                                                                                                   records the storage backend chosen by (storage ...)
+concretize  implement       implement                                                                                                              keeps implement dependencies free of json tags
+select      project         gomod                                                                                                                  writes go.mod and resolves imports
+select      package         go/file                                                                                                                collects a package into its generated file
+select      impl            store                                                                                                                  implements a store through the registered backend
+select      struct          go/struct      llm 0                                                                                                   a struct, as written
+select      interface       go/interface   llm 0                                                                                                   an interface, as written
+select      implement       go/file        llm 5, maint 2                                                                                          implements any interface: struct, constructor, stubs, check
+select      enum            go/type        llm 0, maint 0                                                                                          a string type with constants, Valid() and Parse()
+select      llm             llm/task       llm 8, unc 6                                                                                            an explicit hole: pure intent for the LLM
+select      api             api            llm 0, maint 0, dep 0                                                                                   a server for the package's entities, over whichever transport its clients need
+select      auth            auth           llm 0, maint 0, dep 0                                                                                   a Principal, an Authenticator interface, and middleware that fills the context
+select      events          event-bus      llm 0, maint 0, dep 0                                                                                   event structs, a typed Bus interface, and an in-process LocalBus
+select      http            go/file        llm 2, maint 1, dep 0                                                                                   a Handler and ServeMux over the package's stores
+select      secrets         secrets        llm 0, maint 0, dep 0                                                                                   a typed Secrets interface and its implementation, from wherever the requirements allow
+select      tile-spec       go/file        llm 2, maint 1                                                                                          a tile for tilegen itself: the registration compiled, the judgment left open
+select      catch-all       llm/task       llm 10, unc 10                                                                                          covers anything no other tile covers: the LLM as the tile of last resort
+select      connect         api            llm 2, maint 2, dep 2                buf (found), protoc-gen-go (found), protoc-gen-connect-go (found)  a .proto and a Connect server: Connect, gRPC and gRPC-Web on net/http
+select      grpc            api            llm 2, maint 2, dep 3                buf (found), protoc-gen-go (found), protoc-gen-go-grpc (found)     a .proto and a grpc-go server
+select      http-json       api            llm 2, maint 1, dep 0                                                                                   net/http and JSON: a Handler and ServeMux over the package's stores
+select      api-key         auth           llm 2, maint 2, dep 0, run 2, ops 1                                                                     a long-lived key per caller, resolved by a lookup you supply
+select      jwt-local       auth           llm 3, maint 2, dep 1, run 0, ops 1                                                                     a token this service signs and verifies itself, with no lookup
+select      oidc            auth           llm 4, maint 2, dep 2, run 1, ops 5                                                                     an identity provider issues tokens; this verifies them against its keys
+select      session-store   auth           llm 3, maint 2, dep 0, run 2, ops 1                                                                     an opaque session id in a cookie, looked up in a store on every request
+select      kafka           event-bus      llm 5, maint 5, dep 4, run 4, ops 9                                                                     Kafka: a partitioned log, ordered per key, read back at will
+select      local-bus       event-bus      llm 0, maint 0, dep 0, run 1                                                                            in-process bus: synchronous delivery, ordered, errors joined
+select      nats-core       event-bus      llm 4, maint 2, dep 4, run 1, ops 2                                                                     core NATS: subjects and queue groups, with nothing kept
+select      nats-jetstream  event-bus      llm 5, maint 3, dep 4, run 2, ops 4                                                                     NATS JetStream: the same server with a log, so events are kept and can be read back
+select      rabbitmq        event-bus      llm 4, maint 4, dep 3, run 3, ops 5                                                                     RabbitMQ: exchanges, bindings and competing consumers
+select      redis-streams   event-bus      llm 4, maint 3, dep 2, run 2, ops 3                                                                     Redis Streams: an append-only log with consumer groups
+select      env-secrets     secrets        llm 0, maint 1, dep 0, ops 0                                                                            environment variables, read once when the process starts
+select      file-secrets    secrets        llm 0, maint 1, dep 0, run 1, ops 1                                                                     one file per secret in a mounted directory, read on every call
+select      vault           secrets        llm 0, maint 2, dep 3, run 1, ops 5                                                                     one path of a HashiCorp Vault KV v2 mount, read through a short cache
+select      badger          store          llm 4, maint 3, dep 2, run 2                                                                            embedded key-value: an LSM store, one keyspace, values as JSON
+select      bolt            store          llm 7, maint 6, dep 1, run 1                                                                            embedded key-value: one file, a bucket per entity, values as JSON
+select      memory          store          llm 2, maint 1, dep 0, run 1                                                                            in-memory store: a map guarded by a mutex
+select      mongo           store          llm 5, maint 3, dep 3, run 2, ops 5                                                                     mongo: a collection per entity, documents rather than rows
+select      postgres-pgx    store          llm 7, maint 5, dep 1, run 1, ops 5                                                                     postgres via pgx: tilegen writes the schema, the LLM writes the SQL
+select      postgres-sqlc   store          llm 3, maint 2, dep 3, run 1, ops 5  sqlc (found)                                                       postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows
+select      sqlite-sqlc     store          llm 3, maint 2, dep 1, run 1         sqlc (found)                                                       sqlite via sqlc: one file, no server; uuid and time are TEXT
+select      kafka           transport      llm 7, maint 5, dep 4, run 4, ops 9                                                                     Kafka as an inbound edge: consume a topic, at your own offset
+select      nats-core       transport      llm 2, maint 1, dep 2, run 1, ops 2                                                                     core NATS: subjects and queue groups, with nothing kept
+select      doc-mapper      domain                                                                                                                 decodes mongo documents into domain types, by hand
+select      row-mapper      domain                                                                                                                 converts sqlc's row types to domain types, by hand
+
+48 tile(s).
+capability api        offered by connect, grpc, http-json
+capability auth       offered by api-key, jwt-local, oidc, session-store
+capability event-bus  offered by kafka, local-bus, nats-core, nats-jetstream, rabbitmq, redis-streams
+capability secrets    offered by env-secrets, file-secrets, vault
+capability store      offered by badger, bolt, memory, mongo, postgres-pgx, postgres-sqlc, sqlite-sqlc
+capability transport  offered by kafka, nats-core
+Each need gets the cheapest legal tile; see tilegen explain.

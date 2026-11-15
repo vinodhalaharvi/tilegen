@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/vinodhalaharvi/dyna"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -79,21 +80,21 @@ func TestNames(t *testing.T) {
 		"ID": "id", "PlacedAt": "placed_at", "UserID": "user_id",
 		"HTTPServer": "http_server", "TotalCents": "total_cents", "OAuth2Token": "o_auth2_token",
 	} {
-		if got := snake(in); got != want {
+		if got := compile.Snake(in); got != want {
 			t.Errorf("snake(%s) = %s, want %s", in, got, want)
 		}
 	}
 	for in, want := range map[string]string{"ID": "id", "PlacedAt": "placedAt", "HTTPServer": "httpServer"} {
-		if got := camel(in); got != want {
+		if got := compile.Camel(in); got != want {
 			t.Errorf("camel(%s) = %s, want %s", in, got, want)
 		}
 	}
 	for in, want := range map[string]string{"order": "orders", "category": "categories", "box": "boxes", "day": "days"} {
-		if got := plural(in); got != want {
+		if got := compile.Plural(in); got != want {
 			t.Errorf("plural(%s) = %s, want %s", in, got, want)
 		}
 	}
-	if paramName("Type") != "v" || paramName("Order") != "order" {
+	if compile.ParamName("Type") != "v" || compile.ParamName("Order") != "order" {
 		t.Error("paramName should dodge keywords")
 	}
 }
@@ -104,7 +105,7 @@ func validateSrc(t *testing.T, src string, strict bool) error {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Validate(nodes, &Ctx{Cfg: DefaultConfig(), Strict: strict})
+	return compile.Validate(nodes, &compile.Ctx{Cfg: compile.DefaultConfig(), Strict: strict})
 }
 
 const okPrefix = `(project p (module example.com/p) (go 1.22) (package a `
@@ -161,7 +162,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(workflow Checkout (step pay))))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	tasks, _ := os.ReadFile(filepath.Join(out, "tilegen.tasks.json"))
@@ -173,7 +174,7 @@ func TestUncoveredBecomesTask(t *testing.T) {
 func TestUnknownQualifier(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, okPrefix+`(struct S (field X decimal.Decimal))))`, "")
-	err := run(Options{Spec: sp, Config: "", Out: filepath.Join(dir, "out"), Dump: false, Strict: false}, io.Discard)
+	err := run(compile.Options{Spec: sp, Config: "", Out: filepath.Join(dir, "out"), Dump: false, Strict: false}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "require") || !strings.Contains(err.Error(), "spec.sexp:1:") {
 		t.Fatalf("want positioned 'add (require ...)' error, got %v", err)
 	}
@@ -181,7 +182,7 @@ func TestUnknownQualifier(t *testing.T) {
 
 func TestShopEndToEnd(t *testing.T) {
 	out := t.TempDir()
-	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: true, Strict: false}, io.Discard)
+	err := run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: true, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +218,7 @@ func TestShopEndToEnd(t *testing.T) {
 func TestRegenerationKeepsYourCode(t *testing.T) {
 	out := t.TempDir()
 	args := func() error {
-		return run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
+		return run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	}
 	if err := args(); err != nil {
 		t.Fatal(err)
@@ -241,7 +242,7 @@ func TestRegenerationKeepsYourCode(t *testing.T) {
 
 func TestPostgresConfig(t *testing.T) {
 	out := t.TempDir()
-	err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.postgres.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
+	err := run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.postgres.sexp", Out: out, Dump: false, Strict: false}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -275,7 +276,7 @@ const twoPkgs = `(project p (module example.com/p) (go 1.22)
 
 func TestCrossPackageImport(t *testing.T) {
 	out := t.TempDir()
-	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "billing/billing_gen.go")
@@ -309,7 +310,7 @@ func TestTasksIncludeForeignContext(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(twoPkgs, "", "(field Order *orders.Order)"), "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Config: "", Out: out, Dump: false, Strict: false}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if tasks := read(t, out, "tilegen.tasks.json"); !strings.Contains(tasks, `"orders/orders_gen.go"`) {
@@ -321,10 +322,10 @@ func TestTasksIncludeForeignContext(t *testing.T) {
 
 func TestSpecDirMatchesSingleFile(t *testing.T) {
 	a, b := t.TempDir(), t.TempDir()
-	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: a}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: a}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(Options{Spec: "examples/shopdir", Out: b}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: "examples/shopdir", Out: b}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"go.mod", "orders/orders_gen.go", "orders/memory_order_store.go",
@@ -345,7 +346,7 @@ func mergeSrc(t *testing.T, files ...string) error {
 		}
 		forms = append(forms, fs...)
 	}
-	_, err := Merge(forms)
+	_, err := compile.Merge(forms)
 	return err
 }
 
@@ -431,7 +432,7 @@ func TestGitCreatesMissingRepo(t *testing.T) {
 	sp, _ := writeSpec(t, dir, ghSpec, "")
 	gh := &fakeGH{}
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out, Name: "myshop", Git: true, Runner: gh}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Name: "myshop", Git: true, Runner: gh}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
@@ -455,7 +456,7 @@ func TestGitClonesExistingRepo(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, ghSpec, "")
 	gh := &fakeGH{exists: true}
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Git: true, Runner: gh}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), Git: true, Runner: gh}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !gh.ran("gh repo clone octocat/shop") || gh.ran("gh repo create") || gh.ran("git commit") {
@@ -471,7 +472,7 @@ func TestGitUsesExistingLocalRepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	gh := &fakeGH{exists: true}
-	if err := run(Options{Spec: sp, Out: out, Git: true, Runner: gh}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Git: true, Runner: gh}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if gh.ran("gh repo clone") || gh.ran("git init") || gh.ran("git commit") {
@@ -483,7 +484,7 @@ func TestDryRunWritesNothing(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, ghSpec, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out, Git: true, DryRun: true, Runner: &fakeGH{}}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Git: true, DryRun: true, Runner: &fakeGH{}}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(out); !os.IsNotExist(err) {
@@ -504,7 +505,7 @@ func TestGitLocalOnlyRealGit(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out, Git: true}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Git: true}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	log, err := exec.Command("git", "-C", out, "log", "--oneline").Output()
@@ -515,13 +516,13 @@ func TestGitLocalOnlyRealGit(t *testing.T) {
 
 // ---- workspace: worktrees and tmux ----
 
-func parseWS(t *testing.T, src string) (*Workspace, error) {
+func parseWS(t *testing.T, src string) (*compile.Workspace, error) {
 	t.Helper()
 	n, err := sexp.Parse("ws.sexp", src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ParseWorkspace(n[0], "/base/spec")
+	return compile.ParseWorkspace(n[0], "/base/spec")
 }
 
 func TestWorkspaceParse(t *testing.T) {
@@ -578,7 +579,7 @@ func (s *scriptRunner) Do(dir, name string, args ...string) error {
 	return nil
 }
 
-func testWorkspace(t *testing.T) *Workspace {
+func testWorkspace(t *testing.T) *compile.Workspace {
 	ws, err := parseWS(t, `(workspace (out ..)
 	  (worktrees (worktree billing (branch feat/billing)) (worktree pricing (branch feat/pricer)))
 	  (tmux (session shop (window code (dir .) (run "make check")) (window billing (worktree billing)))))`)
@@ -593,7 +594,7 @@ func TestUpCreatesWorktreesAndSession(t *testing.T) {
 		"git worktree list": "worktree /base\nHEAD abc\nbranch refs/heads/main",
 		"git rev-parse --verify --quiet refs/heads/feat/pricer": "abc", // exists; feat/billing does not
 	}}
-	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+	if err := compile.Up(testWorkspace(t), r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -614,7 +615,7 @@ func TestUpReusesAndCompletes(t *testing.T) {
 		"tmux has-session":  "",
 		"tmux list-windows": "code", // billing window was added to the spec later
 	}}
-	if err := Up(testWorkspace(t), r, io.Discard, true); err != nil {
+	if err := compile.Up(testWorkspace(t), r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	if len(r.did) != 1 || r.did[0] != "tmux new-window -d -t =shop: -n billing -c /base.wt/billing" {
@@ -627,7 +628,7 @@ func TestDownPrune(t *testing.T) {
 		"tmux has-session":  "",
 		"git worktree list": "worktree /base\n\nworktree /base.wt/billing",
 	}}
-	if err := Down(testWorkspace(t), r, io.Discard, true); err != nil {
+	if err := compile.Down(testWorkspace(t), r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	want := "tmux kill-session -t =shop\ngit worktree remove /base.wt/billing" // pricing was never created
@@ -644,7 +645,7 @@ func TestGenerationUsesWorkspaceDefaults(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(spec, "p.sexp"), []byte(`(project p (module example.com/p) (go 1.22) (package a (struct S (field X int))))
 (workspace (name renamed) (out ..))`), 0o644)
-	if err := run(Options{Spec: spec}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: spec}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	read(t, root, "a/a_gen.go") // generated next to spec/, per (out ..)
@@ -673,7 +674,7 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 	}
 	t.Cleanup(func() { exec.Command("tmux", "kill-server").Run() })
 
-	root := canonical(t.TempDir())
+	root := compile.Canonical(t.TempDir())
 	main := filepath.Join(root, "proj")
 	for _, args := range [][]string{{"init", "-q", "-b", "main", main}, {"-C", main, "commit", "-q", "--allow-empty", "-m", "init"}} {
 		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
@@ -682,12 +683,12 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 	}
 	n, _ := sexp.Parse("ws.sexp", `(workspace (out proj) (worktrees (worktree feat))
 	  (tmux (session tgtest (window code (dir .)) (window feat (worktree feat)))))`)
-	ws, err := ParseWorkspace(n[0], root)
+	ws, err := compile.ParseWorkspace(n[0], root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := execRunner{log: io.Discard}
-	if err := Up(ws, r, io.Discard, true); err != nil {
+	r := compile.ExecRunner{Log: io.Discard}
+	if err := compile.Up(ws, r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat", ".git")); err != nil {
@@ -697,7 +698,7 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 	if err != nil || !strings.Contains(string(out), "feat:"+filepath.Join(root, "proj.wt", "feat")) {
 		t.Fatalf("tmux windows = %q, %v", out, err)
 	}
-	if err := Down(ws, r, io.Discard, true); err != nil {
+	if err := compile.Down(ws, r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat")); !os.IsNotExist(err) {
@@ -723,7 +724,7 @@ func TestGoModNeverLowersVersions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(out, "go.mod"), []byte(tidied), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	mod := read(t, out, "go.mod")
@@ -734,7 +735,7 @@ func TestGoModNeverLowersVersions(t *testing.T) {
 	// And it still raises: a spec asking for more than go.mod has wins.
 	raised := "module example.com/p\n\ngo 1.21\n\nrequire github.com/google/uuid v1.4.0\n"
 	os.WriteFile(filepath.Join(out, "go.mod"), []byte(raised), 0o644)
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	mod = read(t, out, "go.mod")
@@ -766,7 +767,7 @@ func (p *rcProject) gen(ops, ctx, storage string) string {
 	p.t.Helper()
 	writeSpec(p.t, p.dir, fmt.Sprintf(rcSpec, ops, ctx, storage), "")
 	var log strings.Builder
-	if err := run(Options{Spec: filepath.Join(p.dir, "spec.sexp"), Out: p.out}, &log); err != nil {
+	if err := run(compile.Options{Spec: filepath.Join(p.dir, "spec.sexp"), Out: p.out}, &log); err != nil {
 		p.t.Fatal(err)
 	}
 	return log.String()
@@ -776,7 +777,7 @@ func (p *rcProject) fill(file, hole, body string) {
 	p.t.Helper()
 	full := filepath.Join(p.out, file)
 	src := read(p.t, p.out, file)
-	marker := fmt.Sprintf("panic(%q)", holePrefix+hole)
+	marker := fmt.Sprintf("panic(%q)", compile.HolePrefix+hole)
 	if !strings.Contains(src, marker) {
 		p.t.Fatalf("no hole %s in %s", hole, file)
 	}
@@ -871,12 +872,12 @@ func TestReconcileRemovedPackage(t *testing.T) {
   (package a (entity A (field ID int64) (store get))))`
 	sp, _ := writeSpec(t, dir, two, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	writeSpec(t, dir, one, "")
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: out}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, &log); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(log.String(), "removed b/b_gen.go") || !strings.Contains(log.String(), "removed b/memory_b_store.go (untouched scaffolding") {
@@ -896,7 +897,7 @@ func TestSweepSkipsNestedModules(t *testing.T) {
 	os.MkdirAll(nested, 0o755)
 	os.WriteFile(filepath.Join(nested, "go.mod"), []byte("module example.com/other\n"), 0o644)
 	gen := filepath.Join(nested, "x_gen.go")
-	os.WriteFile(gen, []byte("// "+generatedMarker+"\n\npackage x\n"), 0o644)
+	os.WriteFile(gen, []byte("// "+compile.GeneratedMarker+"\n\npackage x\n"), 0o644)
 	p.gen("get", "yes", "memory")
 	if _, err := os.Stat(gen); err != nil {
 		t.Fatal("sweep deleted a generated file inside a nested module")
@@ -929,7 +930,7 @@ func TestStoreQueryOps(t *testing.T) {
       (method RevokeAll (doc "RevokeAll removes all.") (params (noteID int64)) (returns int64 error))))))
 (config (storage postgres))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "s/s_gen.go")
@@ -969,7 +970,7 @@ func TestStoreQueryOps(t *testing.T) {
 
 func TestLowerFirstWord(t *testing.T) {
 	for in, want := range map[string]string{"NoteID": "noteID", "Email": "email", "ID": "id", "HTTPServer": "httpServer", "URLPath": "urlPath"} {
-		if got := lowerFirstWord(in); got != want {
+		if got := compile.LowerFirstWord(in); got != want {
 			t.Errorf("lowerFirstWord(%s) = %s, want %s", in, got, want)
 		}
 	}
@@ -990,7 +991,7 @@ func TestImplementAnyInterface(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, implSpec, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	w := read(t, out, "a/worker.go")
@@ -1042,7 +1043,7 @@ func TestImplementUnresolvedEmbedWarns(t *testing.T) {
   (require (x github.com/example/x v1.0.0))
   (package a (interface I (embed x.Thing) (method M (returns error))) (implement I (as Impl))))`, "")
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, &log); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(log.String(), "cannot list the methods of x.Thing") {
@@ -1056,16 +1057,16 @@ func TestImplementReconcilesAndSweeps(t *testing.T) {
   (package a (interface I (method M (returns error)) %s) %s))`
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, "", "(implement I (as Impl))"), "")
 	out := filepath.Join(dir, "out")
-	run(Options{Spec: sp, Out: out}, io.Discard)
+	run(compile.Options{Spec: sp, Out: out}, io.Discard)
 	writeSpec(t, dir, fmt.Sprintf(spec, "(method N (returns error))", "(implement I (as Impl))"), "")
 	var log strings.Builder
-	run(Options{Spec: sp, Out: out}, &log)
+	run(compile.Options{Spec: sp, Out: out}, &log)
 	if !strings.Contains(log.String(), "added  N to a/impl.go") {
 		t.Errorf("new interface method should be appended:\n%s", log.String())
 	}
 	writeSpec(t, dir, fmt.Sprintf(spec, "", ""), "")
 	log.Reset()
-	run(Options{Spec: sp, Out: out}, &log)
+	run(compile.Options{Spec: sp, Out: out}, &log)
 	if !strings.Contains(log.String(), "removed a/impl.go (untouched scaffolding") {
 		t.Errorf("dropping the implement should remove its untouched file:\n%s", log.String())
 	}
@@ -1091,7 +1092,7 @@ func TestModulePathFromGoModWithoutNetwork(t *testing.T) {
 	os.MkdirAll(out, 0o755)
 	os.WriteFile(filepath.Join(out, "go.mod"), []byte("module github.com/acme/shop\n\ngo 1.22\n"), 0o644)
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: out, Runner: &noNetRunner{}}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Runner: &noNetRunner{}}, &log); err != nil {
 		t.Fatal(err)
 	}
 	if mod := read(t, out, "go.mod"); !strings.Contains(mod, "module github.com/acme/shop") {
@@ -1105,7 +1106,7 @@ func TestModulePathFromGoModWithoutNetwork(t *testing.T) {
 func TestOwnerlessWithoutGoModIsAnErrorNotANetworkCall(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, ownerlessSpec, "")
-	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, io.Discard)
+	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "write (github OWNER/shop)") || strings.Contains(err.Error(), "network") {
 		t.Fatalf("want a clear error without touching the network, got %v", err)
 	}
@@ -1116,7 +1117,7 @@ func TestOwnerFromExplicitModule(t *testing.T) {
 	sp, _ := writeSpec(t, dir, `(project shop (module github.com/acme/shop) (go 1.22) (repo (github shop))
   (package a (struct S (field X int))))`, "")
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), Runner: &noNetRunner{}}, &log); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(log.String(), "github.com/acme/shop") || strings.Contains(log.String(), "differs") {
@@ -1131,11 +1132,11 @@ func TestOSADistance(t *testing.T) {
 		a, b string
 		d    int
 	}{{"entity", "entity", 0}, {"entiy", "entity", 1}, {"strcut", "struct", 1}, {"lst", "list", 1}, {"enum", "entity", 4}} {
-		if got := osaDistance(c.a, c.b); got != c.d {
+		if got := compile.OSADistance(c.a, c.b); got != c.d {
 			t.Errorf("osaDistance(%s, %s) = %d, want %d", c.a, c.b, got, c.d)
 		}
 	}
-	if closest("J", []string{"I"}) != "" {
+	if compile.Closest("J", []string{"I"}) != "" {
 		t.Error("one-letter names are different names, not typos")
 	}
 }
@@ -1171,7 +1172,7 @@ func TestDidYouMeanEverywhere(t *testing.T) {
 		}
 	}
 	cfg, _ := sexp.Parse("c.sexp", `(config (json-tag snake) (storage postgress))`)
-	_, err := ParseConfig(cfg[0])
+	_, err := compile.ParseConfig(cfg[0])
 	if err == nil || !strings.Contains(err.Error(), "(did you mean json-tags?)") || !strings.Contains(err.Error(), "(did you mean postgres?)") {
 		t.Errorf("config should report both typos at once, got %v", err)
 	}
@@ -1217,7 +1218,7 @@ func TestEnumTile(t *testing.T) {
     (entity Invoice (field ID int64) (field OrderStatus orders.Status) (store get))))
 (config (storage postgres))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "orders/orders_gen.go")
@@ -1269,7 +1270,7 @@ func snapshot(t *testing.T, dir string) map[string]string {
 func checkRun(t *testing.T, spec, out string, allowHoles bool) (string, error) {
 	t.Helper()
 	var log strings.Builder
-	err := run(Options{Spec: spec, Out: out, Check: true, AllowHoles: allowHoles}, &log)
+	err := run(compile.Options{Spec: spec, Out: out, Check: true, AllowHoles: allowHoles}, &log)
 	return log.String(), err
 }
 
@@ -1346,7 +1347,7 @@ func TestSweepMarkerOnlyOnFirstLine(t *testing.T) {
 	p.gen("get", "yes", "postgres")
 	sqlcFile := filepath.Join(p.out, "internal", "db", "query.sql.go")
 	os.MkdirAll(filepath.Dir(sqlcFile), 0o755)
-	os.WriteFile(sqlcFile, []byte("// Code generated by sqlc. DO NOT EDIT.\n\npackage db\n\n// "+generatedMarker+"\nfunc F() {}\n"), 0o644)
+	os.WriteFile(sqlcFile, []byte("// Code generated by sqlc. DO NOT EDIT.\n\npackage db\n\n// "+compile.GeneratedMarker+"\nfunc F() {}\n"), 0o644)
 	p.gen("get", "yes", "postgres")
 	if _, err := os.Stat(sqlcFile); err != nil {
 		t.Fatal("tilegen deleted sqlc's output because a copied marker appeared after line 1")
@@ -1423,7 +1424,7 @@ func TestPromptFilelessAndDrift(t *testing.T) {
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
   (package a (llm "Add a Search function.") (workflow Checkout (step pay))))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	pr, err := promptOut(t, sp, out, "-all")
@@ -1630,12 +1631,12 @@ func TestRegistrySexpIsData(t *testing.T) {
 	if err != nil {
 		t.Fatalf("tilegen tiles -sexp must parse back as S-expressions: %v", err)
 	}
-	if len(forms) != len(Registry()) {
-		t.Fatalf("got %d forms for %d tiles", len(forms), len(Registry()))
+	if len(forms) != len(compile.Registry()) {
+		t.Fatalf("got %d forms for %d tiles", len(forms), len(compile.Registry()))
 	}
 	for _, f := range forms {
 		if f.Head() != "tile" || f.Find("pass") == nil || (f.Find("covers") == nil && f.Find("offers") == nil) {
-			t.Errorf("malformed tile: %s", short(f))
+			t.Errorf("malformed tile: %s", compile.Short(f))
 		}
 	}
 	var pg *sexp.Node
@@ -1653,24 +1654,24 @@ func TestRegistrySexpIsData(t *testing.T) {
 // TestBackendsComeFromTheRegistry: config, validation and the store tile all
 // ask the registry, so a new backend needs no change in the core.
 func TestBackendsComeFromTheRegistry(t *testing.T) {
-	registerStoreBackend(&Backend{Name: "fake", Tile: "fake-store", Cost: Cost{{Dim: "llm-work", Value: 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
-		Implement: func(in StoreInput) (StoreParts, error) {
-			return StoreParts{Params: sexp.L(sexp.Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*sexp.Node) string { return "fake" }}, nil
+	compile.RegisterStoreBackend(&compile.Backend{Name: "fake", Tile: "fake-store", Cost: compile.Cost{{Dim: "llm-work", Value: 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) {
+			return compile.StoreParts{Params: sexp.L(sexp.Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*sexp.Node) string { return "fake" }}, nil
 		}})
 	defer func() {
-		delete(backends, "fake")
-		delete(tileAliases, "fake-store")
-		var keep []*Offer
-		for _, o := range offers["store"] {
+		delete(compile.Backends, "fake")
+		delete(compile.TileAliases, "fake-store")
+		var keep []*compile.Offer
+		for _, o := range compile.Offers["store"] {
 			if o.Tile != "fake-store" {
 				keep = append(keep, o)
 			}
 		}
-		offers["store"] = keep
+		compile.Offers["store"] = keep
 	}()
 
 	cfg, _ := sexp.Parse("c.sexp", "(config (storage fake))")
-	if c, err := ParseConfig(cfg[0]); err != nil || c.Storage != "fake" {
+	if c, err := compile.ParseConfig(cfg[0]); err != nil || c.Storage != "fake" {
 		t.Fatalf("config should accept a registered backend: %v", err)
 	}
 	dir := t.TempDir()
@@ -1678,7 +1679,7 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
   (package a (entity E (field ID int64) (store get))))
 (config (storage fake))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if src := read(t, out, "a/fake_e_store.go"); !strings.Contains(src, "type FakeEStore struct") {
@@ -1688,12 +1689,12 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
   (package fakedb (struct S (field X int)))
   (package a (entity E (field ID int64) (store get))))
 (config (storage fake))`, "")
-	if err := run(Options{Spec: sp2, Out: filepath.Join(dir, "out2")}, io.Discard); err == nil ||
+	if err := run(compile.Options{Spec: sp2, Out: filepath.Join(dir, "out2")}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store tile puts its code in internal/fakedb`) {
 		t.Errorf("a backend's packages should be reserved: %v", err)
 	}
 	bad, _ := sexp.Parse("c.sexp", "(config (storage fak))")
-	if _, err := ParseConfig(bad[0]); err == nil || !strings.Contains(err.Error(), "(did you mean fake?)") {
+	if _, err := compile.ParseConfig(bad[0]); err == nil || !strings.Contains(err.Error(), "(did you mean fake?)") {
 		t.Errorf("unknown backends should suggest registered ones: %v", err)
 	}
 }
@@ -1714,7 +1715,7 @@ func TestEventsBusBehaves(t *testing.T) {
 		dir := t.TempDir()
 		sp, _ := writeSpec(t, dir, fmt.Sprintf(eventsSpec, ctx), "")
 		out := filepath.Join(dir, "out")
-		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 		gen := read(t, out, "sharing/events_gen.go")
@@ -1723,7 +1724,7 @@ func TestEventsBusBehaves(t *testing.T) {
 			c, h = "", ""
 		}
 		for _, want := range []string{
-			"// " + generatedMarker, "type NoteShared struct", "`json:\"note_id\"`",
+			"// " + compile.GeneratedMarker, "type NoteShared struct", "`json:\"note_id\"`",
 			"PublishNoteShared(" + c + "e NoteShared) error",
 			"OnNoteShared(h func(" + h + "NoteShared) error) func()",
 			"var _ Bus = (*LocalBus)(nil)",
@@ -1794,7 +1795,7 @@ func TestEventsValidation(t *testing.T) {
 }
 
 func TestPackageTilesJoinBeforeTheCatchAll(t *testing.T) {
-	rules := Select.Rules
+	rules := compile.Select.Rules
 	if last := rules[len(rules)-1]; last.Name != "catch-all" {
 		t.Fatalf("the catch-all must stay last, got %s", last.Name)
 	}
@@ -1820,7 +1821,7 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("auto"), "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out, Dump: true}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Dump: true}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	read(t, out, "orders/sqlite_order_store.go")     // durable: memory is illegal
@@ -1841,7 +1842,7 @@ func TestSelectionPicksTheCheapestLegalBackendPerStore(t *testing.T) {
 func TestSelectionExplicitIllegalChoiceIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("memory"), "")
-	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "the config chose memory, which is illegal for orders.OrderStore: an in-memory map loses its data on restart; legal: sqlite-sqlc (score 27), badger (score 29), postgres-sqlc (score 44), bolt (score 48), postgres-pgx (score 60), or use auto") {
 		t.Fatalf("got %v", err)
 	}
@@ -1854,7 +1855,7 @@ func TestPgxBackend(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("pgx"), "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	src := read(t, out, "orders/pgx_order_store.go")
@@ -1937,7 +1938,7 @@ func TestChainTipsTheChoice(t *testing.T) {
 			t.Errorf("explain missing %q:\n%s", want, got)
 		}
 	}
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	read(t, filepath.Join(dir, "out"), "orders/postgres_order_store.go")
@@ -1945,8 +1946,8 @@ func TestChainTipsTheChoice(t *testing.T) {
 }
 
 func TestChainCostsAndPaths(t *testing.T) {
-	e := EntityShape{Fields: []FieldShape{{Name: "A", Enum: true}, {Name: "B", Nullable: true}, {Name: "C", JSONB: true}, {Name: "D"}}}
-	steps, s, ok := convert("db-rows", domainForm, e, DefaultPolicy())
+	e := compile.EntityShape{Fields: []compile.FieldShape{{Name: "A", Enum: true}, {Name: "B", Nullable: true}, {Name: "C", JSONB: true}, {Name: "D"}}}
+	steps, s, ok := compile.Convert("db-rows", compile.DomainForm, e, compile.DefaultPolicy())
 	if !ok || len(steps) != 1 || steps[0].Chain.Name != "row-mapper" {
 		t.Fatalf("path: %v %v", steps, ok)
 	}
@@ -1954,27 +1955,27 @@ func TestChainCostsAndPaths(t *testing.T) {
 	if s != 29 || steps[0].Detail != "1 entity, 1 parsed field, 1 nullable field, 1 JSONB field" {
 		t.Errorf("cost %d, detail %q", s, steps[0].Detail)
 	}
-	if _, s, ok := convert(domainForm, domainForm, e, DefaultPolicy()); !ok || s != 0 {
+	if _, s, ok := compile.Convert(compile.DomainForm, compile.DomainForm, e, compile.DefaultPolicy()); !ok || s != 0 {
 		t.Error("no conversion needed for domain")
 	}
-	if _, _, ok := convert("xml", domainForm, e, DefaultPolicy()); ok {
+	if _, _, ok := compile.Convert("xml", compile.DomainForm, e, compile.DefaultPolicy()); ok {
 		t.Error("no chain converts xml")
 	}
 }
 
 func TestBackendWithoutAChainIsIllegal(t *testing.T) {
-	registerStoreBackend(&Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: Cost{{Dim: "llm-work", Value: 0}},
-		Implement: func(StoreInput) (StoreParts, error) { return StoreParts{}, nil }})
+	compile.RegisterStoreBackend(&compile.Backend{Name: "xmlstore", Tile: "xml-store", Form: "xml", Cost: compile.Cost{{Dim: "llm-work", Value: 0}},
+		Implement: func(compile.StoreInput) (compile.StoreParts, error) { return compile.StoreParts{}, nil }})
 	defer func() {
-		delete(backends, "xmlstore")
-		delete(tileAliases, "xml-store")
-		var keep []*Offer
-		for _, o := range offers["store"] {
+		delete(compile.Backends, "xmlstore")
+		delete(compile.TileAliases, "xml-store")
+		var keep []*compile.Offer
+		for _, o := range compile.Offers["store"] {
 			if o.Tile != "xml-store" {
 				keep = append(keep, o)
 			}
 		}
-		offers["store"] = keep
+		compile.Offers["store"] = keep
 	}()
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22) (package a (entity E (field ID int64) (store get))))`, "")
@@ -2021,7 +2022,7 @@ func lockRun(t *testing.T, dir, orderFields, sessionNeeds string, reselect bool)
 	t.Helper()
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(lockSpec, orderFields, sessionNeeds), "")
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), Reselect: reselect}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), Reselect: reselect}, &log); err != nil {
 		t.Fatal(err)
 	}
 	return log.String()
@@ -2075,7 +2076,7 @@ func TestLockUnknownBackendAndBadFile(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(out, "tilegen.lock"), []byte("(lock (tile x))\n"), 0o644)
 	sp := filepath.Join(dir, "spec.sexp")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err == nil || !strings.Contains(err.Error(), "tilegen.lock:1:7: expected (tile NEED TILE)") {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err == nil || !strings.Contains(err.Error(), "tilegen.lock:1:7: expected (tile NEED TILE)") {
 		t.Errorf("a malformed lock must be a positioned error, got %v", err)
 	}
 }
@@ -2164,13 +2165,13 @@ func TestPolicyInTheSpecAndValidation(t *testing.T) {
 		`(policy (preffer memory))`:                             "(did you mean prefer?)",
 	} {
 		n, _ := sexp.Parse("policy.sexp", src)
-		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := compile.ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: want %q, got %v", src, want, err)
 		}
 	}
 	n, _ := sexp.Parse("policy.sexp", `(policy (prefer postgres-sqlk) (avoid memroy))`)
-	p, _ := ParsePolicy(n[0])
-	err := p.checkTileNames()
+	p, _ := compile.ParsePolicy(n[0])
+	err := p.CheckTileNames()
 	if err == nil || !strings.Contains(err.Error(), "(prefer postgres-sqlk): no such tile (did you mean postgres-sqlc?)") ||
 		!strings.Contains(err.Error(), "(avoid memroy): no such tile (did you mean memory?)") {
 		t.Errorf("unknown tile names: %v", err)
@@ -2182,7 +2183,7 @@ func TestPolicyAvoidingEveryBackendIsAnError(t *testing.T) {
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
 	os.WriteFile(pf, []byte(`(policy (avoid memory) (avoid postgres-sqlc) (avoid postgres-pgx) (avoid sqlite-sqlc) (avoid bolt) (avoid badger) (avoid mongo))`), 0o644)
-	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
+	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore (store)") ||
 		!strings.Contains(err.Error(), "postgres-sqlc: avoided by the policy") {
 		t.Fatalf("want a clear error, got %v", err)
@@ -2311,7 +2312,7 @@ func TestImportRoundTrips(t *testing.T) {
 	dir := writeModule(t, map[string]string{"go.mod": legacyMod, "catalog/catalog.go": legacyCatalog})
 	importSpec(t, dir, false)
 	out := filepath.Join(t.TempDir(), "regen")
-	if err := run(Options{Spec: filepath.Join(dir, "spec"), Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: filepath.Join(dir, "spec"), Out: out}, io.Discard); err != nil {
 		t.Fatalf("the imported spec must generate: %v", err)
 	}
 	for _, cmd := range [][]string{{"go", "mod", "tidy"}, {"go", "build", "./..."}, {"go", "vet", "./..."}} {
@@ -2353,14 +2354,14 @@ func TestImportRefusesCodeThatDoesNotTypeCheck(t *testing.T) {
 		t.Errorf("-force should warn: %s", out2)
 	}
 	if _, ok := files["10-catalog.sexp"]; !ok || len(files) < 2 { // numbering is by files written, so catalog is first
-		t.Errorf("-force should still import catalog: %v", sortedKeys(files))
+		t.Errorf("-force should still import catalog: %v", compile.SortedKeys(files))
 	}
 }
 
 func TestImportSkipsGeneratedAndNeedsAModule(t *testing.T) {
 	dir := writeModule(t, map[string]string{
 		"go.mod":       legacyMod,
-		"gen/gen.go":   "// " + generatedMarker + "\n\npackage gen\n\ntype Row struct{ ID int64 }\n",
+		"gen/gen.go":   "// " + compile.GeneratedMarker + "\n\npackage gen\n\ntype Row struct{ ID int64 }\n",
 		"real/real.go": "package real\n\ntype Thing struct{ ID int64 }\n",
 	})
 	files, _ := importSpec(t, dir, false)
@@ -2370,7 +2371,7 @@ func TestImportSkipsGeneratedAndNeedsAModule(t *testing.T) {
 		}
 	}
 	if len(files) != 2 {
-		t.Errorf("want the project form and real: %v", sortedKeys(files))
+		t.Errorf("want the project form and real: %v", compile.SortedKeys(files))
 	}
 	var out, log strings.Builder
 	if err := importCmd([]string{t.TempDir()}, &out, &log); err == nil || !strings.Contains(err.Error(), "no go.mod") {
@@ -2382,7 +2383,7 @@ func TestImportSkipsGeneratedAndNeedsAModule(t *testing.T) {
 // every type, and regenerating from that spec builds.
 func TestImportSelfRoundTrip(t *testing.T) {
 	first := t.TempDir()
-	if err := run(Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: first}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: "examples/shop/spec.sexp", Config: "examples/shop/config.sexp", Out: first}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	os.RemoveAll(filepath.Join(first, ".tilegen"))
@@ -2414,7 +2415,7 @@ func TestImportSelfRoundTrip(t *testing.T) {
 		}
 	}
 	second := t.TempDir()
-	if err := run(Options{Spec: filepath.Join(first, "spec"), Out: second}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: filepath.Join(first, "spec"), Out: second}, io.Discard); err != nil {
 		t.Fatalf("regenerating from the imported spec: %v", err)
 	}
 	tidy := exec.Command("go", "mod", "tidy")
@@ -2512,7 +2513,7 @@ func TestAPISurfaceScopeAndCache(t *testing.T) {
 		"lib/lib.go": "package lib\n\n// Thing is a thing.\ntype Thing struct{ ID int64 }\n",
 		"app/app.go": "package app\n\nimport (\n\t\"context\"\n\t\"example.com/api/lib\"\n)\n\nvar _ = context.Background\nvar _ lib.Thing\n",
 	})
-	r := &Report{out: dir, staged: map[string][]byte{}, unlinked: map[string]bool{}}
+	r := &compile.Report{Out: dir, Staged: map[string][]byte{}, Unlinked: map[string]bool{}}
 	// The standard library is never included; the project's own packages
 	// are already context files.
 	if got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/api"); got != "" {
@@ -2554,41 +2555,41 @@ func TestAPISurfaceIncludesPackagesTheIntentNames(t *testing.T) {
 // ---- the solver's guarantees ----
 //
 // Four properties, each checked against a registry of synthetic
-// capabilities and offers, so the tests do not depend on which real tiles
+// Capabilities and offers, so the tests do not depend on which real tiles
 // happen to exist.
 
 // withTestRegistry installs capabilities and offers for one test and
 // restores the real registry afterwards.
-func withTestRegistry(t *testing.T, caps []*Capability, os []*Offer) {
+func withTestRegistry(t *testing.T, caps []*compile.Capability, os []*compile.Offer) {
 	t.Helper()
-	savedCaps, savedOffers := capabilities, offers
-	capabilities, offers = map[string]*Capability{}, map[string][]*Offer{}
-	t.Cleanup(func() { capabilities, offers = savedCaps, savedOffers })
+	savedCaps, savedOffers := compile.Capabilities, compile.Offers
+	compile.Capabilities, compile.Offers = map[string]*compile.Capability{}, map[string][]*compile.Offer{}
+	t.Cleanup(func() { compile.Capabilities, compile.Offers = savedCaps, savedOffers })
 	for _, c := range caps {
-		RegisterCapability(c)
+		compile.RegisterCapability(c)
 	}
 	for _, o := range os {
-		RegisterOffer(o)
+		compile.RegisterOffer(o)
 	}
 }
 
-func testNeed(id, capability string, reqs ...string) *Need {
-	return &Need{ID: id, Capability: capability, Requirements: reqs}
+func testNeed(id, capability string, reqs ...string) *compile.Need {
+	return &compile.Need{ID: id, Capability: capability, Requirements: reqs}
 }
 
-func noShape(*Need) EntityShape { return EntityShape{} }
+func noShape(*compile.Need) compile.EntityShape { return compile.EntityShape{} }
 
-func testCtx() *Ctx {
-	return &Ctx{Cfg: DefaultConfig(), Policy: DefaultPolicy(), Lock: map[string]LockEntry{}}
+func testCtx() *compile.Ctx {
+	return &compile.Ctx{Cfg: compile.DefaultConfig(), Policy: compile.DefaultPolicy(), Lock: map[string]compile.LockEntry{}}
 }
 
 // brute enumerates every legal covering of a need and returns the lowest
 // total cost, independently of solve.
-func brute(t *testing.T, n *Need, c *Ctx) (int, bool) {
+func brute(t *testing.T, n *compile.Need, c *compile.Ctx) (int, bool) {
 	t.Helper()
 	best, found := 1<<30, false
-	for _, o := range offersOf(n.Capability) {
-		if offerIllegalFor(o, n.Requirements) != "" {
+	for _, o := range compile.OffersOf(n.Capability) {
+		if compile.OfferIllegalFor(o, n.Requirements) != "" {
 			continue
 		}
 		if _, avoided := c.Policy.Avoid[o.Tile]; avoided {
@@ -2596,13 +2597,13 @@ func brute(t *testing.T, n *Need, c *Ctx) (int, bool) {
 		}
 		want := n.Want
 		if want == "" {
-			want = domainForm
+			want = compile.DomainForm
 		}
-		_, chain, ok := convert(offerForm(o), want, EntityShape{}, c.Policy)
+		_, chain, ok := compile.Convert(compile.OfferForm(o), want, compile.EntityShape{}, c.Policy)
 		if !ok {
 			continue
 		}
-		own, _ := c.Policy.score(o.Cost)
+		own, _ := c.Policy.Score(o.Cost)
 		total, legal := own+chain, true
 		if o.Children != nil {
 			for _, kid := range o.Children(n) {
@@ -2628,30 +2629,30 @@ func TestSolverOptimality(t *testing.T) {
 	// A "service" needs a store and a cache; each has several offers with
 	// different costs, so the cheapest service depends on its children.
 	withTestRegistry(t,
-		[]*Capability{
+		[]*compile.Capability{
 			{Name: "service", Requirements: []string{"durable"}},
 			{Name: "store", Requirements: []string{"durable"}},
 			{Name: "cache"},
 		},
-		[]*Offer{
+		[]*compile.Offer{
 			// Two services: "thin" is cheap itself but needs an expensive
 			// store; "fat" costs more but needs only a cache. Greedy on own
 			// cost would pick thin; the total says otherwise.
-			{Tile: "thin-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 1}},
-				Children: func(n *Need) []*Need {
-					return []*Need{testNeed(n.ID+".store", "store", n.Requirements...)}
+			{Tile: "thin-service", Capability: "service", Cost: compile.Cost{{Dim: "llm-work", Value: 1}},
+				Children: func(n *compile.Need) []*compile.Need {
+					return []*compile.Need{testNeed(n.ID+".store", "store", n.Requirements...)}
 				}},
-			{Tile: "fat-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 3}},
-				Children: func(n *Need) []*Need { return []*Need{testNeed(n.ID+".cache", "cache")} }},
-			{Tile: "cheap-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 2}},
+			{Tile: "fat-service", Capability: "service", Cost: compile.Cost{{Dim: "llm-work", Value: 3}},
+				Children: func(n *compile.Need) []*compile.Need { return []*compile.Need{testNeed(n.ID+".cache", "cache")} }},
+			{Tile: "cheap-store", Capability: "store", Cost: compile.Cost{{Dim: "llm-work", Value: 2}},
 				IllegalFor: map[string]string{"durable": "in memory"}},
-			{Tile: "durable-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 20}}},
-			{Tile: "small-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 1}}},
+			{Tile: "durable-store", Capability: "store", Cost: compile.Cost{{Dim: "llm-work", Value: 20}}},
+			{Tile: "small-cache", Capability: "cache", Cost: compile.Cost{{Dim: "llm-work", Value: 1}}},
 		})
 	c := testCtx()
 
 	// Without (durable): thin 1*4 + cheap-store 2*4 = 12 beats fat 3*4 + cache 1*4 = 16.
-	cov, err := solve(testNeed("a.Svc", "service"), c, noShape)
+	cov, err := compile.Solve(testNeed("a.Svc", "service"), c, noShape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2659,7 +2660,7 @@ func TestSolverOptimality(t *testing.T) {
 		t.Errorf("want thin-service at 12, got %s at %d", cov.Offer.Tile, cov.Score)
 	}
 	// With (durable): thin must use durable-store, 4 + 80 = 84, so fat (16) wins.
-	cov, err = solve(testNeed("a.Svc", "service", "durable"), c, noShape)
+	cov, err = compile.Solve(testNeed("a.Svc", "service", "durable"), c, noShape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2672,7 +2673,7 @@ func TestSolverOptimality(t *testing.T) {
 	// And in general, solve equals brute force.
 	for _, reqs := range [][]string{nil, {"durable"}} {
 		n := testNeed("a.Svc", "service", reqs...)
-		cov, err := solve(n, c, noShape)
+		cov, err := compile.Solve(n, c, noShape)
 		want, ok := brute(t, n, c)
 		if err != nil || !ok {
 			t.Fatalf("reqs %v: %v", reqs, err)
@@ -2689,29 +2690,29 @@ func TestSolverOptimality(t *testing.T) {
 // in the policy that total is solve's own score: the cheapest legal covering.
 func TestSolverIsTheDynamicProgram(t *testing.T) {
 	withTestRegistry(t,
-		[]*Capability{{Name: "service", Requirements: []string{"durable"}}, {Name: "store", Requirements: []string{"durable"}}, {Name: "cache"}},
-		[]*Offer{
-			{Tile: "thin-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 1}},
-				Children: func(n *Need) []*Need {
-					return []*Need{testNeed(n.ID+".store", "store", n.Requirements...), testNeed(n.ID+".cache", "cache")}
+		[]*compile.Capability{{Name: "service", Requirements: []string{"durable"}}, {Name: "store", Requirements: []string{"durable"}}, {Name: "cache"}},
+		[]*compile.Offer{
+			{Tile: "thin-service", Capability: "service", Cost: compile.Cost{{Dim: "llm-work", Value: 1}},
+				Children: func(n *compile.Need) []*compile.Need {
+					return []*compile.Need{testNeed(n.ID+".store", "store", n.Requirements...), testNeed(n.ID+".cache", "cache")}
 				}},
-			{Tile: "fat-service", Capability: "service", Cost: Cost{{Dim: "llm-work", Value: 3}},
-				Children: func(n *Need) []*Need { return []*Need{testNeed(n.ID+".cache", "cache")} }},
-			{Tile: "cheap-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 2}},
+			{Tile: "fat-service", Capability: "service", Cost: compile.Cost{{Dim: "llm-work", Value: 3}},
+				Children: func(n *compile.Need) []*compile.Need { return []*compile.Need{testNeed(n.ID+".cache", "cache")} }},
+			{Tile: "cheap-store", Capability: "store", Cost: compile.Cost{{Dim: "llm-work", Value: 2}},
 				IllegalFor: map[string]string{"durable": "in memory"}},
-			{Tile: "durable-store", Capability: "store", Cost: Cost{{Dim: "llm-work", Value: 20}}},
-			{Tile: "small-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 1}}},
-			{Tile: "big-cache", Capability: "cache", Cost: Cost{{Dim: "llm-work", Value: 4}}},
+			{Tile: "durable-store", Capability: "store", Cost: compile.Cost{{Dim: "llm-work", Value: 20}}},
+			{Tile: "small-cache", Capability: "cache", Cost: compile.Cost{{Dim: "llm-work", Value: 1}}},
+			{Tile: "big-cache", Capability: "cache", Cost: compile.Cost{{Dim: "llm-work", Value: 4}}},
 		})
 	c := testCtx()
 	const none = 1 << 30 // no legal covering
-	cheapest := dyna.Algebra[alternative, int]{
+	cheapest := dyna.Algebra[compile.Alternative, int]{
 		Monoid: dyna.Monoid[int]{Zero: none, Plus: func(a, b int) int { return min(a, b) }, IsZero: func(x int) bool { return x == none }},
-		Alg: func(alt dyna.Node[alternative, int]) int {
-			if alt.Label.offer == nil || alt.Label.illegal != "" {
+		Alg: func(alt dyna.Node[compile.Alternative, int]) int {
+			if alt.Label.Offer == nil || alt.Label.Illegal != "" {
 				return none
 			}
-			total := alt.Label.own + alt.Label.chainCost
+			total := alt.Label.Own + alt.Label.ChainCost
 			for _, kid := range alt.Kids {
 				if kid == none {
 					return none
@@ -2721,12 +2722,14 @@ func TestSolverIsTheDynamicProgram(t *testing.T) {
 			return total
 		},
 	}
-	coalg := func(n *Need) []dyna.Node[alternative, *Need] { return alternatives(n, c, noShape) }
+	coalg := func(n *compile.Need) []dyna.Node[compile.Alternative, *compile.Need] {
+		return compile.Alternatives(n, c, noShape)
+	}
 	for _, reqs := range [][]string{nil, {"durable"}} {
 		n := testNeed("a.Svc", "service", reqs...)
 		fast, _ := dyna.Dyna(cheapest, coalg, n)
 		slow, coverings := dyna.BruteForce(cheapest, coalg, n)
-		cov, err := solve(n, c, noShape)
+		cov, err := compile.Solve(n, c, noShape)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -2740,20 +2743,20 @@ func TestSolverIsTheDynamicProgram(t *testing.T) {
 // whatever order maps happen to iterate in.
 func TestSolverDeterminism(t *testing.T) {
 	withTestRegistry(t,
-		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
-		[]*Offer{
-			{Tile: "b-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 2}}},
-			{Tile: "a-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 2}}}, // a tie, on purpose
-			{Tile: "c-tile", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 5}}},
+		[]*compile.Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*compile.Offer{
+			{Tile: "b-tile", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 2}}},
+			{Tile: "a-tile", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 2}}}, // a tie, on purpose
+			{Tile: "c-tile", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 5}}},
 		})
 	c := testCtx()
 	first := ""
 	for i := 0; i < 50; i++ {
-		cov, err := solve(testNeed("p.T", "thing"), c, noShape)
+		cov, err := compile.Solve(testNeed("p.T", "thing"), c, noShape)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := cov.Offer.Tile + " " + strings.Join(tileNamesOf(cov), ",")
+		got := cov.Offer.Tile + " " + strings.Join(compile.TileNamesOf(cov), ",")
 		if i == 0 {
 			first = got
 		} else if got != first {
@@ -2769,14 +2772,14 @@ func TestSolverDeterminism(t *testing.T) {
 // cheap it is, and the reason is reported.
 func TestSolverLegalityBeforeCost(t *testing.T) {
 	withTestRegistry(t,
-		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
-		[]*Offer{
-			{Tile: "free-but-illegal", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 0}},
+		[]*compile.Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*compile.Offer{
+			{Tile: "free-but-illegal", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 0}},
 				IllegalFor: map[string]string{"durable": "it forgets"}},
-			{Tile: "costly-but-legal", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 9}}},
+			{Tile: "costly-but-legal", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 9}}},
 		})
 	c := testCtx()
-	cov, err := solve(testNeed("p.T", "thing", "durable"), c, noShape)
+	cov, err := compile.Solve(testNeed("p.T", "thing", "durable"), c, noShape)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2788,10 +2791,10 @@ func TestSolverLegalityBeforeCost(t *testing.T) {
 	}
 	// Nothing legal at all is an error naming every rejection.
 	withTestRegistry(t,
-		[]*Capability{{Name: "thing", Requirements: []string{"durable"}}},
-		[]*Offer{{Tile: "only", Capability: "thing", Cost: Cost{{Dim: "llm-work", Value: 0}},
+		[]*compile.Capability{{Name: "thing", Requirements: []string{"durable"}}},
+		[]*compile.Offer{{Tile: "only", Capability: "thing", Cost: compile.Cost{{Dim: "llm-work", Value: 0}},
 			IllegalFor: map[string]string{"durable": "it forgets"}}})
-	if _, err := solve(testNeed("p.T", "thing", "durable"), c, noShape); err == nil ||
+	if _, err := compile.Solve(testNeed("p.T", "thing", "durable"), c, noShape); err == nil ||
 		!strings.Contains(err.Error(), "no tile can cover p.T (thing)") || !strings.Contains(err.Error(), "only: it forgets") {
 		t.Errorf("want an error naming the rejection, got %v", err)
 	}
@@ -2800,17 +2803,17 @@ func TestSolverLegalityBeforeCost(t *testing.T) {
 // TestSolverTotality: the real registry always has an offer for every
 // capability, so no spec can ask for something nothing provides.
 func TestSolverTotality(t *testing.T) {
-	if err := checkRegistry(); err != nil {
+	if err := compile.CheckRegistry(); err != nil {
 		t.Fatal(err)
 	}
-	for _, name := range capabilityNames() {
-		if len(offersOf(name)) == 0 {
+	for _, name := range compile.CapabilityNames() {
+		if len(compile.OffersOf(name)) == 0 {
 			t.Errorf("capability %q has no offers", name)
 		}
 	}
-	for _, c := range capabilities {
+	for _, c := range compile.Capabilities {
 		for _, r := range c.Requirements {
-			if !contains(knownRequirements(), r) {
+			if !compile.Contains(compile.KnownRequirements(), r) {
 				t.Errorf("requirement %q of %q is not in the shared vocabulary", r, c.Name)
 			}
 		}
@@ -2839,11 +2842,11 @@ func TestEventBusTransportsCompete(t *testing.T) {
 		}
 	}
 	o := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: o}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: o}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	// local-bus generates complete code; nats-core scaffolds holes.
-	if gen := read(t, o, "local/events_gen.go"); !strings.Contains(gen, "type LocalBus struct") || strings.Contains(gen, holePrefix) {
+	if gen := read(t, o, "local/events_gen.go"); !strings.Contains(gen, "type LocalBus struct") || strings.Contains(gen, compile.HolePrefix) {
 		t.Errorf("local-bus should generate complete code:\n%s", gen)
 	}
 	if _, err := os.Stat(filepath.Join(o, "local", "local_bus.go")); err == nil {
@@ -2884,17 +2887,17 @@ func TestEventBusRequirementValidation(t *testing.T) {
 
 // ---- the plan graph ----
 
-func planGraphOf(t *testing.T, spec, out string) (*PlanGraph, [][]string) {
+func planGraphOf(t *testing.T, spec, out string) (*compile.PlanGraph, [][]string) {
 	t.Helper()
-	cp, err := compile(Options{Spec: spec, Out: out}, io.Discard)
+	cp, err := compile.Compile(compile.Options{Spec: spec, Out: out}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r, err := Emit(cp.nodes, cp.o.Out, cp.c, false)
+	r, err := compile.Emit(cp.Nodes, cp.Opts.Out, cp.Ctx, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	g := buildPlanGraph(r, cp.c)
+	g := compile.BuildPlanGraph(r, cp.Ctx)
 	levels, err := g.Levels()
 	if err != nil {
 		t.Fatalf("the plan should be acyclic: %v", err)
@@ -2923,11 +2926,11 @@ func TestPlanGraphOrdersGeneratedWork(t *testing.T) {
   (package sessions (entity Session (field ID string) (store get))))`, "")
 	g, levels := planGraphOf(t, sp, filepath.Join(dir, "out"))
 
-	sqlc := levelOf(levels, toolNode("sqlc generate"))
+	sqlc := levelOf(levels, compile.ToolNode("sqlc generate"))
 	dbPkg := levelOf(levels, "dir:internal/db")
-	pgTask := levelOf(levels, taskNode("orders.SqliteOrderStore.Get"))
-	memTask := levelOf(levels, taskNode("sessions.MemorySessionStore.Get"))
-	schema := levelOf(levels, fileNode("db/schema.sql"))
+	pgTask := levelOf(levels, compile.TaskNode("orders.SqliteOrderStore.Get"))
+	memTask := levelOf(levels, compile.TaskNode("sessions.MemorySessionStore.Get"))
+	schema := levelOf(levels, compile.FileNode("db/schema.sql"))
 	for name, lvl := range map[string]int{"sqlc": sqlc, "internal/db": dbPkg, "the SQL store's task": pgTask, "memory task": memTask, "schema": schema} {
 		if lvl < 0 {
 			t.Fatalf("%s is missing from the plan", name)
@@ -2940,10 +2943,10 @@ func TestPlanGraphOrdersGeneratedWork(t *testing.T) {
 		t.Errorf("a memory store's task needs nothing generated, so it must not wait for sqlc's output: task %d, sqlc %d, internal/db %d", memTask, sqlc, dbPkg)
 	}
 	// Files are credited to the tile responsible for them.
-	if n := g.Nodes[fileNode("db/schema.sql")]; n == nil || n.By != "sqlite-sqlc" {
+	if n := g.Nodes[compile.FileNode("db/schema.sql")]; n == nil || n.By != "sqlite-sqlc" {
 		t.Errorf("schema.sql should be credited to the SQL tile, got %+v", n)
 	}
-	if n := g.Nodes[fileNode("sessions/memory_session_store.go")]; n == nil || n.By != "memory" {
+	if n := g.Nodes[compile.FileNode("sessions/memory_session_store.go")]; n == nil || n.By != "memory" {
 		t.Errorf("the memory store file should be credited to memory, got %+v", n)
 	}
 	// The solver's coverings are in the graph too.
@@ -2979,13 +2982,13 @@ func TestPlanGraphDot(t *testing.T) {
 }
 
 func TestPlanGraphCycleIsReported(t *testing.T) {
-	g := newPlanGraph()
+	g := compile.NewPlanGraph()
 	for _, id := range []string{"a", "b", "c", "loose"} {
-		g.add(&PlanNode{ID: id, Kind: "file", Name: id})
+		g.Add(&compile.PlanNode{ID: id, Kind: "file", Name: id})
 	}
-	g.dep("a", "b")
-	g.dep("b", "c")
-	g.dep("c", "a") // a cycle
+	g.Dep("a", "b")
+	g.Dep("b", "c")
+	g.Dep("c", "a") // a cycle
 	levels, err := g.Levels()
 	if err == nil || !strings.Contains(err.Error(), "dependency cycle among 3 node(s): a, b, c") {
 		t.Fatalf("want a cycle naming its nodes, got %v", err)
@@ -3031,13 +3034,13 @@ func jsonOf[T any](t *testing.T, run func(w io.Writer) error) T {
 func TestExplainJSON(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, autoSpec("auto"), "")
-	got := jsonOf[ExplainJSON](t, func(w io.Writer) error {
+	got := jsonOf[compile.ExplainJSON](t, func(w io.Writer) error {
 		return explainCmd([]string{"-json", sp}, w, io.Discard)
 	})
 	if got.Policy.Weights["llm-work"] != 4 {
 		t.Errorf("the policy should be reported: %+v", got.Policy)
 	}
-	var orders *CoverageJSON
+	var orders *compile.CoverageJSON
 	for i := range got.Coverage {
 		if got.Coverage[i].Need == "orders.OrderStore" {
 			orders = &got.Coverage[i]
@@ -3054,7 +3057,7 @@ func TestExplainJSON(t *testing.T) {
 		orders.Illegal[1].Tile != "mongo" || !strings.HasPrefix(orders.Illegal[1].Reason, "unverified: ") {
 		t.Errorf("rejections should carry their reasons: %+v", orders.Illegal)
 	}
-	var sqlc *CandidateJSON
+	var sqlc *compile.CandidateJSON
 	for i := range orders.Candidates {
 		if orders.Candidates[i].Tile == "sqlite-sqlc" {
 			sqlc = &orders.Candidates[i]
@@ -3076,11 +3079,11 @@ func TestJSONAgreesWithText(t *testing.T) {
 	sp := filepath.Join(p.dir, "spec.sexp")
 	writeSpec(t, p.dir, fmt.Sprintf(rcSpec, "get save count", "yes", "memory"), "") // now out of date
 
-	res := jsonOf[CheckJSON](t, func(w io.Writer) error {
+	res := jsonOf[compile.CheckJSON](t, func(w io.Writer) error {
 		saved := os.Stdout
 		r, wr, _ := os.Pipe()
 		os.Stdout = wr
-		err := run(Options{Spec: sp, Out: p.out, Check: true, AllowHoles: true, JSON: true}, io.Discard)
+		err := run(compile.Options{Spec: sp, Out: p.out, Check: true, AllowHoles: true, JSON: true}, io.Discard)
 		wr.Close()
 		os.Stdout = saved
 		io.Copy(w, r)
@@ -3111,7 +3114,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
   (package orders (entity Order (field ID int64) (store get (durable)))))`, "")
-	plan := jsonOf[PlanJSON](t, func(w io.Writer) error {
+	plan := jsonOf[compile.PlanJSON](t, func(w io.Writer) error {
 		return planCmd([]string{"-json", "-out", filepath.Join(dir, "out"), sp}, w, io.Discard)
 	})
 	if len(plan.Levels) < 3 || len(plan.Cycle) != 0 {
@@ -3122,7 +3125,7 @@ func TestPlanAndTilesJSON(t *testing.T) {
 	for i, level := range plan.Levels {
 		for _, n := range level {
 			kinds[n.Kind] = true
-			if n.ID == toolNode("sqlc generate") {
+			if n.ID == compile.ToolNode("sqlc generate") {
 				sqlcLevel = i
 			}
 			if strings.HasSuffix(n.ID, "OrderStore.Get") {
@@ -3139,11 +3142,11 @@ func TestPlanAndTilesJSON(t *testing.T) {
 		t.Errorf("the store's task must come after sqlc: sqlc %d, task %d", sqlcLevel, taskLevel)
 	}
 
-	tiles := jsonOf[TilesJSON](t, func(w io.Writer) error { return tilesCmd([]string{"-json"}, w) })
+	tiles := jsonOf[compile.TilesJSON](t, func(w io.Writer) error { return tilesCmd([]string{"-json"}, w) })
 	if len(tiles.Tiles) < 20 {
 		t.Errorf("want the whole registry, got %d tiles", len(tiles.Tiles))
 	}
-	var store *CapabilityJSON
+	var store *compile.CapabilityJSON
 	for i := range tiles.Capabilities {
 		if tiles.Capabilities[i].Name == "store" {
 			store = &tiles.Capabilities[i]
@@ -3197,7 +3200,7 @@ func TestRequiredPreferenceCanBeImpossible(t *testing.T) {
 	sp, _ := writeSpec(t, dir, polSpec, "")
 	pf := filepath.Join(dir, "policy.sexp")
 	os.WriteFile(pf, []byte(`(policy (prefer memory (strength required) (source client "no databases")))`), 0o644)
-	err := run(Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
+	err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: pf}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no tile can cover orders.OrderStore") ||
 		!strings.Contains(err.Error(), "an in-memory map loses its data on restart") {
 		t.Fatalf("want a clear failure naming both reasons, got %v", err)
@@ -3212,12 +3215,12 @@ func TestPreferenceValidation(t *testing.T) {
 		`(policy (prefer (strength strong)))`:  "prefer needs at least one tile name",
 	} {
 		n, _ := sexp.Parse("policy.sexp", src)
-		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := compile.ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: want %q, got %v", src, want, err)
 		}
 	}
 	n, _ := sexp.Parse("policy.sexp", `(policy (prefer a b (strength strong) (source client "why")))`)
-	p, err := ParsePolicy(n[0])
+	p, err := compile.ParsePolicy(n[0])
 	if err != nil || len(p.Prefer) != 2 || p.Prefer["a"].Strength != "strong" || p.Prefer["b"].Source != "client" || p.Prefer["a"].Why != "why" {
 		t.Fatalf("several tiles should share one preference: %+v, %v", p.Prefer, err)
 	}
@@ -3233,7 +3236,7 @@ func TestCostProvenance(t *testing.T) {
 	}
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, polSpec, "")
-	out := jsonOf[ExplainJSON](t, func(w io.Writer) error {
+	out := jsonOf[compile.ExplainJSON](t, func(w io.Writer) error {
 		return explainCmd([]string{"-json", sp}, w, io.Discard)
 	})
 	var found bool
@@ -3267,23 +3270,23 @@ func TestWorkspaceOnlySpec(t *testing.T) {
 	os.MkdirAll(filepath.Join(dir, "spec"), 0o755)
 	os.WriteFile(filepath.Join(dir, "spec", "workspace.sexp"),
 		[]byte("(workspace (name demo) (out ..) (tmux (session demo (window work (dir .)))))"), 0o644)
-	ws, err := loadWorkspace(filepath.Join(dir, "spec"))
+	ws, err := compile.LoadWorkspace(filepath.Join(dir, "spec"))
 	if err != nil {
 		t.Fatalf("a workspace-only spec should load: %v", err)
 	}
-	if ws.Session != "demo" || ws.Out != canonical(dir) && ws.Out != dir {
+	if ws.Session != "demo" || ws.Out != compile.Canonical(dir) && ws.Out != dir {
 		t.Errorf("workspace: %+v", ws)
 	}
 	// A session needs no git repository; only worktrees do.
 	r := &scriptRunner{answers: map[string]string{}}
-	if err := Up(ws, r, io.Discard, true); err != nil {
+	if err := compile.Up(ws, r, io.Discard, true); err != nil {
 		t.Fatalf("opening a session should not need a repository: %v", err)
 	}
 	if len(r.did) == 0 || !strings.HasPrefix(r.did[0], "tmux new-session") {
 		t.Errorf("want the session created, got %q", r.did)
 	}
 	// Generation still says what is missing, and points at what works.
-	err = run(Options{Spec: filepath.Join(dir, "spec"), Out: filepath.Join(dir, "out")}, io.Discard)
+	err = run(compile.Options{Spec: filepath.Join(dir, "spec"), Out: filepath.Join(dir, "out")}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "no (project NAME ...) form") ||
 		!strings.Contains(err.Error(), "`tilegen up` still works") {
 		t.Fatalf("want a helpful generation error, got %v", err)
@@ -3322,7 +3325,7 @@ func TestWindowPanes(t *testing.T) {
 		"tmux list-panes":   "%0",
 		"tmux split-window": "%1", // the id of the pane just made
 	}}
-	if err := Up(ws, r, io.Discard, true); err != nil {
+	if err := compile.Up(ws, r, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	want := []string{
@@ -3376,15 +3379,15 @@ func TestPanesWithRealTmux(t *testing.T) {
 	t.Setenv("TMUX_TMPDIR", sock)
 	t.Setenv("TMUX", "")
 
-	root := canonical(t.TempDir())
+	root := compile.Canonical(t.TempDir())
 	n, _ := sexp.Parse("ws.sexp", `(workspace (out .)
 	  (tmux (session tgpanes (window split (dir .) (split vertical)
 	    (pane (run "echo ONE")) (pane (run "echo TWO")) (pane (run "echo THREE"))))))`)
-	ws, err := ParseWorkspace(n[0], root)
+	ws, err := compile.ParseWorkspace(n[0], root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := Up(ws, execRunner{log: io.Discard}, io.Discard, true); err != nil {
+	if err := compile.Up(ws, compile.ExecRunner{Log: io.Discard}, io.Discard, true); err != nil {
 		t.Fatal(err)
 	}
 	out, err := exec.Command("tmux", "list-panes", "-t", "=tgpanes:split", "-F", "#{pane_index}").Output()
@@ -3417,12 +3420,12 @@ func TestHTTPTile(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, httpSpec, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "links/http_gen.go")
 	for _, want := range []string{
-		"// " + generatedMarker,
+		"// " + compile.GeneratedMarker,
 		"type Handler struct {\n\tlinks LinkStore\n}",
 		"func NewHandler(links LinkStore) *Handler",
 		`mux.HandleFunc("GET /links/{id}", h.GetLink)`, // method and wildcard: net/http routes it
@@ -3437,7 +3440,7 @@ func TestHTTPTile(t *testing.T) {
 			t.Errorf("http_gen.go missing %q", want)
 		}
 	}
-	if strings.Contains(gen, holePrefix) {
+	if strings.Contains(gen, compile.HolePrefix) {
 		t.Error("the routing layer should have no holes")
 	}
 	impl := read(t, out, "links/http.go")
@@ -3465,7 +3468,7 @@ func TestHTTPTileServes(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, httpSpec, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	fill := func(file string, repl map[string]string, header string) {
@@ -3473,7 +3476,7 @@ func TestHTTPTileServes(t *testing.T) {
 		b, _ := os.ReadFile(p)
 		s := string(b)
 		for hole, body := range repl {
-			s = strings.Replace(s, fmt.Sprintf("panic(%q)", holePrefix+hole), body, 1)
+			s = strings.Replace(s, fmt.Sprintf("panic(%q)", compile.HolePrefix+hole), body, 1)
 		}
 		if header != "" {
 			s = strings.Replace(s, "package links\n", "package links\n\n"+header+"\n", 1)
@@ -3568,7 +3571,7 @@ func TestHTTPValidation(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, `(project p (module example.com/p) (go 1.22)
   (package a (struct E (field ID int64)) (http (route GET "/e" (list E)))))`, "")
-	if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err == nil ||
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err == nil ||
 		!strings.Contains(err.Error(), "has no store in this package") {
 		t.Errorf("want a clear error, got %v", err)
 	}
@@ -3594,7 +3597,7 @@ func TestGenerationIgnoresFilledHoles(t *testing.T) {
 	for _, out := range []string{untouched, filled} {
 		dir := t.TempDir()
 		sp, _ := writeSpec(t, dir, spec, "")
-		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -3604,7 +3607,7 @@ func TestGenerationIgnoresFilledHoles(t *testing.T) {
 	for _, out := range []string{untouched, filled} {
 		dir := t.TempDir()
 		sp, _ := writeSpec(t, dir, spec, "")
-		if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+		if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -3615,7 +3618,7 @@ func TestGenerationIgnoresFilledHoles(t *testing.T) {
 		}
 	}
 	// And the filled code itself is never rewritten.
-	if src := read(t, filled, "links/http.go"); strings.Contains(src, holePrefix) {
+	if src := read(t, filled, "links/http.go"); strings.Contains(src, compile.HolePrefix) {
 		t.Error("regeneration must not restore a filled hole")
 	}
 }
@@ -3631,11 +3634,11 @@ func fillEvery(t *testing.T, out string) {
 		}
 		src, _ := os.ReadFile(p)
 		s := string(src)
-		if !strings.Contains(s, holePrefix) {
+		if !strings.Contains(s, compile.HolePrefix) {
 			return nil
 		}
 		for {
-			i := strings.Index(s, `panic("`+holePrefix)
+			i := strings.Index(s, `panic("`+compile.HolePrefix)
 			if i < 0 {
 				break
 			}
@@ -3658,7 +3661,7 @@ func TestPromptNamesAvailableModules(t *testing.T) {
     (entity Link (field ID uuid.UUID) (store get save (durable) (cross-process)))
     (http (route GET "/links/{id}" (get Link)))))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	pr, err := promptOut(t, sp, out, "links.Handler.statusForLink")
@@ -3693,7 +3696,7 @@ func TestPromptNamesAvailableModules(t *testing.T) {
     (entity S (field ID string) (store get save))
     (http (route GET "/s/{id}" (get S)))))`, "")
 	out2 := filepath.Join(dir2, "out")
-	if err := run(Options{Spec: sp2, Out: out2}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp2, Out: out2}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if tasks := read(t, out2, "tilegen.tasks.json"); strings.Contains(tasks, "api_packages") {
@@ -3724,7 +3727,7 @@ func TestSQLiteDialect(t *testing.T) {
       (store get list save delete (durable)))))
 (policy (prefer sqlite-sqlc (strength required) (source client "one file, no server")))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	schema := read(t, out, "db/schema.sql")
@@ -3764,22 +3767,22 @@ func TestSQLiteDialect(t *testing.T) {
 // its fields are types sqlite has no column for, because the mapper parses
 // them. A cost model that ignored the dialect would call them equal.
 func TestSQLiteCostsMoreToMap(t *testing.T) {
-	plain := EntityShape{Fields: []FieldShape{{Name: "ID", Type: "int64"}, {Name: "Title", Type: "string"}}}
-	rich := EntityShape{Fields: []FieldShape{{Name: "ID", Type: "uuid.UUID"}, {Name: "At", Type: "time.Time"}}}
+	plain := compile.EntityShape{Fields: []compile.FieldShape{{Name: "ID", Type: "int64"}, {Name: "Title", Type: "string"}}}
+	rich := compile.EntityShape{Fields: []compile.FieldShape{{Name: "ID", Type: "uuid.UUID"}, {Name: "At", Type: "time.Time"}}}
 	for _, c := range []struct {
 		name    string
-		shape   EntityShape
-		dialect *Dialect
+		shape   compile.EntityShape
+		dialect *compile.Dialect
 		want    int
 	}{
-		{"plain on postgres", plain, Postgres, 7},
-		{"plain on sqlite", plain, SQLite, 7},   // nothing to parse either way
-		{"rich on postgres", rich, Postgres, 7}, // pgx hands back uuid.UUID and time.Time
-		{"rich on sqlite", rich, SQLite, 18},    // both arrive as TEXT
+		{"plain on postgres", plain, compile.Postgres, 7},
+		{"plain on sqlite", plain, compile.SQLite, 7},   // nothing to parse either way
+		{"rich on postgres", rich, compile.Postgres, 7}, // pgx hands back uuid.UUID and time.Time
+		{"rich on sqlite", rich, compile.SQLite, 18},    // both arrive as TEXT
 	} {
 		s := c.shape
 		s.Dialect = c.dialect
-		_, got, ok := convert("db-rows", domainForm, s, DefaultPolicy())
+		_, got, ok := compile.Convert("db-rows", compile.DomainForm, s, compile.DefaultPolicy())
 		if !ok || got != c.want {
 			t.Errorf("%s: got %d, want %d", c.name, got, c.want)
 		}
@@ -3800,7 +3803,7 @@ func TestSQLiteGeneratedSQLIsValid(t *testing.T) {
       (store get list save delete count (list-by Status) (exists-by Title) (durable)))))
 (policy (prefer sqlite-sqlc (strength required)))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	script := `
@@ -3880,7 +3883,7 @@ func TestServeGenerateReturnsAZip(t *testing.T) {
 		"bookmarks/tilegen.tasks.json", "bookmarks/tilegen.lock", "bookmarks/GENERATED.md",
 	} {
 		if !got[want] {
-			t.Errorf("the zip is missing %s (has %v)", want, sortedKeys(got))
+			t.Errorf("the zip is missing %s (has %v)", want, compile.SortedKeys(got))
 		}
 	}
 	// The README tells you what the service deliberately did not run.
@@ -3902,21 +3905,21 @@ func TestServeExplainAndPlan(t *testing.T) {
 		b, _ := io.ReadAll(res.Body)
 		t.Fatalf("explain: %d %s", res.StatusCode, b)
 	}
-	var ex ExplainJSON
+	var ex compile.ExplainJSON
 	json.NewDecoder(res.Body).Decode(&ex)
 	if len(ex.Coverage) != 1 || ex.Coverage[0].Need != "links.LinkStore" || ex.Coverage[0].Chosen == "" {
 		t.Errorf("explain: %+v", ex.Coverage)
 	}
 
 	res = serveRequest(t, "POST", "/plan", serveSpec, "")
-	var pl PlanJSON
+	var pl compile.PlanJSON
 	json.NewDecoder(res.Body).Decode(&pl)
 	if res.StatusCode != 200 || len(pl.Levels) < 2 {
 		t.Errorf("plan: %d, %d levels", res.StatusCode, len(pl.Levels))
 	}
 
 	res = serveRequest(t, "GET", "/tiles", "", "")
-	var tiles TilesJSON
+	var tiles compile.TilesJSON
 	json.NewDecoder(res.Body).Decode(&tiles)
 	if res.StatusCode != 200 || len(tiles.Tiles) < 20 {
 		t.Errorf("tiles: %d, %d tiles", res.StatusCode, len(tiles.Tiles))
@@ -3988,7 +3991,7 @@ func TestServeIndex(t *testing.T) {
 	if res.StatusCode != 200 || !strings.Contains(string(b), "<title>tilegen") {
 		t.Fatalf("docs: %d", res.StatusCode)
 	}
-	if !strings.Contains(string(b), version) {
+	if !strings.Contains(string(b), compile.Version) {
 		t.Error("the page should show the version")
 	}
 	if res := serveRequest(t, "GET", "/nope", "", ""); res.StatusCode != 404 {
@@ -4001,11 +4004,11 @@ func TestServeIndex(t *testing.T) {
 // standard library is baked in (stdlist.go) and its imports are stated
 // rather than left to goimports, so nothing shells out.
 func TestWorksWithoutTheGoToolchain(t *testing.T) {
-	if len(stdList) < 100 {
-		t.Fatalf("stdlist.go looks wrong: %d packages (run go generate)", len(stdList))
+	if len(compile.StdList) < 100 {
+		t.Fatalf("stdlist.go looks wrong: %d packages (run go generate)", len(compile.StdList))
 	}
 	for _, want := range []string{"context", "net/http", "time", "database/sql", "errors"} {
-		if !contains(stdList, want) {
+		if !compile.Contains(compile.StdList, want) {
 			t.Errorf("the baked standard library is missing %q", want)
 		}
 	}
@@ -4016,7 +4019,7 @@ func TestWorksWithoutTheGoToolchain(t *testing.T) {
     (entity E (field ID int64) (field At time.Time) (store get list save))
     (interface Svc (method Do (params (ctx context.Context)) (returns error)))))`, "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	gen := read(t, out, "a/a_gen.go")
@@ -4070,7 +4073,7 @@ func TestDocsExamplesGenerate(t *testing.T) {
 		t.Run(fmt.Sprintf("example%d", i), func(t *testing.T) {
 			dir := t.TempDir()
 			sp, _ := writeSpec(t, dir, spec, "")
-			if err := run(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
+			if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard); err != nil {
 				t.Errorf("a documented example must generate: %v\n%s", err, spec)
 			}
 		})
@@ -4190,19 +4193,19 @@ const saasSpec = `(project saas (module example.com/saas) (go 1.22)
     (entity Comment (field ID uuid.UUID) (field CreatedAt time.Time) (field Body string)
       (store get save (durable)))))`
 
-func projectViewOf(t *testing.T, spec, policy string) *ProjectView {
+func projectViewOf(t *testing.T, spec, policy string) *compile.ProjectView {
 	t.Helper()
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, spec+"\n"+policy, "")
-	cp, err := compile(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+	cp, err := compile.Compile(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return projectView(cp.c)
+	return compile.NewProjectView(cp.Ctx)
 }
 
 // TestProjectViewPaysSharedCostsOnce: five durable stores, one of which
-// needs a lookup by field. Need by need that is sqlite for one and badger
+// Needs a lookup by field. Need by need that is sqlite for one and badger
 // for four. Priced as a project, where a server is paid once and a second
 // engine costs something, one postgres for all five is cheaper.
 func TestProjectViewPaysSharedCostsOnce(t *testing.T) {
@@ -4210,7 +4213,7 @@ func TestProjectViewPaysSharedCostsOnce(t *testing.T) {
 	if v.TodayTotal != 158 || v.BestTotal != 148 {
 		t.Fatalf("want 158 need by need and 148 as a project, got %d and %d", v.TodayTotal, v.BestTotal)
 	}
-	if got := enginesIn(v.Today); got != "badger, sqlite" {
+	if got := compile.EnginesIn(v.Today); got != "badger, sqlite" {
 		t.Errorf("need by need should mix engines, got %s", got)
 	}
 	for _, p := range v.Best {
@@ -4226,11 +4229,11 @@ func TestProjectViewPaysSharedCostsOnce(t *testing.T) {
 	// A team that finds servers expensive keeps the need-by-need choice,
 	// and the view says so rather than inventing a change.
 	same := projectViewOf(t, saasSpec, "(policy (weights (operations 6)) (extra-engine 10))")
-	if !same.same() || same.TodayTotal != same.BestTotal {
+	if !same.Same() || same.TodayTotal != same.BestTotal {
 		t.Errorf("an ops-averse team should keep its choice: %+v", same)
 	}
 	// With no price on a second engine the two tie, and a tie changes nothing.
-	if tie := projectViewOf(t, saasSpec, ""); !tie.same() || tie.TodayTotal != 148 {
+	if tie := projectViewOf(t, saasSpec, ""); !tie.Same() || tie.TodayTotal != 148 {
 		t.Errorf("a tie should keep the choice already made: %+v", tie)
 	}
 }
@@ -4242,26 +4245,26 @@ func TestProjectViewIsTheCheapest(t *testing.T) {
 		"(policy (weights (dependency 9)) (extra-engine 25))", "(policy (avoid badger) (extra-engine 7))"} {
 		dir := t.TempDir()
 		sp, _ := writeSpec(t, dir, saasSpec+"\n"+policy, "")
-		cp, err := compile(Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
+		cp, err := compile.Compile(compile.Options{Spec: sp, Out: filepath.Join(dir, "out")}, io.Discard)
 		if err != nil {
 			t.Fatal(err)
 		}
-		c := cp.c
-		names := sortedKeys(c.Cover)
+		c := cp.Ctx
+		names := compile.SortedKeys(c.Cover)
 		best, tried := 1<<30, 0
-		var walk func(i int, r running, total int)
-		walk = func(i int, r running, total int) {
+		var walk func(i int, r compile.Running, total int)
+		walk = func(i int, r compile.Running, total int) {
 			if i == len(names) {
 				best, tried = min(best, total), tried+1
 				return
 			}
 			for _, cand := range c.Cover[names[i]].Ranked {
-				cost, next := r.add(cand, c.Policy)
+				cost, next := r.Add(cand, c.Policy)
 				walk(i+1, next, total+cost)
 			}
 		}
-		walk(0, running{}, 0)
-		v := projectView(c)
+		walk(0, compile.Running{}, 0)
+		v := compile.NewProjectView(c)
 		if v.BestTotal != best {
 			t.Errorf("%q: the view found %d, but the cheapest of %d combinations is %d", policy, v.BestTotal, tried, best)
 		}
@@ -4313,7 +4316,7 @@ func TestExplainProject(t *testing.T) {
 		t.Error("-project with -json should be refused until it has a JSON form")
 	}
 	n, _ := sexp.Parse("policy.sexp", `(policy (extra-engine lots))`)
-	if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), "extra-engine must be 0 to 1000") {
+	if _, err := compile.ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), "extra-engine must be 0 to 1000") {
 		t.Errorf("a bad extra-engine should be reported: %v", err)
 	}
 }
@@ -4321,8 +4324,8 @@ func TestExplainProject(t *testing.T) {
 // TestEnginesAreDeclaredByTiles: what shares a server is a fact each tile
 // states, not a table beside the solver.
 func TestEnginesAreDeclaredByTiles(t *testing.T) {
-	find := func(capability, tile string) *Offer {
-		for _, o := range offersOf(capability) {
+	find := func(capability, tile string) *compile.Offer {
+		for _, o := range compile.OffersOf(capability) {
 			if o.Tile == tile {
 				return o
 			}
@@ -4336,7 +4339,7 @@ func TestEnginesAreDeclaredByTiles(t *testing.T) {
 		{"event-bus", "nats-core", "nats"}, {"event-bus", "nats-jetstream", "nats"}, {"event-bus", "local-bus", ""},
 		{"transport", "nats-core", "nats"}, {"event-bus", "kafka", "kafka"}, {"transport", "kafka", "kafka"},
 	} {
-		if got := engineOf(find(c.capability, c.tile)); got != c.engine {
+		if got := compile.EngineOf(find(c.capability, c.tile)); got != c.engine {
 			t.Errorf("%s %s: engine %q, want %q", c.capability, c.tile, got, c.engine)
 		}
 	}
@@ -4344,27 +4347,27 @@ func TestEnginesAreDeclaredByTiles(t *testing.T) {
 	// One cluster serving two capabilities is paid for once: a Kafka bus,
 	// then Kafka as an inbound edge. The second adds no server and no
 	// library, and is not a second engine, because it is the same one.
-	p := DefaultPolicy()
+	p := compile.DefaultPolicy()
 	p.ExtraEngine = 50
 	bus, edge := find("event-bus", "kafka"), find("transport", "kafka")
-	busScore, _ := p.score(bus.Cost)
-	edgeScore, _ := p.score(edge.Cost)
-	first, r := running{}.add(Candidate{Offer: bus, Score: busScore}, p)
-	second, _ := r.add(Candidate{Offer: edge, Score: edgeScore}, p)
+	busScore, _ := p.Score(bus.Cost)
+	edgeScore, _ := p.Score(edge.Cost)
+	first, r := compile.Running{}.Add(compile.Candidate{Offer: bus, Score: busScore}, p)
+	second, _ := r.Add(compile.Candidate{Offer: edge, Score: edgeScore}, p)
 	if first != busScore {
 		t.Errorf("the first use of an engine pays in full: %d, want %d", first, busScore)
 	}
-	if want := edgeScore - weighted(edge, p, "operations") - weighted(edge, p, "dependency"); second != want {
+	if want := edgeScore - compile.Weighted(edge, p, "operations") - compile.Weighted(edge, p, "dependency"); second != want {
 		t.Errorf("the second capability on kafka should add %d, got %d", want, second)
 	}
 
 	// Two tiles, one server: JetStream after core NATS runs on the
 	// nats-server already there, and pays only what its dearer price adds.
 	core, stream := find("event-bus", "nats-core"), find("event-bus", "nats-jetstream")
-	coreScore, _ := p.score(core.Cost)
-	streamScore, _ := p.score(stream.Cost)
-	_, r = running{}.add(Candidate{Offer: core, Score: coreScore}, p)
-	if got, want := priceOn(r, stream, streamScore, p), streamScore-weighted(core, p, "operations"); got != want {
+	coreScore, _ := p.Score(core.Cost)
+	streamScore, _ := p.Score(stream.Cost)
+	_, r = compile.Running{}.Add(compile.Candidate{Offer: core, Score: coreScore}, p)
+	if got, want := priceOn(r, stream, streamScore, p), streamScore-compile.Weighted(core, p, "operations"); got != want {
 		t.Errorf("JetStream on a running nats-server should add %d, got %d", want, got)
 	}
 
@@ -4374,7 +4377,7 @@ func TestEnginesAreDeclaredByTiles(t *testing.T) {
 	v := projectViewOf(t, `(project p (module example.com/p) (go 1.22)
   (package alerts (events (cross-process) (event Fired (field ID int64))))
   (package audit (events (cross-process) (replay) (event Logged (field ID int64)))))`, "(policy (extra-engine 10))")
-	if v.Today[0].Tile != "nats-core" || v.Today[1].Tile != "redis-streams" || enginesIn(v.Today) != "nats, redis" {
+	if v.Today[0].Tile != "nats-core" || v.Today[1].Tile != "redis-streams" || compile.EnginesIn(v.Today) != "nats, redis" {
 		t.Fatalf("need by need should be two brokers, got %+v", v.Today)
 	}
 	if v.Best[0].Tile != "redis-streams" || v.Best[1].Tile != "redis-streams" || v.TodayTotal != 81 || v.BestTotal != 65 {
@@ -4383,8 +4386,8 @@ func TestEnginesAreDeclaredByTiles(t *testing.T) {
 }
 
 // priceOn prices one more offer for a project that already runs r.
-func priceOn(r running, o *Offer, score int, p *Policy) int {
-	cost, _ := r.add(Candidate{Offer: o, Score: score}, p)
+func priceOn(r compile.Running, o *compile.Offer, score int, p *compile.Policy) int {
+	cost, _ := r.Add(compile.Candidate{Offer: o, Score: score}, p)
 	return cost
 }
 
@@ -4402,7 +4405,7 @@ func TestTileSpecDeclaresItsEngine(t *testing.T) {
 	dir := t.TempDir()
 	sp, _ := writeSpec(t, dir, fmt.Sprintf(spec, ""), "")
 	out := filepath.Join(dir, "out")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	found := false
@@ -4430,15 +4433,15 @@ func TestGenerateSaysWhatToRunNext(t *testing.T) {
 	sp, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22)
   (package notes (entity Note (field ID string) (store get save (durable)))))`, "")
 	var log strings.Builder
-	if err := run(Options{Spec: sp, Out: out}, &log); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, &log); err != nil {
 		t.Fatal(err)
 	}
 	want := "next: cd " + out + " && sqlc generate && go mod tidy && go build ./...\n"
 	if !strings.Contains(log.String(), want) {
 		t.Errorf("want %q in:\n%s", want, log.String())
 	}
-	c := &Ctx{}
-	for _, o := range offersOf("store") {
+	c := &compile.Ctx{}
+	for _, o := range compile.OffersOf("store") {
 		if o.Tile == "sqlite-sqlc" {
 			c.Used = append(c.Used, o)
 		}
@@ -4447,7 +4450,7 @@ func TestGenerateSaysWhatToRunNext(t *testing.T) {
 	if got := nextLine(c, "out", none); !strings.Contains(got, "install first: sqlc") {
 		t.Errorf("a missing tool should be named: %q", got)
 	}
-	if got := nextLine(&Ctx{}, "out", none); got != "next: cd out && go mod tidy && go build ./..." {
+	if got := nextLine(&compile.Ctx{}, "out", none); got != "next: cd out && go mod tidy && go build ./..." {
 		t.Errorf("no tools, no tool steps: %q", got)
 	}
 }
@@ -4495,8 +4498,8 @@ func TestServeStudio(t *testing.T) {
 func TestTilesJSONSaysWhatIsBehindATile(t *testing.T) {
 	// The studio shows what is behind a tile from this catalogue: what it
 	// guarantees and why, the engine it needs, and where each cost comes from.
-	out := tilesJSON(Registry())
-	by := map[string]TileJSON{}
+	out := compile.NewTilesJSON(compile.Registry())
+	by := map[string]compile.TileJSON{}
 	for _, tj := range out.Tiles {
 		if tj.Pass == "select" {
 			by[tj.Name] = tj
@@ -4539,7 +4542,7 @@ func TestServeCompileIsEverythingAtOnce(t *testing.T) {
 	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || got.Error != "" {
 		t.Fatalf("compile: %v %s", err, got.Error)
 	}
-	if got.Version != version || got.Name != "notes" || got.Holes == 0 || len(got.Explain.Coverage) != 2 {
+	if got.Version != compile.Version || got.Name != "notes" || got.Holes == 0 || len(got.Explain.Coverage) != 2 {
 		t.Errorf("unexpected answer: %+v", got)
 	}
 	for _, f := range []string{"notes/notes_gen.go", "notes/api_gen.go", "proto/notes/v1/notes.proto", "cmd/notes/wire_gen.go", "tilegen.lock", "GENERATED.md"} {
@@ -4568,12 +4571,12 @@ func TestImportsWithoutTheToolchainMatchGoimports(t *testing.T) {
 	files := 0
 	for _, sp := range specs {
 		with, without := t.TempDir(), t.TempDir()
-		if err := run(Options{Spec: sp, Out: with}, io.Discard); err != nil {
+		if err := run(compile.Options{Spec: sp, Out: with}, io.Discard); err != nil {
 			t.Fatal(sp, err)
 		}
-		noToolchain = true
-		err := run(Options{Spec: sp, Out: without}, io.Discard)
-		noToolchain = false
+		compile.NoToolchain = true
+		err := run(compile.Options{Spec: sp, Out: without}, io.Discard)
+		compile.NoToolchain = false
 		if err != nil {
 			t.Fatal(sp, err)
 		}

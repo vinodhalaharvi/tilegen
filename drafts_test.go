@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -36,14 +37,14 @@ func TestADraftTakesPartAndGeneratesNothing(t *testing.T) {
 	if got.Error != "" || len(got.Files) != 0 || len(got.Drafted) != 1 || got.Drafted[0] != "n.NoteStore: cockroachdb" {
 		t.Fatalf("a winning draft: error %q, %d files, drafted %v", got.Error, len(got.Files), got.Drafted)
 	}
-	cov := got.Explain.(ExplainJSON).Coverage[0]
+	cov := got.Explain.(compile.ExplainJSON).Coverage[0]
 	if cov.Chosen != "cockroachdb" || !cov.Candidates[0].Draft {
 		t.Errorf("the explanation should name the draft and mark it: %+v", cov.Candidates[0])
 	}
 	// Unproven, whoever wrote it: every draft pays uncertainty.
 	unproven := false
 	for _, term := range cov.Candidates[0].Cost {
-		unproven = unproven || (term.Dimension == "uncertainty" && term.Value == draftUnproven)
+		unproven = unproven || (term.Dimension == "uncertainty" && term.Value == compile.DraftUnproven)
 	}
 	if !unproven {
 		t.Error("a draft should carry uncertainty for never having run")
@@ -62,7 +63,7 @@ func TestADraftTakesPartAndGeneratesNothing(t *testing.T) {
 		}
 	}
 	listed := false
-	for _, c := range got.Explain.(ExplainJSON).Coverage[0].Candidates {
+	for _, c := range got.Explain.(compile.ExplainJSON).Coverage[0].Candidates {
 		listed = listed || c.Tile == "cockroachdb"
 	}
 	if !listed {
@@ -75,7 +76,7 @@ func TestADraftTakesPartAndGeneratesNothing(t *testing.T) {
 		t.Fatalf("the draft never claimed lookup-by-field, and won anyway: %v", got.Drafted)
 	}
 	said := false
-	for _, r := range got.Explain.(ExplainJSON).Coverage[0].Illegal {
+	for _, r := range got.Explain.(compile.ExplainJSON).Coverage[0].Illegal {
 		said = said || (r.Tile == "cockroachdb" && strings.Contains(r.Reason, "the draft says nothing about it"))
 	}
 	if !said {
@@ -85,7 +86,7 @@ func TestADraftTakesPartAndGeneratesNothing(t *testing.T) {
 
 func TestDraftsAreChecked(t *testing.T) {
 	ok := strings.Replace(cockroach, "OPS", "5", 1)
-	if _, err := parseDrafts(ok); err != nil {
+	if _, err := compile.ParseDrafts(ok); err != nil {
 		t.Fatalf("the example draft should pass: %v", err)
 	}
 	for name, c := range map[string]struct{ old, new, want string }{
@@ -103,11 +104,11 @@ func TestDraftsAreChecked(t *testing.T) {
 		"something else":      {"(engine cockroachdb)", "(port 26257)", "a tile contains offers, doc, module"},
 		"not a tile at all":   {"(tile cockroachdb", "(tyle cockroachdb", "expected (tile NAME (offers CAPABILITY) ...)"},
 	} {
-		if _, err := parseDrafts(strings.Replace(ok, c.old, c.new, 1)); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := compile.ParseDrafts(strings.Replace(ok, c.old, c.new, 1)); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want an error containing %q, got: %v", name, c.want, err)
 		}
 	}
-	if _, err := parseDrafts(ok + "\n" + ok); err == nil || !strings.Contains(err.Error(), "two drafts are named cockroachdb") {
+	if _, err := compile.ParseDrafts(ok + "\n" + ok); err == nil || !strings.Contains(err.Error(), "two drafts are named cockroachdb") {
 		t.Errorf("two drafts with one name: %v", err)
 	}
 	// A bad draft stops the compile with its own message, not a wrong answer.
@@ -240,13 +241,13 @@ func TestAskingClaudeNeedsAKeyAndALocalServer(t *testing.T) {
 func TestBuiltInTilesReadAsDrafts(t *testing.T) {
 	// What Claude is shown as examples must itself be a form tilegen accepts.
 	for _, pick := range []string{"postgres-sqlc", "nats-jetstream", "vault"} {
-		for _, name := range capabilityNames() {
-			for _, o := range offersOf(name) {
+		for _, name := range compile.CapabilityNames() {
+			for _, o := range compile.OffersOf(name) {
 				if o.Tile != pick {
 					continue
 				}
 				text := strings.Replace(draftForm(o), "(tile "+pick, "(tile example-"+pick, 1)
-				if _, err := parseDrafts(text); err != nil {
+				if _, err := compile.ParseDrafts(text); err != nil {
 					t.Errorf("%s, written as a draft, does not pass: %v\n%s", pick, err, text)
 				}
 			}

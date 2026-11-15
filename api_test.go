@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
@@ -36,7 +37,7 @@ func apiSpec(reqs, fields string) string {
 func genAPI(t *testing.T, out, spec string, reselect bool) string {
 	t.Helper()
 	sp, _ := writeSpec(t, t.TempDir(), spec, "")
-	if err := run(Options{Spec: sp, Out: out, Reselect: reselect}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out, Reselect: reselect}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	lock := read(t, out, "tilegen.lock")
@@ -63,7 +64,7 @@ func TestAPIIsChosenByWhatClientsNeed(t *testing.T) {
 	}
 	// A browser cannot speak gRPC, so nothing offers both.
 	sp, _ := writeSpec(t, t.TempDir(), apiSpec("(grpc-native) (browser-clients)", ""), "")
-	err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard)
+	err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "a browser cannot speak gRPC") {
 		t.Errorf("grpc-native with browser-clients should be refused with the reason, got: %v", err)
 	}
@@ -71,14 +72,14 @@ func TestAPIIsChosenByWhatClientsNeed(t *testing.T) {
 
 func TestAPIWithoutASchemaIsTheHTTPTile(t *testing.T) {
 	// (api ...) on http-json and the routes written out by hand are the
-	// same server, byte for byte.
+	// Same server, byte for byte.
 	a, b := t.TempDir(), t.TempDir()
 	genAPI(t, a, apiSpec("", ""), false)
 	byHand := strings.Replace(apiSpec("", ""), "(api (get Order) (list Order) (save Order) (delete Order) )",
 		`(http (route GET "/orders/{id}" (get Order)) (route GET "/orders" (list Order))
 		       (route POST "/orders" (save Order)) (route DELETE "/orders/{id}" (delete Order)))`, 1)
 	sp, _ := writeSpec(t, t.TempDir(), byHand, "")
-	if err := run(Options{Spec: sp, Out: b}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: b}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	for _, f := range []string{"orders/http_gen.go", "orders/http.go"} {
@@ -238,10 +239,10 @@ func TestLockRefusesBadProtoPins(t *testing.T) {
 		`(lock (proto orders.Order (field ID 1)))`:                   "expected (number FIELD N) or (reserved N...)",
 	} {
 		dir := t.TempDir()
-		if err := os.WriteFile(filepath.Join(dir, lockFile), []byte(lock), 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, compile.LockFile), []byte(lock), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := loadLock(dir); err == nil || !strings.Contains(err.Error(), want) {
+		if _, _, err := compile.LoadLock(dir); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: want %q, got %v", lock, want, err)
 		}
 	}
@@ -250,7 +251,7 @@ func TestLockRefusesBadProtoPins(t *testing.T) {
 func TestAPIErrors(t *testing.T) {
 	gen := func(spec string) error {
 		sp, _ := writeSpec(t, t.TempDir(), spec, "")
-		return run(Options{Spec: sp, Out: t.TempDir()}, io.Discard)
+		return run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard)
 	}
 	swap := func(reqs, old, new string) string { return strings.Replace(apiSpec(reqs, ""), old, new, 1) }
 	for name, c := range map[string]struct{ spec, want string }{
@@ -296,7 +297,7 @@ func TestProtoGoName(t *testing.T) {
 		"id": "Id", "customer_email": "CustomerEmail", "total_cents": "TotalCents", "url2": "Url2",
 		"address_line_1": "AddressLine_1", "html5_url": "Html5Url", "orders": "Orders", "_x": "XX",
 	} {
-		if got := protoGoName(in); got != want {
+		if got := compile.ProtoGoName(in); got != want {
 			t.Errorf("protoGoName(%q) = %q, want %q", in, got, want)
 		}
 	}
@@ -305,14 +306,14 @@ func TestProtoGoName(t *testing.T) {
 func TestConfigChoosesTheAPITile(t *testing.T) {
 	dir, out := t.TempDir(), t.TempDir()
 	sp, cp := writeSpec(t, dir, apiSpec("(typed-clients)", ""), "(config (api grpc))")
-	if err := run(Options{Spec: sp, Config: cp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Config: cp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(read(t, out, "tilegen.lock"), "(tile orders.API grpc)") {
 		t.Error("the config should choose grpc over the cheaper connect")
 	}
 	_, cp = writeSpec(t, dir, apiSpec("(typed-clients)", ""), "(config (api http))")
-	if err := run(Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "there is no schema") {
+	if err := run(compile.Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "there is no schema") {
 		t.Errorf("a config cannot choose an illegal tile: %v", err)
 	}
 }
@@ -328,7 +329,7 @@ func TestAPIServerForSeveralEntities(t *testing.T) {
     (entity Product (field ID string) (field Name string) (store list))
     (api (get Category) (save Category) (list Product) (grpc-native))))`
 	sp, _ := writeSpec(t, t.TempDir(), spec, "")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	server := read(t, out, "catalog/api_gen.go")
@@ -343,7 +344,7 @@ func TestAPIServerForSeveralEntities(t *testing.T) {
 		}
 	}
 	// Only optional fields can fail to convert here, and each checks its
-	// own error, so a shared err would be declared and never used.
+	// Own error, so a shared err would be declared and never used.
 	if strings.Contains(server, "var err error") {
 		t.Error("categoryFromProto declares an err it never uses, which does not compile")
 	}
@@ -368,7 +369,7 @@ func TestWatchStreamsEventsFromTheBus(t *testing.T) {
 		t.Errorf("a watch needs a stream: chose %s, want connect", got)
 	}
 	sp, cp := writeSpec(t, t.TempDir(), watchSpec("(watch OrderPlaced)"), "(config (api http))")
-	if err := run(Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "a stream of events needs one of the schema tiles") {
+	if err := run(compile.Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "a stream of events needs one of the schema tiles") {
 		t.Errorf("http-json cannot serve a watch: %v", err)
 	}
 	for tile, c := range map[string]struct{ reqs, sig, header, lagged string }{
@@ -442,7 +443,7 @@ func TestWatchStreamsEventsFromTheBus(t *testing.T) {
 		t.Error("a watch-only api is built from the bus alone")
 	}
 	sp, _ = writeSpec(t, t.TempDir(), watchSpec("(watch OrderPlacd)"), "")
-	if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "has no (event OrderPlacd)") || !strings.Contains(err.Error(), "OrderPlaced") {
+	if err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "has no (event OrderPlacd)") || !strings.Contains(err.Error(), "OrderPlaced") {
 		t.Errorf("an unknown event should be named, with the nearest one: %v", err)
 	}
 }

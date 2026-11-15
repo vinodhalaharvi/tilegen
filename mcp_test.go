@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
 )
@@ -72,7 +73,7 @@ func viaCLI(t *testing.T, c mcpCase, out string) {
 		}
 		return p
 	}
-	o := Options{Spec: put("spec.sexp", c.spec), Config: put("config.sexp", c.config), PolicyFile: put("policy.sexp", c.policy), Out: out}
+	o := compile.Options{Spec: put("spec.sexp", c.spec), Config: put("config.sexp", c.config), PolicyFile: put("policy.sexp", c.policy), Out: out}
 	if err := run(o, io.Discard); err != nil {
 		t.Fatalf("%s: the command line failed: %v", c.name, err)
 	}
@@ -455,10 +456,10 @@ func TestMCPReferenceAndCatalogue(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cat.Version != version || len(cat.Tiles) == 0 || len(cat.Capabilities) == 0 {
+	if cat.Version != compile.Version || len(cat.Tiles) == 0 || len(cat.Capabilities) == 0 {
 		t.Errorf("the catalogue is empty: %d tiles, %d capabilities", len(cat.Tiles), len(cat.Capabilities))
 	}
-	if !reflect.DeepEqual(cat.TilesJSON, tilesJSON(Registry())) {
+	if !reflect.DeepEqual(cat.TilesJSON, compile.NewTilesJSON(compile.Registry())) {
 		t.Error("the catalogue is not `tilegen tiles -json`")
 	}
 }
@@ -758,18 +759,18 @@ func TestMCPConfineRefusesAnEscapingPlan(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "p")
 	for _, rel := range []string{"../x.go", "a/../../x.go", "/etc/x.go", ".."} {
-		l := laid{rep: &Report{staged: map[string][]byte{"ok.go": nil, rel: nil}}}
+		l := laid{rep: &compile.Report{Staged: map[string][]byte{"ok.go": nil, rel: nil}}}
 		l.dir = dir
 		if _, err := confine(context.Background(), l); err == nil || !strings.Contains(err.Error(), "outside its project folder") {
 			t.Errorf("a plan with %q was let through: %v", rel, err)
 		}
-		l = laid{rep: &Report{unlinked: map[string]bool{rel: true}}}
+		l = laid{rep: &compile.Report{Unlinked: map[string]bool{rel: true}}}
 		l.dir = dir
 		if _, err := confine(context.Background(), l); err == nil {
 			t.Errorf("a plan deleting %q was let through", rel)
 		}
 	}
-	ok := laid{rep: &Report{staged: map[string][]byte{"a/b.go": nil, "go.mod": nil}, unlinked: map[string]bool{"old/c.go": true}}}
+	ok := laid{rep: &compile.Report{Staged: map[string][]byte{"a/b.go": nil, "go.mod": nil}, Unlinked: map[string]bool{"old/c.go": true}}}
 	ok.dir = dir
 	if _, err := confine(context.Background(), ok); err != nil {
 		t.Errorf("an ordinary plan was refused: %v", err)

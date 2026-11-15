@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
@@ -110,11 +111,11 @@ type (
 	}
 	decided struct { // every pass has run: the tiles are chosen
 		parsed
-		cp *compiled
+		cp *compile.Compiled
 	}
 	laid struct { // the files are planned against what is on disk; nothing is written
 		decided
-		rep *Report
+		rep *compile.Report
 	}
 )
 
@@ -139,8 +140,8 @@ func place(root string) weft.Arrow[ProjectIn, placed] {
 			return placed{}, fmt.Errorf("the folder %s cannot be read: %w", dir, err)
 		}
 		if len(entries) > 0 {
-			if _, err := os.Stat(filepath.Join(dir, lockFile)); err != nil {
-				return placed{}, fmt.Errorf("the folder %s already exists and is not a tilegen project (it has no %s); choose another name", dir, lockFile)
+			if _, err := os.Stat(filepath.Join(dir, compile.LockFile)); err != nil {
+				return placed{}, fmt.Errorf("the folder %s already exists and is not a tilegen project (it has no %s); choose another name", dir, compile.LockFile)
 			}
 		}
 		return placed{in: in, dir: dir}, nil
@@ -162,7 +163,7 @@ func readText(_ context.Context, p placed) (parsed, error) {
 // decideTiles: every pass. This is where each need gets its tile; a lock file
 // already in the folder pins the choices it records.
 func decideTiles(_ context.Context, p parsed) (decided, error) {
-	cp, err := compileForms(p.forms, Options{Out: p.dir}, io.Discard)
+	cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.dir}, io.Discard)
 	if err != nil {
 		return decided{}, err
 	}
@@ -171,7 +172,7 @@ func decideTiles(_ context.Context, p parsed) (decided, error) {
 
 // layFiles: plan every file against what the folder holds. Nothing is written.
 func layFiles(_ context.Context, d decided) (laid, error) {
-	rep, err := Emit(d.cp.nodes, d.dir, d.cp.c, false)
+	rep, err := compile.Emit(d.cp.Nodes, d.dir, d.cp.Ctx, false)
 	if err != nil {
 		return laid{}, err
 	}
@@ -181,11 +182,11 @@ func layFiles(_ context.Context, d decided) (laid, error) {
 // confine: refuse a plan with any path that is not inside the project's
 // folder, whatever the spec said about where its packages live.
 func confine(_ context.Context, l laid) (laid, error) {
-	paths := make([]string, 0, len(l.rep.staged)+len(l.rep.unlinked))
-	for rel := range l.rep.staged {
+	paths := make([]string, 0, len(l.rep.Staged)+len(l.rep.Unlinked))
+	for rel := range l.rep.Staged {
 		paths = append(paths, rel)
 	}
-	for rel := range l.rep.unlinked {
+	for rel := range l.rep.Unlinked {
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
@@ -207,17 +208,17 @@ func writeFiles(_ context.Context, l laid) (laid, error) {
 
 // report: what a caller is told.
 func report(l laid) Project {
-	c := l.cp.c
+	c := l.cp.Ctx
 	p := Project{Name: l.in.Name, Dir: l.dir, Decisions: decisions(c), Written: len(l.rep.Written), Unchanged: l.rep.Unchanged,
 		Kept: l.rep.Kept, Holes: l.rep.Tasks, Warnings: c.Warnings}
-	for _, st := range toolSteps(c) {
+	for _, st := range compile.ToolSteps(c) {
 		p.Next = append(p.Next, st.Cmd)
 	}
 	p.Next = append(p.Next, "go mod tidy", "go build ./...")
 	return p
 }
 
-func decisions(c *Ctx) []Decision {
+func decisions(c *compile.Ctx) []Decision {
 	ids := make([]string, 0, len(c.Cover))
 	for id := range c.Cover {
 		ids = append(ids, id)
@@ -323,10 +324,10 @@ type ExplainIn struct {
 // cannot generate, and the decision still stands: explaining it is the point.
 func decideWith(tiles string) weft.Arrow[parsed, decided] {
 	return func(_ context.Context, p parsed) (decided, error) {
-		cp, err := compileForms(p.forms, Options{Out: p.dir, Tiles: tiles}, io.Discard)
-		var won *draftsChosen
+		cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.dir, Tiles: tiles}, io.Discard)
+		var won *compile.DraftsChosen
 		if errors.As(err, &won) {
-			return decided{parsed: p, cp: won.cp}, nil
+			return decided{parsed: p, cp: won.Compiled}, nil
 		}
 		if err != nil {
 			return decided{}, err
@@ -429,7 +430,7 @@ func symbols(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[
 			if d, ok := m.detail(ref); ok {
 				out.Details = append(out.Details, d)
 			} else {
-				out.Missing = append(out.Missing, ref+didYouMean(ref, m.names()))
+				out.Missing = append(out.Missing, ref+compile.DidYouMean(ref, m.names()))
 			}
 		}
 		return out, nil
@@ -462,11 +463,11 @@ type CheckTileOut struct {
 // checkTile: the form, by the parser every tile passes; then each cited
 // symbol, by the module itself.
 func checkTile(read func(mod, version string) (*ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
-	form := func(_ context.Context, in CheckTileIn) (*Offer, error) {
+	form := func(_ context.Context, in CheckTileIn) (*compile.Offer, error) {
 		if strings.TrimSpace(in.Tile) == "" {
 			return nil, errors.New(`no tile; send {"tile": "(tile NAME (offers ...) ...)"}`)
 		}
-		offers, err := parseDrafts(in.Tile)
+		offers, err := compile.ParseDrafts(in.Tile)
 		if err != nil {
 			return nil, err
 		}
@@ -504,11 +505,13 @@ func checkTile(read func(mod, version string) (*ModuleSymbols, error)) weft.Arro
 // Catalogue is what there is to ask for.
 type Catalogue struct {
 	Version string `json:"version"`
-	TilesJSON
+	compile.TilesJSON
 }
 
 func catalogue() weft.Arrow[struct{}, Catalogue] {
-	return weft.Pure(func(struct{}) Catalogue { return Catalogue{Version: version, TilesJSON: tilesJSON(Registry())} })
+	return weft.Pure(func(struct{}) Catalogue {
+		return Catalogue{Version: compile.Version, TilesJSON: compile.NewTilesJSON(compile.Registry())}
+	})
 }
 
 //go:embed README.md
@@ -524,7 +527,7 @@ type Reference struct {
 // choosing tiles: the same text a person reads, so it cannot drift.
 func reference() weft.Arrow[struct{}, Reference] {
 	text := readmeSections("## The spec", "## The config", "## Choosing tiles")
-	return weft.Pure(func(struct{}) Reference { return Reference{Version: version, Reference: text} })
+	return weft.Pure(func(struct{}) Reference { return Reference{Version: compile.Version, Reference: text} })
 }
 
 // readmeSections returns the named level-two sections, each up to the next.
@@ -612,8 +615,8 @@ func mcpCmd(args []string, stderr io.Writer) error {
 	if st, err := os.Stat(root); err != nil || !st.IsDir() {
 		return fmt.Errorf("the root %s is not a folder; create it first, or pass -root", root)
 	}
-	if err := checkRegistry(); err != nil {
+	if err := compile.CheckRegistry(); err != nil {
 		return fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
 	}
-	return mcp.RunStdioServer(mcpServer(root), mcp.WithServerInfo("tilegen", version))
+	return mcp.RunStdioServer(mcpServer(root), mcp.WithServerInfo("tilegen", compile.Version))
 }

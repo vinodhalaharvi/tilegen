@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
@@ -40,7 +41,7 @@ const (
 // apiSurface returns the API surface sections for the packages the given
 // files import, ready to append to a prompt. Failures are silent: a
 // prompt without an API section is worse, not broken.
-func apiSurface(out string, files []string, r *Report, self string, mentions ...string) string {
+func apiSurface(out string, files []string, r *compile.Report, self string, mentions ...string) string {
 	paths := importsOf(files, r)
 	// A mention that is already an import path (a tile naming a package a
 	// hole will need) is taken as is; prose is resolved through go.mod.
@@ -92,7 +93,7 @@ func mentionedPackages(texts, have []string, dir string) []string {
 	for _, text := range texts {
 		for _, w := range qualifierRE.FindAllStringSubmatch(text, -1) {
 			name := w[1]
-			if seen[name] || isStd(name) {
+			if seen[name] || compile.IsStd(name) {
 				continue
 			}
 			if p, ok := known[name]; ok {
@@ -136,14 +137,14 @@ func knownPackagePaths(dir string) map[string]string {
 
 // importsOf reads the import paths of the given files (as the plan will
 // leave them), skipping the standard library.
-func importsOf(files []string, r *Report) []string {
+func importsOf(files []string, r *compile.Report) []string {
 	seen := map[string]bool{}
 	var paths []string
 	for _, f := range files {
 		if !strings.HasSuffix(f, ".go") {
 			continue
 		}
-		src, err := r.read(f)
+		src, err := r.Read(f)
 		if err != nil {
 			continue
 		}

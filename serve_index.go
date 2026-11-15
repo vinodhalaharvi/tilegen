@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"html/template"
 	"net/http"
 	"strings"
@@ -12,7 +13,7 @@ import (
 
 func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	page := strings.ReplaceAll(indexHTML, "__VERSION__", version)
+	page := strings.ReplaceAll(indexHTML, "__VERSION__", compile.Version)
 	page = strings.ReplaceAll(page, "__TILES__", template.HTMLEscapeString(tilesDoc()))
 	w.Write([]byte(page))
 }
@@ -27,8 +28,8 @@ func tilesDoc() string {
 		";\n" +
 		"; tiles live in tilegen itself, so this is a catalogue to choose\n" +
 		"; from rather than something to edit here.\n\n")
-	for _, t := range Registry() {
-		b.WriteString(tileSexp(t).String())
+	for _, t := range compile.Registry() {
+		b.WriteString(compile.TileSexp(t).String())
 		b.WriteString("\n\n")
 	}
 	return strings.TrimRight(b.String(), "\n") + "\n"

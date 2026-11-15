@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
@@ -20,7 +21,7 @@ func genSecrets(t *testing.T, spec, cfg string) (string, string) {
 	t.Helper()
 	out := t.TempDir()
 	sp, cp := writeSpec(t, t.TempDir(), spec, cfg)
-	if err := run(Options{Spec: sp, Config: cp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Config: cp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	lock := read(t, out, "tilegen.lock")
@@ -44,7 +45,7 @@ func TestSecretsAreChosenByWhatTheyMustDo(t *testing.T) {
 		t.Errorf("the config should choose vault, got %s", got)
 	}
 	sp, cp := writeSpec(t, t.TempDir(), secretsSpec("(rotating)"), "(config (secrets env))")
-	err := run(Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard)
+	err := run(compile.Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "a process's environment is fixed when it starts") {
 		t.Errorf("a config cannot choose a tile the requirements rule out: %v", err)
 	}
@@ -115,7 +116,7 @@ func TestSecretsSwitchTileInPlace(t *testing.T) {
 	out := t.TempDir()
 	gen := func(reqs string) string {
 		sp, _ := writeSpec(t, t.TempDir(), secretsSpec(reqs), "")
-		if err := run(Options{Spec: sp, Out: out, Reselect: true}, io.Discard); err != nil {
+		if err := run(compile.Options{Spec: sp, Out: out, Reselect: true}, io.Discard); err != nil {
 			t.Fatal(err)
 		}
 		return read(t, out, "orders/secrets_gen.go")
@@ -140,24 +141,24 @@ func TestSecretsErrors(t *testing.T) {
 		"another Secrets": {")) (package other (struct Secrets (field X int)) (secrets (secret A)", "the package already declares it"},
 	} {
 		sp, _ := writeSpec(t, t.TempDir(), secretsSpec(c.items), "")
-		if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
+		if err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want an error containing %q, got: %v", name, c.want, err)
 		}
 	}
 	sp, _ := writeSpec(t, t.TempDir(), `(project p (module example.com/p) (go 1.22) (package a (secrets (rotating))))`, "")
-	if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "needs at least one (secret Name)") {
+	if err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "needs at least one (secret Name)") {
 		t.Errorf("an empty (secrets ...) should be refused: %v", err)
 	}
 }
 
 func TestVaultIsAnEngineOfItsOwn(t *testing.T) {
 	// The whole-project view counts a Vault as a server to operate.
-	for _, o := range offersOf("secrets") {
+	for _, o := range compile.OffersOf("secrets") {
 		want := "" // the environment and a directory are nothing to run
 		if o.Tile == "vault" {
 			want = "vault"
 		}
-		if got := engineOf(o); got != want {
+		if got := compile.EngineOf(o); got != want {
 			t.Errorf("%s runs on %q, want %q", o.Tile, got, want)
 		}
 	}
