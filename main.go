@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	_ "github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
 )
@@ -58,7 +59,7 @@ func main() {
 			}
 			return
 		case "api":
-			if err := apiCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			if err := fill.APICmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}
@@ -82,13 +83,13 @@ func main() {
 			}
 			return
 		case "fill":
-			if err := fillCmd(os.Args[2:], os.Stderr); err != nil {
+			if err := fill.Cmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}
 			return
 		case "prompt":
-			if err := promptCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
+			if err := fill.PromptCmd(os.Args[2:], os.Stdout, os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}
@@ -286,7 +287,7 @@ func workspaceCmd(cmd string, args []string, stdout, log io.Writer) error {
 	case "down":
 		fs.BoolVar(&prune, "prune", false, "also remove worktrees (git refuses if they have uncommitted changes)")
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	spec := "spec"
 	if len(pos) > 0 {
 		spec = pos[0]
@@ -320,7 +321,7 @@ func checkCmd(args []string, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen check [flags] [SPEC]\n\nExit status 1 if generating would change any file, if a method you wrote\nhas drifted from the spec, or (without -allow-holes) if holes remain.\n\n")
 		fs.PrintDefaults()
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	o.Spec = "spec"
 	if len(pos) > 0 {
 		o.Spec = pos[0]
@@ -429,21 +430,6 @@ func checkReport(rep *compile.Report, c *compile.Ctx, o compile.Options, log io.
 	}
 	fmt.Fprintf(log, "ok: %d generated file(s) match the spec; %s\n", res.UpToDate, holes)
 	return nil
-}
-
-// parseAnywhere parses flags that may come before, between or after the
-// positional arguments (Go's flag package stops at the first non-flag, so
-// `tilegen check spec/ -allow-holes` would otherwise ignore the flag).
-func parseAnywhere(fs *flag.FlagSet, args []string) []string {
-	var pos []string
-	for {
-		fs.Parse(args)
-		if fs.NArg() == 0 {
-			return pos
-		}
-		pos = append(pos, fs.Arg(0))
-		args = fs.Args()[1:]
-	}
 }
 
 // nextLine is the line that turns a generated tree into a building one.

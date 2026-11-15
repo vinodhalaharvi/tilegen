@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"io"
 	"os"
 	"sort"
@@ -25,7 +26,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen explain [flags] [SPEC] [STORE...]\n\n")
 		fs.PrintDefaults()
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	o.Spec = "spec"
 	if len(pos) > 0 {
 		if _, err := os.Stat(pos[0]); err == nil {
@@ -48,7 +49,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 		compile.JSONWeights = cp.Ctx.Policy.Weights
 		out := compile.ExplainJSON{Policy: compile.NewPolicyJSON(cp.Ctx.Policy)}
 		for _, n := range names {
-			if len(pos) == 0 || matchesAny(n, pos) {
+			if len(pos) == 0 || fill.MatchesAny(n, pos) {
 				out.Coverage = append(out.Coverage, compile.NewCoverageJSON(cp.Ctx.Cover[n]))
 			}
 		}
@@ -60,7 +61,7 @@ func explainCmd(args []string, stdout, log io.Writer) error {
 	fmt.Fprintf(stdout, "%s\n\n", cp.Ctx.Policy.Describe())
 	shown := 0
 	for _, n := range names {
-		if len(pos) > 0 && !matchesAny(n, pos) {
+		if len(pos) > 0 && !fill.MatchesAny(n, pos) {
 			continue
 		}
 		fmt.Fprintln(stdout, compile.ExplainCovering(cp.Ctx.Cover[n]))

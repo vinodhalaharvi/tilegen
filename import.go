@@ -40,7 +40,7 @@ func importCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen import [-out spec] [DIR]\n\nLifts an existing Go module into a spec: structs, interfaces, enums and\nimplementations, all from the type checker. What it cannot prove is listed\nin NOTES.md.\n\n")
 		fs.PrintDefaults()
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	dir := "."
 	if len(pos) > 0 {
 		dir = pos[0]

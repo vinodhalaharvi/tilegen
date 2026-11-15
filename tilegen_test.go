@@ -22,6 +22,7 @@ import (
 
 	"github.com/vinodhalaharvi/dyna"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -1362,7 +1363,7 @@ func TestSweepMarkerOnlyOnFirstLine(t *testing.T) {
 func promptOut(t *testing.T, spec, out string, args ...string) (string, error) {
 	t.Helper()
 	var stdout strings.Builder
-	err := promptCmd(append([]string{"-out", out, spec}, args...), &stdout, io.Discard)
+	err := fill.PromptCmd(append([]string{"-out", out, spec}, args...), &stdout, io.Discard)
 	return stdout.String(), err
 }
 
@@ -1485,7 +1486,7 @@ cat "$f"
 func fillRun(t *testing.T, p *rcProject, llm string, args ...string) (string, error) {
 	t.Helper()
 	var log strings.Builder
-	err := fillCmd(append([]string{"-out", p.out, "-llm", llm, filepath.Join(p.dir, "spec.sexp")}, args...), &log)
+	err := fill.Cmd(append([]string{"-out", p.out, "-llm", llm, filepath.Join(p.dir, "spec.sexp")}, args...), &log)
 	return log.String(), err
 }
 
@@ -1596,13 +1597,13 @@ func TestFillWorkspaceConfig(t *testing.T) {
 func TestOnlyDrift(t *testing.T) {
 	drift := "# example.com/p/notes\nnotes/notes_gen.go:20:19: cannot use (*MemoryNoteStore)(nil) (value of type *MemoryNoteStore) as NoteStore value in variable declaration: *MemoryNoteStore does not implement NoteStore (wrong type for method Get)\n\t\thave Get(context.Context, int64) (*Note, error)\n\t\twant Get(int64) (*Note, error)"
 	pending := map[string]bool{"MemoryNoteStore.Get": true}
-	if !onlyDrift(drift, pending) {
+	if !fill.OnlyDrift(drift, pending) {
 		t.Error("a pending drift error should be tolerated")
 	}
-	if onlyDrift(drift, map[string]bool{"MemoryNoteStore.Save": true}) {
+	if fill.OnlyDrift(drift, map[string]bool{"MemoryNoteStore.Save": true}) {
 		t.Error("drift in a method with no pending task is a real error")
 	}
-	if onlyDrift(drift+"\nnotes/x.go:3:9: undefined: y", pending) {
+	if fill.OnlyDrift(drift+"\nnotes/x.go:3:9: undefined: y", pending) {
 		t.Error("any other error must stop fill")
 	}
 }
@@ -2482,7 +2483,7 @@ func New(addr string) *Client { return nil }
 func unexported() {}
 `,
 	})
-	text, err := loadPackageAPI(dir, "example.com/api/lib")
+	text, err := fill.LoadPackageAPI(dir, "example.com/api/lib")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2516,21 +2517,21 @@ func TestAPISurfaceScopeAndCache(t *testing.T) {
 	r := &compile.Report{Out: dir, Staged: map[string][]byte{}, Unlinked: map[string]bool{}}
 	// The standard library is never included; the project's own packages
 	// are already context files.
-	if got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/api"); got != "" {
+	if got := fill.APISurface(dir, []string{"app/app.go"}, r, "example.com/api"); got != "" {
 		t.Errorf("own and standard packages should be skipped:\n%s", got)
 	}
-	got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/other")
+	got := fill.APISurface(dir, []string{"app/app.go"}, r, "example.com/other")
 	if !strings.Contains(got, "### example.com/api/lib") || !strings.Contains(got, "type Thing struct {\n\tID int64\n}") {
 		t.Errorf("a third-party package should be included:\n%s", got)
 	}
-	cache := filepath.Join(dir, apiCacheDir)
+	cache := filepath.Join(dir, fill.APICacheDir)
 	entries, err := os.ReadDir(cache)
 	if err != nil || len(entries) != 1 {
 		t.Fatalf("want one cache entry, got %v %v", entries, err)
 	}
 	// A second call reads the cache: corrupt it and the change shows.
 	os.WriteFile(filepath.Join(cache, entries[0].Name()), []byte("FROM CACHE"), 0o644)
-	if got := apiSurface(dir, []string{"app/app.go"}, r, "example.com/other"); !strings.Contains(got, "FROM CACHE") {
+	if got := fill.APISurface(dir, []string{"app/app.go"}, r, "example.com/other"); !strings.Contains(got, "FROM CACHE") {
 		t.Errorf("the second call should hit the cache:\n%s", got)
 	}
 }
@@ -2541,13 +2542,13 @@ func TestAPISurfaceIncludesPackagesTheIntentNames(t *testing.T) {
 		"app/app.go": "package app\n",
 	})
 	// A package named in prose but not yet imported is resolved through go.mod.
-	if got := mentionedPackages([]string{"Map dep.ErrNoRows to ErrNotFound."}, nil, dir); len(got) != 1 || got[0] != "example.com/dep" {
+	if got := fill.MentionedPackages([]string{"Map dep.ErrNoRows to ErrNotFound."}, nil, dir); len(got) != 1 || got[0] != "example.com/dep" {
 		t.Errorf("want example.com/dep, got %v", got)
 	}
-	if got := mentionedPackages([]string{"Return time.Now() and errors.Join(...)"}, nil, dir); len(got) != 0 {
+	if got := fill.MentionedPackages([]string{"Return time.Now() and errors.Join(...)"}, nil, dir); len(got) != 0 {
 		t.Errorf("the standard library is never included: %v", got)
 	}
-	if got := mentionedPackages([]string{"Map dep.ErrNoRows"}, []string{"example.com/dep"}, dir); len(got) != 0 {
+	if got := fill.MentionedPackages([]string{"Map dep.ErrNoRows"}, []string{"example.com/dep"}, dir); len(got) != 0 {
 		t.Errorf("already imported, so not added twice: %v", got)
 	}
 }
@@ -3471,7 +3472,7 @@ func TestHTTPTileServes(t *testing.T) {
 	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	fill := func(file string, repl map[string]string, header string) {
+	fillIn := func(file string, repl map[string]string, header string) {
 		p := filepath.Join(out, file)
 		b, _ := os.ReadFile(p)
 		s := string(b)
@@ -3484,13 +3485,13 @@ func TestHTTPTileServes(t *testing.T) {
 		os.WriteFile(p, []byte(s), 0o644)
 	}
 	lock := "s.mu.Lock()\n\tdefer s.mu.Unlock()\n\t"
-	fill("links/memory_link_store.go", map[string]string{
+	fillIn("links/memory_link_store.go", map[string]string{
 		"links.MemoryLinkStore.Get":    lock + "v, ok := s.m[id]\n\tif !ok {\n\t\treturn nil, ErrNotFound\n\t}\n\treturn v, nil",
 		"links.MemoryLinkStore.List":   lock + "out := make([]*Link, 0, len(s.m))\n\tfor _, v := range s.m {\n\t\tout = append(out, v)\n\t}\n\treturn out, nil",
 		"links.MemoryLinkStore.Save":   lock + "s.m[link.ID] = link\n\treturn nil",
 		"links.MemoryLinkStore.Delete": lock + "delete(s.m, id)\n\treturn nil",
 	}, "")
-	fill("links/http.go", map[string]string{
+	fillIn("links/http.go", map[string]string{
 		"links.Handler.validateLink":  "if link.URL == \"\" {\n\t\treturn errors.New(\"url is required\")\n\t}\n\treturn nil",
 		"links.Handler.statusForLink": "if errors.Is(err, ErrNotFound) {\n\t\treturn http.StatusNotFound\n\t}\n\treturn http.StatusInternalServerError",
 	}, "import (\n\t\"errors\"\n\t\"net/http\"\n)")
