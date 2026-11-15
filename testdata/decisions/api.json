@@ -379,6 +379,121 @@
           ]
         },
         {
+          "tile": "pebble",
+          "score": 34,
+          "own": 34,
+          "terms": "llm 5·4 + maint 3·3 + dep 3·1 + run 2·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "key encoding, bounded iterators and the closer every read hands back, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations: a field added to the struct changes stored values silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "Pebble and the CockroachDB libraries it is built on, but no server and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an LSM tree with background compaction"
+            }
+          ]
+        },
+        {
+          "tile": "leveldb",
+          "score": 35,
+          "own": 35,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 2·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "key encoding, prefix iteration and JSON, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations, and a library that changes rarely: its last tagged release is v1.0.0"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "goleveldb and snappy, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an LSM tree with background compaction"
+            }
+          ]
+        },
+        {
+          "tile": "redis-kv",
+          "score": 43,
+          "own": 43,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 1·1 + ops 4·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, set and delete by key, a SCAN for the rest, and the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and every key lives in memory: the data set has to fit there"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and little else"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "one round trip per call, served from memory"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory limits, persistence and failover to decide"
+            }
+          ]
+        },
+        {
           "tile": "bolt",
           "score": 48,
           "own": 48,
@@ -493,6 +608,49 @@
           ]
         },
         {
+          "tile": "dynamodb",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 8·4 + maint 5·3 + dep 4·1 + run 2·1 + ops 3·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 8,
+              "weight": 4,
+              "source": "derived",
+              "note": "attribute values, the key schema, pagination and results in no order, written by hand for every method"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema beyond the key, a list or a count is a paid read of the whole table, and tests need an emulator or a live table"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch or back up by hand, but capacity, IAM and cost to watch"
+            }
+          ]
+        },
+        {
           "tile": "postgres-sqlc",
           "score": 66,
           "own": 37,
@@ -535,6 +693,49 @@
               "rule": "row-mapper",
               "score": 29,
               "detail": "1 entity, 1 parsed field, 3 nullable fields"
+            }
+          ]
+        },
+        {
+          "tile": "etcd",
+          "score": 68,
+          "own": 68,
+          "terms": "llm 5·4 + maint 7·3 + dep 4·1 + run 2·1 + ops 7·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, put, delete and a prefix range, with the JSON and the key encoding by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and it is built for a little data that matters a great deal: a request is capped near 1.5 MiB and the whole keyspace at a few GiB by default, which a store of entities grows past"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the client brings gRPC and protobuf with it"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "every write is a round of consensus"
+            },
+            {
+              "dimension": "operations",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "a quorum to keep healthy: members, backups, compaction and defragmentation"
             }
           ]
         },
@@ -655,6 +856,121 @@
               "weight": 1,
               "source": "derived",
               "note": "an LSM tree with background compaction, unlike bbolt's single file"
+            }
+          ]
+        },
+        {
+          "tile": "pebble",
+          "score": 34,
+          "own": 34,
+          "terms": "llm 5·4 + maint 3·3 + dep 3·1 + run 2·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "key encoding, bounded iterators and the closer every read hands back, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations: a field added to the struct changes stored values silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "Pebble and the CockroachDB libraries it is built on, but no server and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an LSM tree with background compaction"
+            }
+          ]
+        },
+        {
+          "tile": "leveldb",
+          "score": 35,
+          "own": 35,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 2·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "key encoding, prefix iteration and JSON, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations, and a library that changes rarely: its last tagged release is v1.0.0"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "goleveldb and snappy, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an LSM tree with background compaction"
+            }
+          ]
+        },
+        {
+          "tile": "redis-kv",
+          "score": 43,
+          "own": 43,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 1·1 + ops 4·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, set and delete by key, a SCAN for the rest, and the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and every key lives in memory: the data set has to fit there"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-redis and little else"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "one round trip per call, served from memory"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory limits, persistence and failover to decide"
             }
           ]
         },
@@ -815,6 +1131,92 @@
               "rule": "row-mapper",
               "score": 40,
               "detail": "1 entity, 4 parsed fields, 2 nullable fields"
+            }
+          ]
+        },
+        {
+          "tile": "dynamodb",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 8·4 + maint 5·3 + dep 4·1 + run 2·1 + ops 3·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 8,
+              "weight": 4,
+              "source": "derived",
+              "note": "attribute values, the key schema, pagination and results in no order, written by hand for every method"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema beyond the key, a list or a count is a paid read of the whole table, and tests need an emulator or a live table"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch or back up by hand, but capacity, IAM and cost to watch"
+            }
+          ]
+        },
+        {
+          "tile": "etcd",
+          "score": 68,
+          "own": 68,
+          "terms": "llm 5·4 + maint 7·3 + dep 4·1 + run 2·1 + ops 7·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, put, delete and a prefix range, with the JSON and the key encoding by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and it is built for a little data that matters a great deal: a request is capped near 1.5 MiB and the whole keyspace at a few GiB by default, which a store of entities grows past"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the client brings gRPC and protobuf with it"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "every write is a round of consensus"
+            },
+            {
+              "dimension": "operations",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "a quorum to keep healthy: members, backups, compaction and defragmentation"
             }
           ]
         },

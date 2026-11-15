@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"io"
 	"io/fs"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 )
 
 // A tile-spec generates a file of tilegen's own. Whatever tilegen's
@@ -129,5 +130,123 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("tilegen with a freshly generated tile: go %s: %v\n%s", strings.Join(args, " "), err, out)
 		}
+	}
+}
+
+// specTiles are the tiles that have a spec checked in beside them: the
+// spec's path, and the tile it describes.
+func specTiles(t *testing.T) map[string]string {
+	t.Helper()
+	specs, err := filepath.Glob(filepath.Join("internal", "tiles", "specs", "*.sexp"))
+	if err != nil || len(specs) == 0 {
+		t.Fatalf("no tile specs found: %v", err)
+	}
+	out := map[string]string{}
+	for _, spec := range specs {
+		out[spec] = strings.TrimSuffix(filepath.Base(spec), ".sexp")
+	}
+	return out
+}
+
+// registration is a tile file's init function: everything the spec states.
+func registration(t *testing.T, src string) string {
+	t.Helper()
+	a := strings.Index(src, "func init() {\n")
+	if a < 0 {
+		t.Fatal("no init in the tile")
+	}
+	b := strings.Index(src[a:], "\n}\n")
+	return src[a : a+b+3]
+}
+
+// A tile's spec and its Go file say the same thing: generating from the
+// spec gives the registration that is checked in, and the holes it left
+// have been filled.
+func TestSpecsMatchTheirTiles(t *testing.T) {
+	for spec, tile := range specTiles(t) {
+		gen := t.TempDir()
+		if err := run(compile.Options{Spec: spec, Out: gen}, io.Discard); err != nil {
+			t.Errorf("%s: %v", spec, err)
+			continue
+		}
+		made, _ := filepath.Glob(filepath.Join(gen, "internal", "tiles", "*.go"))
+		if len(made) != 1 {
+			t.Errorf("%s generated %d files in internal/tiles", spec, len(made))
+			continue
+		}
+		fresh, err := os.ReadFile(made[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		kept, err := os.ReadFile(filepath.Join("internal", "tiles", filepath.Base(made[0])))
+		if err != nil {
+			t.Errorf("%s describes %s, and %s is not checked in", spec, tile, filepath.Base(made[0]))
+			continue
+		}
+		if registration(t, string(fresh)) != registration(t, string(kept)) {
+			t.Errorf("%s and %s have drifted: change the spec, generate, and keep the two holes' bodies", spec, filepath.Base(made[0]))
+		}
+		if strings.Contains(string(kept), compile.HolePrefix) {
+			t.Errorf("%s still has an open hole", filepath.Base(made[0]))
+		}
+		if _, ok := compile.Backends[shortNameOf(tile)]; !ok {
+			t.Errorf("%s is not registered as a store", tile)
+		}
+	}
+}
+
+// shortNameOf is the name a config pins a store tile by.
+func shortNameOf(tile string) string {
+	for name, b := range compile.Backends {
+		if b.Tile == tile {
+			return name
+		}
+	}
+	return ""
+}
+
+// Every tile made from a spec compiles for real: pinned in a small spec,
+// it generates a project that builds and vets against the library it
+// names. A type the library does not have, or an import path that is
+// wrong, fails here.
+func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("fetches each tile's library")
+	}
+	const notes = `(project notes
+  (module example.com/notes)
+  (go 1.22)
+  (package notes
+    (entity Note
+      (field ID string)
+      (field Title string)
+      (field Body string)
+      (store get list save delete count))))
+`
+	for _, tile := range specTiles(t) {
+		short := shortNameOf(tile)
+		t.Run(tile, func(t *testing.T) {
+			t.Parallel()
+			dir := t.TempDir()
+			spec := filepath.Join(dir, "spec.sexp")
+			config := filepath.Join(dir, "config.sexp")
+			if err := os.WriteFile(spec, []byte(notes), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(config, []byte("(config (storage "+short+"))\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			out := filepath.Join(dir, "out")
+			if err := run(compile.Options{Spec: spec, Config: config, Out: out}, io.Discard); err != nil {
+				t.Fatalf("pinned to %s: %v", short, err)
+			}
+			for _, args := range [][]string{{"mod", "tidy"}, {"build", "./..."}, {"vet", "./..."}} {
+				cmd := exec.Command("go", args...)
+				cmd.Dir = out
+				if b, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("a project on %s: go %s: %v\n%s", tile, strings.Join(args, " "), err, b)
+				}
+			}
+		})
 	}
 }

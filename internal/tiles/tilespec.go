@@ -3,6 +3,7 @@ package tiles
 import (
 	"fmt"
 	"path"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,7 +88,7 @@ func init() {
 
 // costDims are the dimensions a cost term may name, in the order the
 // registry prints them.
-var costDims = []string{"llm-work", "maintenance", "dependency", "runtime", "uncertainty"}
+var costDims = []string{"llm-work", "maintenance", "dependency", "runtime", "operations", "uncertainty"}
 
 var costSources = []string{"default", "measured", "derived", "user"}
 
@@ -126,6 +127,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 
 	kind := ""
 	seen := map[string]bool{}
+	claimed := map[string]string{} // requirement -> the heading it is under
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
 		case "kind":
@@ -156,20 +158,36 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 			for _, r := range it.Args() {
 				v.Shape(r, "(tool ?name)")
 			}
-		case "illegal-when":
-			validateIllegalWhen(v, it)
+		case "illegal-when", "satisfies", "unverified":
+			if req := validateClaim(v, it); req != "" {
+				if was := claimed[req]; was != "" {
+					v.Bad(it, "(%s) is already under (%s ...): a requirement is met, ruled out or unchecked, and only one of them", req, was)
+				}
+				claimed[req] = it.Head()
+			}
 		case "cost":
 			validateTileCost(v, it)
 		default:
-			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "illegal-when", "cost"}
+			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost"}
 			v.Bad(it, "a tile-spec contains %s, got %s%s",
 				strings.Join(known, ", "), compile.Short(it), compile.DidYouMean(it.Head(), known))
 			continue
 		}
-		if it.Head() != "illegal-when" && it.Head() != "import" && seen[it.Head()] {
+		if it.Head() != "illegal-when" && it.Head() != "satisfies" && it.Head() != "unverified" && it.Head() != "import" && seen[it.Head()] {
 			v.Bad(it, "duplicate (%s ...) in tile-spec %s", it.Head(), name.Atom)
 		}
 		seen[it.Head()] = true
+	}
+	// A store's short name is what a config says after (storage ...), and
+	// the front of every type the tile generates: PostgresOrderStore.
+	if kind == "store-backend" {
+		short := n.Text("alias")
+		if short == "" {
+			short = name.Atom
+		}
+		if !shortName.MatchString(short) {
+			v.Bad(n, "(tile-spec %s ...): a store's short name becomes part of a Go type, so it is lower-case letters and digits only; %q is not. Add (alias NAME), as postgres-pgx has (alias pgx)", name.Atom, short)
+		}
 	}
 	if kind == "" {
 		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(TileKinds, ", "))
@@ -180,28 +198,46 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 	if n.Find("cost") == nil {
 		v.Bad(n, "(tile-spec %s ...) needs a (cost ...): a tile that declares no cost can never be compared with one that does", name.Atom)
 	}
+	// Silence is not a yes. Each thing a spec can ask of this kind of tile
+	// is answered: met, ruled out, or said to be unchecked.
+	if c := compile.Capabilities[TileKindCapability[kind]]; c != nil {
+		var open []string
+		for _, req := range c.Requirements {
+			if claimed[req] == "" {
+				open = append(open, "("+req+")")
+			}
+		}
+		if len(open) > 0 {
+			v.Bad(n, "(tile-spec %s ...) says nothing about %s: put each under (satisfies ...), (illegal-when ...) or (unverified ...), with the reason",
+				name.Atom, strings.Join(open, ", "))
+		}
+	}
 }
 
-// validateIllegalWhen checks (illegal-when (durable) "reason"). The reason
-// is not optional: it is the whole explanation a user reads in explain.
-func validateIllegalWhen(v *compile.Validator, it *sexp.Node) {
-	b := v.Shape(it, "(illegal-when ?req ?reason)")
+// validateClaim checks (satisfies (durable) "reason"), and the same shape
+// under illegal-when and unverified, and returns the requirement named.
+// The reason is not optional: it is what a user reads in explain.
+func validateClaim(v *compile.Validator, it *sexp.Node) string {
+	head := it.Head()
+	b := v.Shape(it, "("+head+" ?req ?reason)")
 	if b == nil {
-		return
+		return ""
 	}
 	req := b.One("req")
 	if req == nil || !req.IsList || len(req.List) != 1 || req.List[0].IsList {
-		v.Bad(it, "(illegal-when ...) takes a bare requirement form like (durable), got %s", compile.Short(it))
-		return
+		v.Bad(it, "(%s ...) takes a bare requirement form like (durable), got %s", head, compile.Short(it))
+		return ""
 	}
 	name := req.List[0].Atom
 	if !compile.Contains(compile.KnownRequirements(), name) {
 		v.Bad(req, "unknown requirement (%s)%s; the shared vocabulary is %s", name,
 			compile.DidYouMean(name, compile.KnownRequirements()), strings.Join(compile.KnownRequirements(), ", "))
+		return ""
 	}
 	if reason := b.One("reason"); reason == nil || strings.TrimSpace(reason.Atom) == "" {
-		v.Bad(it, "(illegal-when (%s) ...) needs a reason: it is what explain prints when this tile is ruled out", name)
+		v.Bad(it, "(%s (%s) ...) needs a reason: it is what explain prints for this tile", head, name)
 	}
+	return name
 }
 
 // validateTileCost checks (cost (llm-work 4 (source derived "...")) ...).
@@ -244,6 +280,10 @@ func validateTileCost(v *compile.Validator, it *sexp.Node) {
 // tileStructName is the type the generated file declares: the address the
 // two holes live at.
 func tileStructName(tile string) string { return compile.LowerFirstWord(compile.GoName(tile)) + "Tile" }
+
+// shortName is a store's short name: what a config says, and the front of
+// a Go type name.
+var shortName = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
 
 // ValidTileName accepts the shape every tile in the registry already has:
 // lower-case letters, digits and hyphens, starting with a letter.
@@ -396,14 +436,18 @@ func storeBackendRegistration(name, impl string, n *sexp.Node) string {
 	}
 	b.WriteString("\t\t},\n")
 
-	if illegal := n.FindAll("illegal-when"); len(illegal) > 0 {
+	for _, claim := range [][2]string{{"illegal-when", "IllegalWhen"}, {"unverified", "Unverified"}, {"satisfies", "Satisfies"}} {
+		items := n.FindAll(claim[0])
+		if len(items) == 0 {
+			continue
+		}
 		reasons := map[string]string{}
-		for _, it := range illegal {
+		for _, it := range items {
 			if len(it.List) >= 3 && it.List[1].IsList && len(it.List[1].List) == 1 {
 				reasons[it.List[1].List[0].Atom] = it.List[2].Atom
 			}
 		}
-		b.WriteString("\t\tIllegalWhen: map[string]string{\n")
+		fmt.Fprintf(&b, "\t\t%s: map[string]string{\n", claim[1])
 		for _, req := range compile.SortedKeys(reasons) {
 			fmt.Fprintf(&b, "\t\t\t%s: %s,\n", strconv.Quote(req), strconv.Quote(reasons[req]))
 		}

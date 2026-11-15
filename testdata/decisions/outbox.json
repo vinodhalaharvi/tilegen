@@ -77,6 +77,18 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
         },
         {
+          "tile": "dynamodb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; TransactWriteItems can write both, and this tile does not generate one"
+        },
+        {
+          "tile": "etcd",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Txn can put both, and this tile does not generate one"
+        },
+        {
+          "tile": "leveldb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Batch or a Transaction commits several writes atomically, and this tile does not generate one"
+        },
+        {
           "tile": "memory",
           "reason": "nothing is committed, so a handler's writes and the record that it ran cannot share a transaction"
         },
@@ -85,8 +97,16 @@
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "pebble",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
           "tile": "postgres-pgx",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "redis-kv",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
           "tile": "sqlite-sqlc",
@@ -382,6 +402,18 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
         },
         {
+          "tile": "dynamodb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; TransactWriteItems can write both, and this tile does not generate one"
+        },
+        {
+          "tile": "etcd",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a Txn can put both, and this tile does not generate one"
+        },
+        {
+          "tile": "leveldb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a Batch or a Transaction commits several writes atomically, and this tile does not generate one"
+        },
+        {
           "tile": "memory",
           "reason": "nothing is committed, so there is no transaction for an event to share"
         },
@@ -390,8 +422,16 @@
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "pebble",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
           "tile": "postgres-pgx",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "redis-kv",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
           "tile": "sqlite-sqlc",

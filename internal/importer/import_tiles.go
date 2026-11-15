@@ -305,11 +305,18 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	fmt.Fprintf(&b, "      (error-package %s)\n", qual)
 	fmt.Fprintf(&b, "      (topics %s)\n\n", name)
 
-	b.WriteString("      ; TODO: which requirements make this the wrong answer? One clause\n")
-	b.WriteString("      ; per case, or none if it can meet them all. The reason is what a\n")
-	b.WriteString("      ; user reads when this tile is ruled out, so write it for a person.\n")
-	writeWrapped(&b, "      ; Requirements: ", "      ;   ", compile.KnownRequirements())
-	b.WriteString("      ; (illegal-when (REQUIREMENT) \"...\")\n\n")
+	b.WriteString("      ; TODO: answer each requirement a spec can state for this kind of\n")
+	b.WriteString("      ; tile, with the reason a person will read in explain. It is met\n")
+	b.WriteString("      ; (satisfies), it rules this tile out (illegal-when), or nobody has\n")
+	b.WriteString("      ; checked (unverified). Saying nothing about one is refused.\n")
+	for _, kind := range tiles.TileKinds {
+		if c := compile.Capabilities[tiles.TileKindCapability[kind]]; c != nil {
+			writeWrapped(&b, "      ; "+kind+": ", "      ;   ", c.Requirements)
+		}
+	}
+	b.WriteString("      (satisfies (TODO) \"TODO\")\n")
+	b.WriteString("      (illegal-when (TODO) \"TODO\")\n")
+	b.WriteString("      (unverified (TODO) \"TODO\")\n\n")
 
 	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
 	for _, kind := range tiles.TileKinds {
@@ -321,7 +328,10 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("        (llm-work TODO (source user \"TODO: how much must be written by hand?\"))\n")
 	b.WriteString("        (maintenance TODO (source user \"TODO: what goes wrong over months?\"))\n")
 	b.WriteString("        (dependency TODO (source user \"TODO: what does it pull in, and what must be installed?\"))\n")
-	b.WriteString("        (runtime TODO (source user \"TODO: what has to be running?\"))))))\n")
+	b.WriteString("        (runtime TODO (source user \"TODO: what does a call cost when the program runs?\"))\n")
+	b.WriteString("        ; and, when someone has to run a server for it:\n")
+	b.WriteString("        ; (operations N (source user \"what is there to run, back up and upgrade?\"))\n")
+	b.WriteString("        ))))\n")
 	return b.String()
 }
 

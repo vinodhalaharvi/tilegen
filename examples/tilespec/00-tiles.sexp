@@ -26,6 +26,15 @@
         "badger takes a directory lock; a second process cannot open the same store")
       (illegal-when (lookup-by-field)
         "one keyspace, one key; a secondary index would be written and repaired by hand")
+      (satisfies (durable)
+        "a directory on disk with a write-ahead log replayed on open")
+      (satisfies (no-broker)
+        "a library and a directory; there is no server")
+      (unverified (outbox)
+        "an outbox is one transaction over the entity and the event; this tile does not generate one")
+      (unverified (inbox)
+        "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one")
+
       (cost
         (llm-work 4
           (source derived "id-keyed get, save and delete in one transaction; secondary indexes are excluded by illegal-when, not priced here"))

@@ -39,9 +39,34 @@ it is: `store_bolt.go`, `bus_kafka.go`, `api_grpc.go`, `auth_oidc.go`,
 the tile and holds the code that emits its Go, and a test refuses a file
 that holds two tiles or is named for another.
 
-For a storage tile, `tilegen import -tiles` writes a skeleton from a
-go.mod, and `tilegen -out . SPEC` generates the file with its two holes;
-[TILES.md](TILES.md) has the rest.
+A storage tile starts as a spec in `internal/tiles/specs/NAME.sexp`:
+what the tile is, what each requirement means for it (met, ruled out, or
+unchecked, each with its reason), and what it costs. `tilegen import
+-tiles` writes a skeleton for one from a go.mod, and `tilegen symbols`
+says what the library really exports. Then:
+
+```sh
+tilegen -out /tmp/tile internal/tiles/specs/NAME.sexp   # the registration, and two holes
+cp /tmp/tile/internal/tiles/store_NAME.go internal/tiles/
+```
+
+and the two holes are written: what the generated store holds, and what
+each method has to do in the library's terms. [TILES.md](TILES.md) has
+the rest.
+
+A new tile is held to three things before it merges:
+
+- its spec and its Go file agree: generating from the spec gives the
+  registration that is checked in;
+- it compiles for real: pinned in a small spec, it generates a project
+  that builds and vets against the library it names;
+- it changes no decision it was not meant to: the golden decisions show
+  every example's choice, and a tile that wins one it should not has its
+  costs wrong.
+
+What these do not check is whether a claim is true. `(satisfies
+(durable) ...)` is the author's judgment, with the reason written beside
+it so that someone else can disagree.
 
 ## What keeps a change honest
 
