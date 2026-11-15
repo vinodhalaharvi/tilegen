@@ -1,10 +1,9 @@
 //go:build !js
 
-package main
+package mcpserver
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"flag"
 	"fmt"
@@ -31,9 +30,9 @@ import (
 // Every stage of the compiler is a weft.Arrow, and every tool is a
 // composition of those arrows:
 //
-//	generate = place ; readText ; decideTiles ; layFiles ; confine ; writeFiles ; report
-//	explain  = readText ; decideTiles ; describe
-//	many     = traverse (name △ attempt generate) ; tally
+//	Generate = place ; readText ; decideTiles ; layFiles ; confine ; writeFiles ; report
+//	Explain  = readText ; decideTiles ; describe
+//	Many     = traverse (name △ attempt generate) ; tally
 //	symbols  = (id △ resolve) ; pick
 //
 // (";" is weft.Compose, "△" is weft.Fanout.) Nothing here decides
@@ -104,116 +103,116 @@ type ManyOut struct {
 
 // The values that flow between stages.
 type (
-	placed struct { // a request, and where it is allowed to go
+	Placed struct { // a request, and where it is allowed to go
 		in  ProjectIn
-		dir string
+		Dir string
 	}
-	parsed struct { // the spec as forms
-		placed
+	Parsed struct { // the spec as forms
+		Placed
 		forms []*sexp.Node
 	}
-	decided struct { // every pass has run: the tiles are chosen
-		parsed
+	Decided struct { // every pass has run: the tiles are chosen
+		Parsed
 		cp *compile.Compiled
 	}
-	laid struct { // the files are planned against what is on disk; nothing is written
-		decided
-		rep *compile.Report
+	Laid struct { // the files are planned against what is on disk; nothing is written
+		Decided
+		Rep *compile.Report
 	}
 )
 
-var projectNameOK = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+var ProjectNameOK = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
 // place: a request to a folder under root, or a refusal. It is the only
 // stage that knows where files may go.
-func place(root string) weft.Arrow[ProjectIn, placed] {
-	return func(_ context.Context, in ProjectIn) (placed, error) {
-		if !projectNameOK.MatchString(in.Name) || strings.Contains(in.Name, "..") {
-			return placed{}, fmt.Errorf("the name %q cannot be a folder here: use lower-case letters, digits, '-', '_' and '.', starting with a letter or digit, at most 63 characters", in.Name)
+func Place(root string) weft.Arrow[ProjectIn, Placed] {
+	return func(_ context.Context, in ProjectIn) (Placed, error) {
+		if !ProjectNameOK.MatchString(in.Name) || strings.Contains(in.Name, "..") {
+			return Placed{}, fmt.Errorf("the name %q cannot be a folder here: use lower-case letters, digits, '-', '_' and '.', starting with a letter or digit, at most 63 characters", in.Name)
 		}
 		dir := filepath.Join(root, in.Name)
 		if rel, err := filepath.Rel(root, dir); err != nil || rel != in.Name {
-			return placed{}, fmt.Errorf("the name %q would leave the root folder %s", in.Name, root)
+			return Placed{}, fmt.Errorf("the name %q would leave the root folder %s", in.Name, root)
 		}
 		if st, err := os.Lstat(dir); err == nil && !st.IsDir() {
-			return placed{}, fmt.Errorf("%s exists and is not a folder (a file or a link); choose another name", dir)
+			return Placed{}, fmt.Errorf("%s exists and is not a folder (a file or a link); choose another name", dir)
 		}
 		entries, err := os.ReadDir(dir)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return placed{}, fmt.Errorf("the folder %s cannot be read: %w", dir, err)
+			return Placed{}, fmt.Errorf("the folder %s cannot be read: %w", dir, err)
 		}
 		if len(entries) > 0 {
 			if _, err := os.Stat(filepath.Join(dir, compile.LockFile)); err != nil {
-				return placed{}, fmt.Errorf("the folder %s already exists and is not a tilegen project (it has no %s); choose another name", dir, compile.LockFile)
+				return Placed{}, fmt.Errorf("the folder %s already exists and is not a tilegen project (it has no %s); choose another name", dir, compile.LockFile)
 			}
 		}
-		return placed{in: in, dir: dir}, nil
+		return Placed{in: in, Dir: dir}, nil
 	}
 }
 
 // readText: text to forms.
-func readText(_ context.Context, p placed) (parsed, error) {
+func ReadText(_ context.Context, p Placed) (Parsed, error) {
 	if strings.TrimSpace(p.in.Spec) == "" {
-		return parsed{}, errors.New(`the spec is empty; send the S-expression, starting "(project ..."`)
+		return Parsed{}, errors.New(`the spec is empty; send the S-expression, starting "(project ..."`)
 	}
 	forms, err := serve.ParseParts(p.in.Spec, p.in.Config, p.in.Policy)
 	if err != nil {
-		return parsed{}, err
+		return Parsed{}, err
 	}
-	return parsed{placed: p, forms: forms}, nil
+	return Parsed{Placed: p, forms: forms}, nil
 }
 
 // decideTiles: every pass. This is where each need gets its tile; a lock file
 // already in the folder pins the choices it records.
-func decideTiles(_ context.Context, p parsed) (decided, error) {
-	cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.dir}, io.Discard)
+func DecideTiles(_ context.Context, p Parsed) (Decided, error) {
+	cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.Dir}, io.Discard)
 	if err != nil {
-		return decided{}, err
+		return Decided{}, err
 	}
-	return decided{parsed: p, cp: cp}, nil
+	return Decided{Parsed: p, cp: cp}, nil
 }
 
 // layFiles: plan every file against what the folder holds. Nothing is written.
-func layFiles(_ context.Context, d decided) (laid, error) {
-	rep, err := compile.Emit(d.cp.Nodes, d.dir, d.cp.Ctx, false)
+func LayFiles(_ context.Context, d Decided) (Laid, error) {
+	rep, err := compile.Emit(d.cp.Nodes, d.Dir, d.cp.Ctx, false)
 	if err != nil {
-		return laid{}, err
+		return Laid{}, err
 	}
-	return laid{decided: d, rep: rep}, nil
+	return Laid{Decided: d, Rep: rep}, nil
 }
 
 // confine: refuse a plan with any path that is not inside the project's
 // folder, whatever the spec said about where its packages live.
-func confine(_ context.Context, l laid) (laid, error) {
-	paths := make([]string, 0, len(l.rep.Staged)+len(l.rep.Unlinked))
-	for rel := range l.rep.Staged {
+func Confine(_ context.Context, l Laid) (Laid, error) {
+	paths := make([]string, 0, len(l.Rep.Staged)+len(l.Rep.Unlinked))
+	for rel := range l.Rep.Staged {
 		paths = append(paths, rel)
 	}
-	for rel := range l.rep.Unlinked {
+	for rel := range l.Rep.Unlinked {
 		paths = append(paths, rel)
 	}
 	sort.Strings(paths)
 	for _, rel := range paths {
 		if !filepath.IsLocal(filepath.FromSlash(rel)) {
-			return laid{}, fmt.Errorf("this spec would put %q outside its project folder %s; a (dir ...) must stay inside the project", rel, l.dir)
+			return Laid{}, fmt.Errorf("this spec would put %q outside its project folder %s; a (dir ...) must stay inside the project", rel, l.Dir)
 		}
 	}
 	return l, nil
 }
 
 // writeFiles: put the plan on disk. The only stage with an effect outside memory.
-func writeFiles(_ context.Context, l laid) (laid, error) {
-	if err := os.MkdirAll(l.dir, 0o755); err != nil {
-		return laid{}, err
+func WriteFiles(_ context.Context, l Laid) (Laid, error) {
+	if err := os.MkdirAll(l.Dir, 0o755); err != nil {
+		return Laid{}, err
 	}
-	return l, l.rep.Apply()
+	return l, l.Rep.Apply()
 }
 
 // report: what a caller is told.
-func report(l laid) Project {
+func Report(l Laid) Project {
 	c := l.cp.Ctx
-	p := Project{Name: l.in.Name, Dir: l.dir, Decisions: decisions(c), Written: len(l.rep.Written), Unchanged: l.rep.Unchanged,
-		Kept: l.rep.Kept, Holes: l.rep.Tasks, Warnings: c.Warnings}
+	p := Project{Name: l.in.Name, Dir: l.Dir, Decisions: decisions(c), Written: len(l.Rep.Written), Unchanged: l.Rep.Unchanged,
+		Kept: l.Rep.Kept, Holes: l.Rep.Tasks, Warnings: c.Warnings}
 	for _, st := range compile.ToolSteps(c) {
 		p.Next = append(p.Next, st.Cmd)
 	}
@@ -235,9 +234,9 @@ func decisions(c *compile.Ctx) []Decision {
 	return out
 }
 
-// recovering turns a panic in a stage into that arrow's error, so one spec
+// Recovering turns a panic in a stage into that arrow's error, so one spec
 // that finds a bug in tilegen cannot take the server, or a batch, with it.
-func recovering[A, B any]() weft.Transform[A, B] {
+func Recovering[A, B any]() weft.Transform[A, B] {
 	return func(f weft.Arrow[A, B]) weft.Arrow[A, B] {
 		return func(ctx context.Context, a A) (b B, err error) {
 			defer func() {
@@ -250,11 +249,11 @@ func recovering[A, B any]() weft.Transform[A, B] {
 	}
 }
 
-// generate is the whole compiler, one stage after another.
-func generate(root string) weft.Arrow[ProjectIn, Project] {
+// Generate is the whole compiler, one stage after another.
+func Generate(root string) weft.Arrow[ProjectIn, Project] {
 	return weft.Apply(
-		weft.Map(weft.Pipe6(place(root), weft.Arrow[placed, parsed](readText), weft.Arrow[parsed, decided](decideTiles), weft.Arrow[decided, laid](layFiles), weft.Arrow[laid, laid](confine), weft.Arrow[laid, laid](writeFiles)), report),
-		recovering[ProjectIn, Project]())
+		weft.Map(weft.Pipe6(Place(root), weft.Arrow[Placed, Parsed](ReadText), weft.Arrow[Parsed, Decided](DecideTiles), weft.Arrow[Decided, Laid](LayFiles), weft.Arrow[Laid, Laid](Confine), weft.Arrow[Laid, Laid](WriteFiles)), Report),
+		Recovering[ProjectIn, Project]())
 }
 
 // attempt makes an arrow total: its error becomes the left of an Either,
@@ -271,20 +270,20 @@ func attempt[A, B any](f weft.Arrow[A, B]) weft.Arrow[A, weft.Either[string, B]]
 
 func nameOf(in ProjectIn) string { return in.Name }
 
-// maxBatch bounds one call. A client that wants more makes more calls.
-const maxBatch = 500
+// MaxBatch bounds one call. A client that wants more makes more calls.
+const MaxBatch = 500
 
-// many generates a batch: each project attempted on its own, in the order
+// Many generates a batch: each project attempted on its own, in the order
 // given, a bounded number at a time.
-func many(root string) weft.Arrow[ManyIn, ManyOut] {
-	each := weft.Fanout(weft.Pure(nameOf), attempt(generate(root)))
+func Many(root string) weft.Arrow[ManyIn, ManyOut] {
+	each := weft.Fanout(weft.Pure(nameOf), attempt(Generate(root)))
 	all := weft.Traverse(each, weft.WithConcurrency(min(8, runtime.NumCPU())))
 	return func(ctx context.Context, in ManyIn) (ManyOut, error) {
 		if len(in.Projects) == 0 {
 			return ManyOut{}, errors.New(`no projects; send {"projects": [{"name": "...", "spec": "(project ...)"}]}`)
 		}
-		if len(in.Projects) > maxBatch {
-			return ManyOut{}, fmt.Errorf("%d projects in one call; the most is %d, so send them in several calls", len(in.Projects), maxBatch)
+		if len(in.Projects) > MaxBatch {
+			return ManyOut{}, fmt.Errorf("%d projects in one call; the most is %d, so send them in several calls", len(in.Projects), MaxBatch)
 		}
 		seen := map[string]bool{}
 		for _, p := range in.Projects {
@@ -325,32 +324,32 @@ type ExplainIn struct {
 
 // decideWith is decideTiles with drafts in the running. A draft that wins
 // cannot generate, and the decision still stands: explaining it is the point.
-func decideWith(tiles string) weft.Arrow[parsed, decided] {
-	return func(_ context.Context, p parsed) (decided, error) {
-		cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.dir, Tiles: tiles}, io.Discard)
+func decideWith(tiles string) weft.Arrow[Parsed, Decided] {
+	return func(_ context.Context, p Parsed) (Decided, error) {
+		cp, err := compile.CompileForms(p.forms, compile.Options{Out: p.Dir, Tiles: tiles}, io.Discard)
 		var won *compile.DraftsChosen
 		if errors.As(err, &won) {
-			return decided{parsed: p, cp: won.Compiled}, nil
+			return Decided{Parsed: p, cp: won.Compiled}, nil
 		}
 		if err != nil {
-			return decided{}, err
+			return Decided{}, err
 		}
-		return decided{parsed: p, cp: cp}, nil
+		return Decided{Parsed: p, cp: cp}, nil
 	}
 }
 
 // explain: the decisions and the reasons, and nothing on disk.
-func explain() weft.Arrow[ExplainIn, any] {
-	here := weft.Pure(func(in ExplainIn) placed { return placed{in: ProjectIn{SpecIn: in.SpecIn}, dir: "project"} })
-	describe := func(d decided) any {
+func Explain() weft.Arrow[ExplainIn, any] {
+	here := weft.Pure(func(in ExplainIn) Placed { return Placed{in: ProjectIn{SpecIn: in.SpecIn}, Dir: "project"} })
+	describe := func(d Decided) any {
 		explainMu.Lock()
 		defer explainMu.Unlock()
 		return serve.ExplainJSON(d.cp, nil)
 	}
-	decide := func(ctx context.Context, in ExplainIn) (decided, error) {
-		return weft.Pipe3(here, weft.Arrow[placed, parsed](readText), decideWith(in.Tiles))(ctx, in)
+	decide := func(ctx context.Context, in ExplainIn) (Decided, error) {
+		return weft.Pipe3(here, weft.Arrow[Placed, Parsed](ReadText), decideWith(in.Tiles))(ctx, in)
 	}
-	return weft.Apply(weft.Map(weft.Arrow[ExplainIn, decided](decide), describe), recovering[ExplainIn, any]())
+	return weft.Apply(weft.Map(weft.Arrow[ExplainIn, Decided](decide), describe), Recovering[ExplainIn, any]())
 }
 
 // GoModIn is the text of a go.mod.
@@ -360,7 +359,7 @@ type GoModIn struct {
 
 // gomod: which of a go.mod's direct requirements a tile already speaks,
 // which engines that shows are in use, and which requirements no tile knows.
-func gomod() weft.Arrow[GoModIn, importer.GoModsJSON] {
+func GoMod() weft.Arrow[GoModIn, importer.GoModsJSON] {
 	return func(_ context.Context, in GoModIn) (importer.GoModsJSON, error) {
 		if strings.TrimSpace(in.GoMod) == "" {
 			return importer.GoModsJSON{}, errors.New(`no go.mod; send its text as {"gomod": "module ...\n\nrequire (...)"}`)
@@ -389,8 +388,8 @@ type SymbolsOut struct {
 	Missing []string               `json:"not_exported,omitempty"`
 }
 
-// maxSymbolDetails bounds how many symbols one call returns in full.
-const maxSymbolDetails = 25
+// MaxSymbolDetails bounds how many symbols one call returns in full.
+const MaxSymbolDetails = 25
 
 // resolve: a module and a version to what the type checker reads there.
 func resolve(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[SymbolsIn, *symbols.ModuleSymbols] {
@@ -417,7 +416,7 @@ func resolve(read func(mod, version string) (*symbols.ModuleSymbols, error)) wef
 }
 
 // symbolsTool: the index of a module, or the named symbols in full.
-func symbolsTool(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[SymbolsIn, SymbolsOut] {
+func SymbolsTool(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[SymbolsIn, SymbolsOut] {
 	pick := func(p weft.Pair[SymbolsIn, *symbols.ModuleSymbols]) (SymbolsOut, error) {
 		in, m := p.Fst, p.Snd
 		out := SymbolsOut{Module: m.Module, Version: m.Version}
@@ -426,8 +425,8 @@ func symbolsTool(read func(mod, version string) (*symbols.ModuleSymbols, error))
 			out.Index = &idx
 			return out, nil
 		}
-		if len(in.Symbols) > maxSymbolDetails {
-			return SymbolsOut{}, fmt.Errorf("%d symbols in one call; the most is %d, so ask in several calls", len(in.Symbols), maxSymbolDetails)
+		if len(in.Symbols) > MaxSymbolDetails {
+			return SymbolsOut{}, fmt.Errorf("%d symbols in one call; the most is %d, so ask in several calls", len(in.Symbols), MaxSymbolDetails)
 		}
 		for _, ref := range in.Symbols {
 			if d, ok := m.Detail(ref); ok {
@@ -441,7 +440,7 @@ func symbolsTool(read func(mod, version string) (*symbols.ModuleSymbols, error))
 	both := weft.Fanout(weft.Id[SymbolsIn](), resolve(read))
 	return weft.Apply(weft.Compose(both, weft.Arrow[weft.Pair[SymbolsIn, *symbols.ModuleSymbols], SymbolsOut](func(_ context.Context, p weft.Pair[SymbolsIn, *symbols.ModuleSymbols]) (SymbolsOut, error) {
 		return pick(p)
-	})), recovering[SymbolsIn, SymbolsOut]())
+	})), Recovering[SymbolsIn, SymbolsOut]())
 }
 
 // CheckTileIn is a drafted tile to hold to tilegen's rules and to its module.
@@ -465,7 +464,7 @@ type CheckTileOut struct {
 
 // checkTile: the form, by the parser every tile passes; then each cited
 // symbol, by the module itself.
-func checkTile(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
+func CheckTile(read func(mod, version string) (*symbols.ModuleSymbols, error)) weft.Arrow[CheckTileIn, CheckTileOut] {
 	form := func(_ context.Context, in CheckTileIn) (*compile.Offer, error) {
 		if strings.TrimSpace(in.Tile) == "" {
 			return nil, errors.New(`no tile; send {"tile": "(tile NAME (offers ...) ...)"}`)
@@ -502,7 +501,7 @@ func checkTile(read func(mod, version string) (*symbols.ModuleSymbols, error)) w
 		}
 		out.OK, out.Verified = true, true
 		return out, nil
-	}), recovering[CheckTileIn, CheckTileOut]())
+	}), Recovering[CheckTileIn, CheckTileOut]())
 }
 
 // Catalogue is what there is to ask for.
@@ -511,14 +510,16 @@ type Catalogue struct {
 	compile.TilesJSON
 }
 
-func catalogue() weft.Arrow[struct{}, Catalogue] {
+func CatalogueTool() weft.Arrow[struct{}, Catalogue] {
 	return weft.Pure(func(struct{}) Catalogue {
 		return Catalogue{Version: compile.Version, TilesJSON: compile.NewTilesJSON(compile.Registry())}
 	})
 }
 
-//go:embed README.md
-var readmeText string
+// Readme is this project's README. The program that embeds it hands
+// it over before it serves: a package cannot embed a file above its own
+// directory.
+var Readme string
 
 // Reference is how to write a spec.
 type Reference struct {
@@ -526,9 +527,9 @@ type Reference struct {
 	Reference string `json:"reference"`
 }
 
-// reference is the README's own sections on the spec, the config and
+// ReferenceTool is the README's own sections on the spec, the config and
 // choosing tiles: the same text a person reads, so it cannot drift.
-func reference() weft.Arrow[struct{}, Reference] {
+func ReferenceTool() weft.Arrow[struct{}, Reference] {
 	text := readmeSections("## The spec", "## The config", "## Choosing tiles")
 	return weft.Pure(func(struct{}) Reference { return Reference{Version: compile.Version, Reference: text} })
 }
@@ -536,7 +537,7 @@ func reference() weft.Arrow[struct{}, Reference] {
 // readmeSections returns the named level-two sections, each up to the next.
 func readmeSections(titles ...string) string {
 	var out []string
-	lines := strings.Split(readmeText, "\n")
+	lines := strings.Split(Readme, "\n")
 	for _, title := range titles {
 		on := false
 		for _, l := range lines {
@@ -555,49 +556,49 @@ const (
 	specProps = `"spec": {"type": "string", "minLength": 1, "description": "The spec, as S-expression text starting with (project NAME ...). It states requirements such as (durable) and (cross-process); it does not name a database or a broker. Call tilegen_reference for the language."},
 "config": {"type": "string", "description": "Optional. A (config ...) form that pins choices, for example (config (store postgres) (events nats)). Leave it out to let tilegen choose every tile."},
 "policy": {"type": "string", "description": "Optional. A (policy ...) form: cost weights, tiles to avoid, and engines already running."}`
-	noInput       = `{"type": "object", "properties": {}, "additionalProperties": false}`
+	NoInput       = `{"type": "object", "properties": {}, "additionalProperties": false}`
 	nameProp      = `"name": {"type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,62}$", "description": "The folder to create under the server's root, for example orders-api. One project per name."}`
-	oneSchema     = `{"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}`
-	manySchema    = `{"type": "object", "properties": {"projects": {"type": "array", "minItems": 1, "maxItems": 500, "description": "The projects to create, each in its own folder.", "items": {"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}}}, "required": ["projects"], "additionalProperties": false}`
-	explainSchema = `{"type": "object", "properties": {` + specProps + `, "tiles": {"type": "string", "description": "Optional. Drafted (tile ...) forms to weigh beside tilegen's own, to see whether a tool you already use would win. A draft can win a decision; it cannot generate code."}}, "required": ["spec"], "additionalProperties": false}`
-	gomodSchema   = `{"type": "object", "properties": {"gomod": {"type": "string", "minLength": 1, "description": "The text of a go.mod file."}}, "required": ["gomod"], "additionalProperties": false}`
-	symbolsSchema = `{"type": "object", "properties": {"module": {"type": "string", "minLength": 1, "description": "A Go module path, for example github.com/nats-io/nats.go."}, "version": {"type": "string", "description": "Optional. The version, as in go.mod, for example v1.55.0. Left out, the latest is read."}, "symbols": {"type": "array", "maxItems": 25, "items": {"type": "string"}, "description": "Optional. Symbols to return in full, written pkg.Name, for example nats.JetStream. Left out, the answer is the index: every package's names."}}, "required": ["module"], "additionalProperties": false}`
-	checkSchema   = `{"type": "object", "properties": {"tile": {"type": "string", "minLength": 1, "description": "One (tile NAME (offers CAPABILITY) (doc ...) (module ...) (symbols pkg.Name ...) (satisfies ...) (cost ...)) form."}, "version": {"type": "string", "description": "Optional. The module version to check the cited symbols against. Left out, the latest."}}, "required": ["tile"], "additionalProperties": false}`
+	OneSchema     = `{"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}`
+	ManySchema    = `{"type": "object", "properties": {"projects": {"type": "array", "minItems": 1, "maxItems": 500, "description": "The projects to create, each in its own folder.", "items": {"type": "object", "properties": {` + nameProp + `, ` + specProps + `}, "required": ["name", "spec"], "additionalProperties": false}}}, "required": ["projects"], "additionalProperties": false}`
+	ExplainSchema = `{"type": "object", "properties": {` + specProps + `, "tiles": {"type": "string", "description": "Optional. Drafted (tile ...) forms to weigh beside tilegen's own, to see whether a tool you already use would win. A draft can win a decision; it cannot generate code."}}, "required": ["spec"], "additionalProperties": false}`
+	GomodSchema   = `{"type": "object", "properties": {"gomod": {"type": "string", "minLength": 1, "description": "The text of a go.mod file."}}, "required": ["gomod"], "additionalProperties": false}`
+	SymbolsSchema = `{"type": "object", "properties": {"module": {"type": "string", "minLength": 1, "description": "A Go module path, for example github.com/nats-io/nats.go."}, "version": {"type": "string", "description": "Optional. The version, as in go.mod, for example v1.55.0. Left out, the latest is read."}, "symbols": {"type": "array", "maxItems": 25, "items": {"type": "string"}, "description": "Optional. Symbols to return in full, written pkg.Name, for example nats.JetStream. Left out, the answer is the index: every package's names."}}, "required": ["module"], "additionalProperties": false}`
+	CheckSchema   = `{"type": "object", "properties": {"tile": {"type": "string", "minLength": 1, "description": "One (tile NAME (offers CAPABILITY) (doc ...) (module ...) (symbols pkg.Name ...) (satisfies ...) (cost ...)) form."}, "version": {"type": "string", "description": "Optional. The module version to check the cited symbols against. Left out, the latest."}}, "required": ["tile"], "additionalProperties": false}`
 	scaffoldSay   = " Scaffolding only: types, interfaces, SQL, protobuf, wiring and a lock file are written, and method bodies that need judgment are left as typed holes. No model is called and no token is spent."
 )
 
-// mcpServer is tilegen's tools, each an arrow lifted out through weft.
-func mcpServer(root string) *mcp.Server {
+// Server is tilegen's tools, each an arrow lifted out through weft.
+func Server(root string) *mcp.Server {
 	return mcp.Serve(
-		mcp.ServeAsTool("tilegen_reference", reference(),
+		mcp.ServeAsTool("tilegen_reference", ReferenceTool(),
 			mcp.WithDescription("How to write a tilegen spec: the spec language with examples, the config that pins choices, and how tiles are chosen. Read this before writing a spec. Takes no input; returns {version, reference} where reference is Markdown."),
-			mcp.WithInputSchema([]byte(noInput))),
-		mcp.ServeAsTool("tilegen_catalogue", catalogue(),
+			mcp.WithInputSchema([]byte(NoInput))),
+		mcp.ServeAsTool("tilegen_catalogue", CatalogueTool(),
 			mcp.WithDescription("What there is to ask for: every capability with the requirements a spec may state for it, and every tile with what it guarantees, what rules it out, what it costs and what it needs running. Takes no input. Read-only."),
-			mcp.WithInputSchema([]byte(noInput))),
-		mcp.ServeAsTool("tilegen_explain", explain(),
+			mcp.WithInputSchema([]byte(NoInput))),
+		mcp.ServeAsTool("tilegen_explain", Explain(),
 			mcp.WithDescription("Decide, and write nothing. For a spec, returns each need, the tile chosen for it and its score, every other tile that could do it, and every tile ruled out with the reason. Use it to check a spec, or to see why a tile won, before generating. With \"tiles\", drafted tiles are weighed beside tilegen's own. An invalid spec comes back as an error that names the line and the fix."),
-			mcp.WithInputSchema([]byte(explainSchema))),
-		mcp.ServeAsTool("tilegen_gomod", gomod(),
+			mcp.WithInputSchema([]byte(ExplainSchema))),
+		mcp.ServeAsTool("tilegen_gomod", GoMod(),
 			mcp.WithDescription("Read a go.mod: which direct requirements a tile already speaks, which engines (postgres, nats, kafka ...) they show are in use, and which requirements no tile knows. Use it inside an existing project to see what tilegen covers before writing a spec, and to turn what is already running into a policy. Reads only the text sent; touches nothing."),
-			mcp.WithInputSchema([]byte(gomodSchema))),
-		mcp.ServeAsTool("tilegen_symbols", symbolsTool(symbols.Read),
+			mcp.WithInputSchema([]byte(GomodSchema))),
+		mcp.ServeAsTool("tilegen_symbols", SymbolsTool(symbols.Read),
 			mcp.WithDescription("What a Go module exports, as data read by the Go type checker (not from source text and not from memory): each interface with its whole method set and the types that satisfy it, each type with its methods and constructors, and the sentinel errors. Without \"symbols\" it returns the index, names only; with \"symbols\": [\"nats.JetStream\"] it returns those in full, with every signature. Use it before drafting a tile for a library, so each claim rests on something the library has. Fetches the module with the go tool if it is not on this machine; runs nothing from it."),
-			mcp.WithInputSchema([]byte(symbolsSchema))),
-		mcp.ServeAsTool("tilegen_check_tile", checkTile(symbols.Read),
+			mcp.WithInputSchema([]byte(SymbolsSchema))),
+		mcp.ServeAsTool("tilegen_check_tile", CheckTile(symbols.Read),
 			mcp.WithDescription("Hold a drafted tile to tilegen's rules: the form, by the parser every tile passes, and each symbol it cites in (symbols ...), by the module itself. Returns ok, or every problem with how to fix it. A tile that passes can be given to tilegen_explain as \"tiles\"."),
-			mcp.WithInputSchema([]byte(checkSchema))),
-		mcp.ServeAsTool("tilegen_generate", generate(root),
+			mcp.WithInputSchema([]byte(CheckSchema))),
+		mcp.ServeAsTool("tilegen_generate", Generate(root),
 			mcp.WithDescription("Create one Go project from a spec, in the folder NAME under the server's root."+scaffoldSay+" Returns the tile chosen for each need, how many files were written, how many holes are open, and the commands that make the project build. Calling it again with the same name and spec changes nothing; a folder that exists and is not a tilegen project is refused."),
-			mcp.WithInputSchema([]byte(oneSchema))),
-		mcp.ServeAsTool("tilegen_generate_many", many(root),
+			mcp.WithInputSchema([]byte(OneSchema))),
+		mcp.ServeAsTool("tilegen_generate_many", Many(root),
 			mcp.WithDescription("Create many Go projects in one call, each from its own spec, each in its own folder under the server's root (up to 500 per call)."+scaffoldSay+" A spec that fails is reported with its error and the others are still created. Returns, per project, either what was written or why it was not."),
-			mcp.WithInputSchema([]byte(manySchema))),
+			mcp.WithInputSchema([]byte(ManySchema))),
 	)
 }
 
-// mcpCmd runs the server on standard input and output until the client leaves.
-func mcpCmd(args []string, stderr io.Writer) error {
+// Cmd runs the server on standard input and output until the client leaves.
+func Cmd(args []string, stderr io.Writer) error {
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	rootFlag := fs.String("root", ".", "the folder projects are created under; nothing is written outside it")
@@ -621,5 +622,5 @@ func mcpCmd(args []string, stderr io.Writer) error {
 	if err := compile.CheckRegistry(); err != nil {
 		return fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
 	}
-	return mcp.RunStdioServer(mcpServer(root), mcp.WithServerInfo("tilegen", compile.Version))
+	return mcp.RunStdioServer(Server(root), mcp.WithServerInfo("tilegen", compile.Version))
 }

@@ -1456,6 +1456,7 @@ collaborators are welcome.
   Pub/Sub, among many others. [Writing a tile](#writing-a-tile) and
   [docs/TILES.md](docs/TILES.md) say how; a tile states what a tool
   guarantees, what rules it out and what it costs.
+  [docs/LAYOUT.md](docs/LAYOUT.md) says where everything lives.
 
 Issues and pull requests: <https://github.com/vinodhalaharvi/tilegen/issues>
 

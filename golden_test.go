@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/vinodhalaharvi/tilegen/internal/mcpserver"
 	"os"
 	"path/filepath"
 	"testing"
@@ -56,7 +57,7 @@ func TestGoldenCatalogue(t *testing.T) {
 // what else could have, and what was ruled out.
 func TestGoldenDecisions(t *testing.T) {
 	for _, c := range mcpCases(t) {
-		got, err := explain()(context.Background(), ExplainIn{SpecIn: SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}})
+		got, err := mcpserver.Explain()(context.Background(), mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}})
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
