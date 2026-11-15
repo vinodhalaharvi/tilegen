@@ -556,7 +556,7 @@
         "dependency": 1,
         "llm-work": 3,
         "maintenance": 2,
-        "operations": 3,
+        "operations": 5,
         "runtime": 1,
         "uncertainty": 2
       },
@@ -575,7 +575,7 @@
         "dependency": "golang-jwt only; the key set's fetching is the caller's",
         "llm-work": "parse with the right options, then map claims to a principal",
         "maintenance": "the issuer, audience and accepted algorithms to keep right",
-        "operations": "an issuer to run or pay for, whose keys rotate",
+        "operations": "an identity provider to run or pay for, with its clients and keys to keep right: the same one an OIDC verifier depends on",
         "runtime": "a signature check per request",
         "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
       }

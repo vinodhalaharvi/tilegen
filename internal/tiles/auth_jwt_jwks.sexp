@@ -20,7 +20,7 @@
     (maintenance 2 (source derived "the issuer, audience and accepted algorithms to keep right"))
     (dependency 1 (source derived "golang-jwt only; the key set's fetching is the caller's"))
     (runtime 1 (source derived "a signature check per request"))
-    (operations 3 (source derived "an issuer to run or pay for, whose keys rotate"))
+    (operations 5 (source derived "an identity provider to run or pay for, with its clients and keys to keep right: the same one an OIDC verifier depends on"))
     (uncertainty 2 (source derived "written from the library's documentation; no authenticator generated from this tile has been run against the real thing")))
 
   (about
