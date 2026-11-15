@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,7 +18,7 @@ const (
 )
 
 func TestGoModsSayWhatIsAlreadyRun(t *testing.T) {
-	got := scanGoMods([]string{billingMod, catalogMod, "this is not a go.mod"})
+	got := importer.ScanGoMods([]string{billingMod, catalogMod, "this is not a go.mod"})
 	if strings.Join(got.Modules, " ") != "github.com/acme/billing github.com/acme/catalog" || len(got.Errors) != 1 {
 		t.Fatalf("modules %v, errors %v", got.Modules, got.Errors)
 	}
@@ -110,13 +111,13 @@ func TestRunningEnginesCostNothingMoreToOperate(t *testing.T) {
 func TestServeGoMods(t *testing.T) {
 	body, _ := json.Marshal(map[string][]string{"files": {billingMod}})
 	res := serveRequest(t, "POST", "/gomods", string(body), "application/json")
-	var got GoModsJSON
+	var got importer.GoModsJSON
 	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || res.StatusCode != 200 || len(got.Running) != 2 {
 		t.Fatalf("%d %v %+v", res.StatusCode, err, got)
 	}
 	// No files is still a question: which engines are there to tick?
 	res = serveRequest(t, "POST", "/gomods", `{"files":[]}`, "application/json")
-	got = GoModsJSON{}
+	got = importer.GoModsJSON{}
 	if err := json.NewDecoder(res.Body).Decode(&got); err != nil || len(got.Engines) == 0 || len(got.Running) != 0 {
 		t.Errorf("%v %+v", err, got)
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"io"
 	"net/http"
@@ -136,9 +137,9 @@ func fakeClaude(t *testing.T, answers ...string) (calls *atomic.Int32, last *str
 		}
 		json.NewEncoder(w).Encode(map[string]any{"content": []map[string]string{{"type": "text", "text": answers[n]}}})
 	}))
-	old := anthropicURL
-	anthropicURL = srv.URL
-	t.Cleanup(func() { anthropicURL = old; srv.Close() })
+	old := importer.AnthropicURL
+	importer.AnthropicURL = srv.URL
+	t.Cleanup(func() { importer.AnthropicURL = old; srv.Close() })
 	if !symbolsStubbed {
 		// No test fetches a module unless it says so.
 		oldRead := symbols.Read
@@ -156,12 +157,12 @@ func TestClaudeDraftsAreHeldToTheSameChecks(t *testing.T) {
 	const mod = "github.com/cockroachdb/cockroach-go/v2"
 
 	calls, last := fakeClaude(t, "```lisp\n"+good+"\n```")
-	d := draftModule(ctx, "sk-ant-test", mod, "v2.3.8")
+	d := importer.DraftModule(ctx, "sk-ant-test", mod, "v2.3.8")
 	if d.Error != "" || d.Name != "cockroachdb" || !strings.HasPrefix(d.Tile, "(tile cockroachdb") || calls.Load() != 1 {
 		t.Fatalf("a good draft, fenced: %+v after %d call(s)", d, calls.Load())
 	}
 	// Claude is shown the capabilities, the form and tilegen's own tiles, and the module asked about.
-	for _, want := range []string{"Module: " + mod, "(tile postgres-sqlc", "(tile nats-jetstream", "store: persists an entity's values", "(not-a-tile", `"model":"` + defaultModel + `"`} {
+	for _, want := range []string{"Module: " + mod, "(tile postgres-sqlc", "(tile nats-jetstream", "store: persists an entity's values", "(not-a-tile", `"model":"` + importer.DefaultModel + `"`} {
 		if !strings.Contains(strings.ReplaceAll(*last, `\n`, "\n"), want) && !strings.Contains(*last, want) {
 			t.Errorf("the request should carry %q", want)
 		}
@@ -169,27 +170,27 @@ func TestClaudeDraftsAreHeldToTheSameChecks(t *testing.T) {
 
 	// A draft that fails goes back once, with tilegen's reason.
 	calls, last = fakeClaude(t, strings.Replace(good, "(durable)", "(durabel)", 1), good)
-	d = draftModule(ctx, "sk-ant-test", mod, "v2.3.8")
+	d = importer.DraftModule(ctx, "sk-ant-test", mod, "v2.3.8")
 	if d.Error != "" || d.Name != "cockroachdb" || calls.Load() != 2 || !strings.Contains(*last, "did you mean durable?") {
 		t.Fatalf("a corrected draft: %+v after %d call(s)", d, calls.Load())
 	}
 	// And only once: what still fails is reported, never accepted.
 	calls, _ = fakeClaude(t, "I think this is a database.")
-	d = draftModule(ctx, "sk-ant-test", mod, "v2.3.8")
+	d = importer.DraftModule(ctx, "sk-ant-test", mod, "v2.3.8")
 	if d.Tile != "" || calls.Load() != 2 || !strings.Contains(d.Error, "did not pass tilegen's checks") {
 		t.Fatalf("a draft that never passes: %+v after %d call(s)", d, calls.Load())
 	}
 	// A tile for some other module is not an answer to this question.
 	fakeClaude(t, good)
-	if d = draftModule(ctx, "sk-ant-test", "github.com/other/thing", "v1"); d.Tile != "" || !strings.Contains(d.Error, "it was asked about github.com/other/thing") {
+	if d = importer.DraftModule(ctx, "sk-ant-test", "github.com/other/thing", "v1"); d.Tile != "" || !strings.Contains(d.Error, "it was asked about github.com/other/thing") {
 		t.Errorf("a draft for the wrong module: %+v", d)
 	}
 	fakeClaude(t, `(not-a-tile "a payments SDK")`)
-	if d = draftModule(ctx, "sk-ant-test", "github.com/stripe/stripe-go/v81", "v81"); d.NotTile != "a payments SDK" || d.Tile != "" || d.Error != "" {
+	if d = importer.DraftModule(ctx, "sk-ant-test", "github.com/stripe/stripe-go/v81", "v81"); d.NotTile != "a payments SDK" || d.Tile != "" || d.Error != "" {
 		t.Errorf("not a tile: %+v", d)
 	}
 	fakeClaude(t, good)
-	if d = draftModule(ctx, "sk-ant-wrong", mod, "v2"); !strings.Contains(d.Error, "refused the key") {
+	if d = importer.DraftModule(ctx, "sk-ant-wrong", mod, "v2"); !strings.Contains(d.Error, "refused the key") {
 		t.Errorf("a bad key should be said plainly: %+v", d)
 	}
 }
@@ -247,7 +248,7 @@ func TestBuiltInTilesReadAsDrafts(t *testing.T) {
 				if o.Tile != pick {
 					continue
 				}
-				text := strings.Replace(draftForm(o), "(tile "+pick, "(tile example-"+pick, 1)
+				text := strings.Replace(importer.DraftForm(o), "(tile "+pick, "(tile example-"+pick, 1)
 				if _, err := compile.ParseDrafts(text); err != nil {
 					t.Errorf("%s, written as a draft, does not pass: %v\n%s", pick, err, text)
 				}

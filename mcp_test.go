@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
@@ -644,7 +645,7 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 
 	// a go.mod, read on the other side
 	mod := GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire github.com/nats-io/nats.go v1.55.0\n"}
-	gotMod, err := call[GoModIn, GoModsJSON](client, "tilegen_gomod")(ctx, mod)
+	gotMod, err := call[GoModIn, importer.GoModsJSON](client, "tilegen_gomod")(ctx, mod)
 	if err != nil {
 		t.Fatal(err)
 	}

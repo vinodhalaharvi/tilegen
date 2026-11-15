@@ -1,4 +1,4 @@
-package main
+package importer
 
 import (
 	"fmt"
@@ -124,8 +124,8 @@ func scanModule(dir string) (modPath string, cov []tileCoverage, err error) {
 	return modPath, cov, nil
 }
 
-// importTiles is `tilegen import -tiles`.
-func importTiles(dir, outDir string, force, withSymbols bool, stdout io.Writer) error {
+// Tiles is `tilegen import -tiles`.
+func Tiles(dir, outDir string, force, withSymbols bool, stdout io.Writer) error {
 	modPath, cov, err := scanModule(dir)
 	if err != nil {
 		return err
@@ -220,10 +220,10 @@ func writeWrapped(b *strings.Builder, first, rest string, items []string) {
 	b.WriteString(strings.TrimRight(line, " ") + "\n")
 }
 
-// kindComparison is the range of llm-work among the tiles tilegen already
+// KindComparison is the range of llm-work among the tiles tilegen already
 // Has of a kind, with the tile at each end: something to set a number
 // against.
-func kindComparison(kind string) string {
+func KindComparison(kind string) string {
 	costs := map[string]compile.Cost{}
 	for _, row := range compile.Registry() {
 		costs[row.Name] = row.Cost
@@ -313,7 +313,7 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 
 	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
 	for _, kind := range tiles.TileKinds {
-		if cmp := kindComparison(kind); cmp != "" {
+		if cmp := KindComparison(kind); cmp != "" {
 			fmt.Fprintf(&b, "      ;   %s: %s\n", kind, cmp)
 		}
 	}

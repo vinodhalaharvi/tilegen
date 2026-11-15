@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/importer"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
@@ -358,14 +359,14 @@ type GoModIn struct {
 
 // gomod: which of a go.mod's direct requirements a tile already speaks,
 // which engines that shows are in use, and which requirements no tile knows.
-func gomod() weft.Arrow[GoModIn, GoModsJSON] {
-	return func(_ context.Context, in GoModIn) (GoModsJSON, error) {
+func gomod() weft.Arrow[GoModIn, importer.GoModsJSON] {
+	return func(_ context.Context, in GoModIn) (importer.GoModsJSON, error) {
 		if strings.TrimSpace(in.GoMod) == "" {
-			return GoModsJSON{}, errors.New(`no go.mod; send its text as {"gomod": "module ...\n\nrequire (...)"}`)
+			return importer.GoModsJSON{}, errors.New(`no go.mod; send its text as {"gomod": "module ...\n\nrequire (...)"}`)
 		}
-		out := scanGoMods([]string{in.GoMod})
+		out := importer.ScanGoMods([]string{in.GoMod})
 		if len(out.Errors) > 0 {
-			return GoModsJSON{}, fmt.Errorf("that is not a go.mod: %s", strings.TrimPrefix(out.Errors[0], "file 1: "))
+			return importer.GoModsJSON{}, fmt.Errorf("that is not a go.mod: %s", strings.TrimPrefix(out.Errors[0], "file 1 is not a go.mod: "))
 		}
 		return out, nil
 	}
