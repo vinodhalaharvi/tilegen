@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -42,7 +43,7 @@ func init() {
 			if err != nil {
 				return StoreParts{}, err
 			}
-			var extra []*Node
+			var extra []*sexp.Node
 			suggest := map[string]string{} // query name -> the SQL sqlc would have compiled
 			for _, n := range sql {
 				if n.Head() == "sql/table" {
@@ -54,10 +55,10 @@ func init() {
 				}
 			}
 			return StoreParts{
-				Fields: []*Node{L(Sym("field"), Sym("pool"), Sym("*pgxpool.Pool"))},
-				Params: L(Sym("params"), L(Sym("pool"), Sym("*pgxpool.Pool"))),
+				Fields: []*sexp.Node{sexp.L(sexp.Sym("field"), sexp.Sym("pool"), sexp.Sym("*pgxpool.Pool"))},
+				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("pool"), sexp.Sym("*pgxpool.Pool"))),
 				Body:   fmt.Sprintf("return &%s{pool: pool}", in.Impl),
-				Hint: func(meth *Node) string {
+				Hint: func(meth *sexp.Node) string {
 					kind, f := methodOp(meth)
 					h := "Write the SQL and run it with s.pool (pgx v5), against the table in db/schema.sql."
 					if q := suggest[queryName(kind, in.Entity, f)]; q != "" {

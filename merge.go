@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"os"
 	"path/filepath"
 	"sort"
@@ -10,7 +11,7 @@ import (
 
 // ReadSpec parses a spec file, or every *.sexp file in a directory in
 // name order, keeping each form's own file:line:col.
-func ReadSpec(path string) ([]*Node, error) {
+func ReadSpec(path string) ([]*sexp.Node, error) {
 	info, err := os.Stat(path)
 	if err != nil {
 		return nil, err
@@ -25,13 +26,13 @@ func ReadSpec(path string) ([]*Node, error) {
 			return nil, fmt.Errorf("%s: no .sexp files in directory", path)
 		}
 	}
-	var forms []*Node
+	var forms []*sexp.Node
 	for _, f := range files {
 		src, err := os.ReadFile(f)
 		if err != nil {
 			return nil, err
 		}
-		fs, err := Parse(f, string(src))
+		fs, err := sexp.Parse(f, string(src))
 		if err != nil {
 			return nil, err
 		}
@@ -43,10 +44,10 @@ func ReadSpec(path string) ([]*Node, error) {
 // Linked is the result of Merge: one project plus the forms that sit
 // beside it and never change generated code.
 type Linked struct {
-	Project   *Node
-	Config    *Node // (config ...): house style
-	Workspace *Node // (workspace ...): how tilegen runs on this machine
-	Policy    *Node // (policy ...): what this team values, for selection
+	Project   *sexp.Node
+	Config    *sexp.Node // (config ...): house style
+	Workspace *sexp.Node // (workspace ...): how tilegen runs on this machine
+	Policy    *sexp.Node // (policy ...): what this team values, for selection
 }
 
 // Merge is a whole-program pass, the linker of this compiler. A spec may be
@@ -60,14 +61,14 @@ type Linked struct {
 //
 // Unlike the other passes it is not a set of local tiles: deciding that
 // two (package orders ...) forms are one package needs the whole program.
-func Merge(forms []*Node) (*Linked, error) {
+func Merge(forms []*sexp.Node) (*Linked, error) {
 	var errs []error
-	bad := func(n *Node, f string, a ...any) {
+	bad := func(n *sexp.Node, f string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", n.Pos, fmt.Sprintf(f, a...)))
 	}
-	var project, config, workspace, policy, repo *Node
-	var items []*Node // project items in order, top-level contributions after
-	var other []*Node // unknown top-level forms, left for the validator
+	var project, config, workspace, policy, repo *sexp.Node
+	var items []*sexp.Node // project items in order, top-level contributions after
+	var other []*sexp.Node // unknown top-level forms, left for the validator
 
 	for _, f := range forms {
 		switch f.Head() {
@@ -111,10 +112,10 @@ func Merge(forms []*Node) (*Linked, error) {
 		return &Linked{Config: config, Workspace: workspace, Policy: policy}, errorsFor(other)
 	}
 
-	merged := &Node{IsList: true, Pos: project.Pos, List: []*Node{project.List[0], project.List[1]}}
-	pkgs := map[string]*Node{}
-	reqs := map[string]*Node{} // alias -> entry
-	var reqForm *Node
+	merged := &sexp.Node{IsList: true, Pos: project.Pos, List: []*sexp.Node{project.List[0], project.List[1]}}
+	pkgs := map[string]*sexp.Node{}
+	reqs := map[string]*sexp.Node{} // alias -> entry
+	var reqForm *sexp.Node
 	for _, it := range items {
 		switch it.Head() {
 		case "package":
@@ -130,12 +131,12 @@ func Merge(forms []*Node) (*Linked, error) {
 				p.List = append(p.List, it.List[2:]...)
 				continue
 			}
-			p := &Node{IsList: true, Pos: it.Pos, List: append([]*Node{}, it.List...)}
+			p := &sexp.Node{IsList: true, Pos: it.Pos, List: append([]*sexp.Node{}, it.List...)}
 			pkgs[name] = p
 			merged.List = append(merged.List, p)
 		case "require":
 			if reqForm == nil {
-				reqForm = &Node{IsList: true, Pos: it.Pos, List: []*Node{it.List[0]}}
+				reqForm = &sexp.Node{IsList: true, Pos: it.Pos, List: []*sexp.Node{it.List[0]}}
 				merged.List = append(merged.List, reqForm)
 			}
 			for _, r := range it.Args() {
@@ -170,7 +171,7 @@ func Merge(forms []*Node) (*Linked, error) {
 	return &Linked{Project: merged, Config: config, Workspace: workspace, Policy: policy}, errorsFor(other)
 }
 
-func errorsFor(other []*Node) error {
+func errorsFor(other []*sexp.Node) error {
 	var errs []error
 	for _, f := range other {
 		errs = append(errs, fmt.Errorf("%s: unknown top-level form %s (want project, package, require, repo, config, workspace, policy)%s",

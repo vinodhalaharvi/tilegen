@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	goversion "go/version"
 	"path"
 	"strings"
@@ -55,14 +56,14 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "events",
 		Pass: Select,
-		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEventsAndOutbox,
+		Rule: Rule{Name: "events", Pattern: sexp.Pat("(events ?items...)"), Then: selectEventsAndOutbox,
 			Produces: "event-bus", Doc: "event structs, a typed Bus interface, and an in-process LocalBus",
 			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateEvents,
 	})
 }
 
-func validateEvents(v *validator, n *Node, types map[string]bool) {
+func validateEvents(v *validator, n *sexp.Node, types map[string]bool) {
 	if v.goVersion != "" && goversion.Compare("go"+v.goVersion, "go1.20") < 0 {
 		v.bad(n, "(events ...) needs (go 1.20) or later (generics and errors.Join); the project has (go %s)", v.goVersion)
 	}
@@ -109,7 +110,7 @@ type BusTransport struct {
 	Suffix string    // the implementation type: LocalBus, NatsBus
 	Topics []string  // GitHub topics a project using it gets
 	Import [2]string // qualifier and import path its code needs, if any
-	Emit   func(in BusInput) ([]*Node, error)
+	Emit   func(in BusInput) ([]*sexp.Node, error)
 
 	// Hints, when the transport leaves its methods as holes. Empty means
 	// the transport emits complete code, as local-bus does.
@@ -120,17 +121,17 @@ type BusTransport struct {
 type BusInput struct {
 	C       *Ctx
 	Pkg     *PkgScope
-	Impl    string   // the type name to declare
-	Events  []string // event type names, in spec order
-	CtxType string   // "context.Context, " or ""
-	CtxArg  string   // "ctx, " or ""
-	Methods []*Node  // the Bus interface's methods, for reference
+	Impl    string       // the type name to declare
+	Events  []string     // event type names, in spec order
+	CtxType string       // "context.Context, " or ""
+	CtxArg  string       // "ctx, " or ""
+	Methods []*sexp.Node // the Bus interface's methods, for reference
 }
 
 // selectEvents makes the parts every transport shares: one struct per
 // event, and the Bus interface. The transport chosen for this package's
 // event-bus need supplies the implementation.
-func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectEvents(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	cov := c.Cover[pkg.Name+".Bus"]
 	if cov == nil {
@@ -148,8 +149,8 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if doc == "" {
 		doc = fmt.Sprintf("Bus publishes the events of package %s and delivers them to handlers.", pkg.Name)
 	}
-	bus := L(Sym("go/interface"), Sym("Bus"), L(Sym("doc"), Str(doc)))
-	var decls []*Node
+	bus := sexp.L(sexp.Sym("go/interface"), sexp.Sym("Bus"), sexp.L(sexp.Sym("doc"), sexp.Str(doc)))
+	var decls []*sexp.Node
 	var events []string
 	for _, ev := range n.FindAll("event") {
 		name := ev.List[1].Atom
@@ -158,20 +159,20 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		if evDoc == "" {
 			evDoc = fmt.Sprintf("%s is an event of package %s.", name, pkg.Name)
 		}
-		st := L(Sym("go/struct"), Sym(name), L(Sym("doc"), Str(evDoc)))
+		st := sexp.L(sexp.Sym("go/struct"), sexp.Sym(name), sexp.L(sexp.Sym("doc"), sexp.Str(evDoc)))
 		st.List = append(st.List, ev.FindAll("field")...)
 		decls = append(decls, st)
 
-		params := L(Sym("params"))
+		params := sexp.L(sexp.Sym("params"))
 		if c.Cfg.ContextFirst {
-			params.List = append(params.List, L(Sym("ctx"), Sym("context.Context")))
+			params.List = append(params.List, sexp.L(sexp.Sym("ctx"), sexp.Sym("context.Context")))
 		}
-		params.List = append(params.List, L(Sym("e"), Sym(name)))
+		params.List = append(params.List, sexp.L(sexp.Sym("e"), sexp.Sym(name)))
 		bus.List = append(bus.List,
-			L(Sym("method"), Sym("Publish"+name), L(Sym("doc"), Str(fmt.Sprintf("Publish%s delivers e to every %s handler.", name, name))),
-				params, L(Sym("returns"), Sym("error"))),
-			L(Sym("method"), Sym("On"+name), L(Sym("doc"), Str(fmt.Sprintf("On%s subscribes h to %s and returns a func that unsubscribes it.", name, name))),
-				L(Sym("params"), L(Sym("h"), Str(fmt.Sprintf("func(%s%s) error", ctxType, name)))), L(Sym("returns"), Str("func()"))))
+			sexp.L(sexp.Sym("method"), sexp.Sym("Publish"+name), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("Publish%s delivers e to every %s handler.", name, name))),
+				params, sexp.L(sexp.Sym("returns"), sexp.Sym("error"))),
+			sexp.L(sexp.Sym("method"), sexp.Sym("On"+name), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("On%s subscribes h to %s and returns a func that unsubscribes it.", name, name))),
+				sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("h"), sexp.Str(fmt.Sprintf("func(%s%s) error", ctxType, name)))), sexp.L(sexp.Sym("returns"), sexp.Str("func()"))))
 	}
 	decls = append(decls, bus)
 
@@ -180,7 +181,7 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	assert := L(Sym("go/assert"), Sym("Bus"), Sym(tr.Suffix))
+	assert := sexp.L(sexp.Sym("go/assert"), sexp.Sym("Bus"), sexp.Sym(tr.Suffix))
 
 	// A transport that emits complete code (local-bus) goes in the
 	// generated file with everything else. One that leaves its methods to
@@ -191,7 +192,7 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []*Node{gen}, nil
+		return []*sexp.Node{gen}, nil
 	}
 	gen, err := goFile(c, path.Join(pkg.Dir, "events_gen.go"), "generated", "", append(decls, assert))
 	if err != nil {
@@ -199,7 +200,7 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	}
 	file := path.Join(pkg.Dir, snake(tr.Suffix)+".go")
 	stubs, tasks := stubsAndTasks(pkg, tr.Suffix, "Bus", file, bus.FindAll("method"),
-		func(meth *Node) string {
+		func(meth *sexp.Node) string {
 			name := meth.List[1].Atom
 			for _, ev := range events {
 				if strings.HasSuffix(name, ev) {
@@ -213,39 +214,39 @@ func selectEvents(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{gen, implFile}, tasks...), nil
+	return append([]*sexp.Node{gen, implFile}, tasks...), nil
 }
 
 // emitLocalBus is the in-process transport: one handler list per event,
 // delivered synchronously in the publisher's goroutine.
-func emitLocalBus(in BusInput) ([]*Node, error) {
+func emitLocalBus(in BusInput) ([]*sexp.Node, error) {
 	ctxParam := ""
 	if in.CtxType != "" {
 		ctxParam = "ctx context.Context, "
 	}
-	local := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str("LocalBus is an in-process Bus. Publish calls every handler in subscription\n"+
+	local := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str("LocalBus is an in-process Bus. Publish calls every handler in subscription\n"+
 		"order, in the publisher's goroutine, and returns their errors joined.\n"+
 		"Handlers may subscribe and unsubscribe at any time, even from a handler.")))
-	var methods []*Node
+	var methods []*sexp.Node
 	for _, name := range in.Events {
 		field := lowerFirstWord(name) + "Handlers"
 		handler := fmt.Sprintf("func(%s%s) error", in.CtxType, name)
-		params := L(Sym("params"))
+		params := sexp.L(sexp.Sym("params"))
 		if in.CtxType != "" {
-			params.List = append(params.List, L(Sym("ctx"), Sym("context.Context")))
+			params.List = append(params.List, sexp.L(sexp.Sym("ctx"), sexp.Sym("context.Context")))
 		}
-		params.List = append(params.List, L(Sym("e"), Sym(name)))
-		local.List = append(local.List, L(Sym("field"), Sym(field), Str("subscribers["+name+"]")))
+		params.List = append(params.List, sexp.L(sexp.Sym("e"), sexp.Sym(name)))
+		local.List = append(local.List, sexp.L(sexp.Sym("field"), sexp.Sym(field), sexp.Str("subscribers["+name+"]")))
 		methods = append(methods,
-			L(Sym("go/func"), Sym("Publish"+name), L(Sym("recv"), Sym("b"), Sym("*"+in.Impl)), params,
-				L(Sym("returns"), Sym("error")), L(Sym("body"), Str(fmt.Sprintf("return b.%s.publish(%se)", field, in.CtxArg)))),
-			L(Sym("go/func"), Sym("On"+name), L(Sym("recv"), Sym("b"), Sym("*"+in.Impl)), L(Sym("params"), L(Sym("h"), Str(handler))),
-				L(Sym("returns"), Str("func()")), L(Sym("body"), Str(fmt.Sprintf("return b.%s.add(h)", field)))))
+			sexp.L(sexp.Sym("go/func"), sexp.Sym("Publish"+name), sexp.L(sexp.Sym("recv"), sexp.Sym("b"), sexp.Sym("*"+in.Impl)), params,
+				sexp.L(sexp.Sym("returns"), sexp.Sym("error")), sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return b.%s.publish(%se)", field, in.CtxArg)))),
+			sexp.L(sexp.Sym("go/func"), sexp.Sym("On"+name), sexp.L(sexp.Sym("recv"), sexp.Sym("b"), sexp.Sym("*"+in.Impl)), sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("h"), sexp.Str(handler))),
+				sexp.L(sexp.Sym("returns"), sexp.Str("func()")), sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return b.%s.add(h)", field)))))
 	}
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl), L(Sym("doc"), Str(fmt.Sprintf("New%s returns an empty %s.", in.Impl, in.Impl))),
-		L(Sym("params")), L(Sym("returns"), Sym("*"+in.Impl)), L(Sym("body"), Str("return &"+in.Impl+"{}")))
-	out := append([]*Node{local, ctor}, methods...)
-	return append(out, L(Sym("go/raw"), Str(subscribersHelper(in.CtxType, ctxParam, in.CtxArg)))), nil
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns an empty %s.", in.Impl, in.Impl))),
+		sexp.L(sexp.Sym("params")), sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)), sexp.L(sexp.Sym("body"), sexp.Str("return &"+in.Impl+"{}")))
+	out := append([]*sexp.Node{local, ctor}, methods...)
+	return append(out, sexp.L(sexp.Sym("go/raw"), sexp.Str(subscribersHelper(in.CtxType, ctxParam, in.CtxArg)))), nil
 }
 
 // subscribersHelper is the generic handler list every LocalBus field uses.

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/vinodhalaharvi/dyna"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
 // Selection, properly.
@@ -143,9 +144,9 @@ type Need struct {
 	Capability   string
 	Requirements []string // from the shared vocabulary
 	Want         string   // the form the parent wants; "" means domain
-	Pos          Pos
-	Node         *Node // the spec node, for tiles that need it
-	Data         any   // whatever the tile that made this need attached
+	Pos          sexp.Pos
+	Node         *sexp.Node // the spec node, for tiles that need it
+	Data         any        // whatever the tile that made this need attached
 }
 
 // A Covering is the chosen tile for a need, its children's coverings, and
@@ -449,7 +450,7 @@ func rejections(rs []Rejected) string {
 }
 
 // validateRequirements reports requirements a capability does not accept.
-func validateRequirements(capability string, reqs []string, at *Node, v *validator) {
+func validateRequirements(capability string, reqs []string, at *sexp.Node, v *validator) {
 	c := capabilities[capability]
 	if c == nil {
 		return

@@ -1,4 +1,4 @@
-package main
+package sexp
 
 import (
 	"fmt"
@@ -247,13 +247,13 @@ func Dump(nodes []*Node) string {
 	return strings.Join(parts, "\n\n") + "\n"
 }
 
-// inheritPos gives every position-less node in n the position p, so
+// InheritPos gives every position-less node in n the position p, so
 // errors about generated nodes point back at the source form.
-func inheritPos(n *Node, p Pos) {
+func InheritPos(n *Node, p Pos) {
 	if n.Pos.Line == 0 {
 		n.Pos = p
 	}
 	for _, c := range n.List {
-		inheritPos(c, p)
+		InheritPos(c, p)
 	}
 }

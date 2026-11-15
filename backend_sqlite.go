@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -45,7 +46,7 @@ func init() {
 		GenerateDoc:  "generate internal/db from db/*.sql",
 		Dialect:      SQLite,
 		ErrorPackage: "", // database/sql errors are standard library
-		ProjectForms: func(c *Ctx) []*Node { return []*Node{sqlcConfig(c)} },
+		ProjectForms: func(c *Ctx) []*sexp.Node { return []*sexp.Node{sqlcConfig(c)} },
 		Implement: func(in StoreInput) (StoreParts, error) {
 			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {
@@ -66,10 +67,10 @@ func init() {
 				}
 			}
 			return StoreParts{
-				Fields: []*Node{L(Sym("field"), Sym("q"), Sym("*db.Queries"))},
-				Params: L(Sym("params"), L(Sym("q"), Sym("*db.Queries"))),
+				Fields: []*sexp.Node{sexp.L(sexp.Sym("field"), sexp.Sym("q"), sexp.Sym("*db.Queries"))},
+				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("q"), sexp.Sym("*db.Queries"))),
 				Body:   fmt.Sprintf("return &%s{q: q}", in.Impl),
-				Hint: func(meth *Node) string {
+				Hint: func(meth *sexp.Node) string {
 					h := sqlcHint(meth, in.Entity, "sql.ErrNoRows") // database/sql, not pgx
 					kind, _ := methodOp(meth)
 					if len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {

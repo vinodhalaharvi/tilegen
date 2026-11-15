@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"strings"
 )
@@ -29,7 +30,7 @@ import (
 
 // inboxRequirements is the requirement an (inbox ...) in the package's
 // events puts on every store of the package.
-func inboxRequirements(pkg *Node) []string {
+func inboxRequirements(pkg *sexp.Node) []string {
 	for _, ev := range pkg.FindAll("events") {
 		if ev.Find("inbox") != nil {
 			return []string{"inbox"}
@@ -38,7 +39,7 @@ func inboxRequirements(pkg *Node) []string {
 	return nil
 }
 
-func validateInbox(v *validator, n, it *Node, types map[string]bool) {
+func validateInbox(v *validator, n, it *sexp.Node, types map[string]bool) {
 	b := v.shape(it, "(inbox ?event ?field)")
 	if b == nil {
 		return
@@ -81,7 +82,7 @@ func validateInbox(v *validator, n, it *Node, types map[string]bool) {
 	}
 }
 
-func selectInbox(c *Ctx, n *Node) ([]*Node, error) {
+func selectInbox(c *Ctx, n *sexp.Node) ([]*sexp.Node, error) {
 	pkg := c.Pkg
 	if !c.Cfg.ContextFirst {
 		return nil, fmt.Errorf("%s: (inbox ...) needs handlers that take a context.Context; remove (context-first false) from the config", n.Pos)
@@ -110,14 +111,14 @@ func selectInbox(c *Ctx, n *Node) ([]*Node, error) {
 
 	table := pkg.Name + "_inbox"
 	q := camelUpper(pkg.Name) + "Inbox"
-	nodes := []*Node{
-		L(Sym("sql/table"), Str(table), Str(fmt.Sprintf(
+	nodes := []*sexp.Node{
+		sexp.L(sexp.Sym("sql/table"), sexp.Str(table), sexp.Str(fmt.Sprintf(
 			"CREATE TABLE %s (\n  consumer TEXT NOT NULL,\n  key TEXT NOT NULL,\n  handled_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  PRIMARY KEY (consumer, key)\n);", table))),
 		// The primary key does the work: a second delivery's insert waits
 		// for the first's transaction, then finds its row and inserts none.
-		L(Sym("sql/query"), Str("Mark"+q), Str(fmt.Sprintf(
+		sexp.L(sexp.Sym("sql/query"), sexp.Str("Mark"+q), sexp.Str(fmt.Sprintf(
 			"-- name: Mark%s :execrows\nINSERT INTO %s (consumer, key) VALUES ($1, $2) ON CONFLICT DO NOTHING;", q, table))),
-		L(Sym("sql/query"), Str("Prune"+q), Str(fmt.Sprintf(
+		sexp.L(sexp.Sym("sql/query"), sexp.Str("Prune"+q), sexp.Str(fmt.Sprintf(
 			"-- name: Prune%s :execrows\nDELETE FROM %s WHERE handled_at < now() - ($1::bigint * interval '1 second');", q, table))),
 	}
 
@@ -189,12 +190,12 @@ func (in *Inbox) Prune(ctx context.Context, olderThan time.Duration) (int64, err
 	return n, tx.Commit(ctx)
 }`, q)
 
-	gen, err := goFile(c, path.Join(pkg.Dir, "inbox_gen.go"), "generated", "", []*Node{L(Sym("go/raw"), Str(b.String()))})
+	gen, err := goFile(c, path.Join(pkg.Dir, "inbox_gen.go"), "generated", "", []*sexp.Node{sexp.L(sexp.Sym("go/raw"), sexp.Str(b.String()))})
 	if err != nil {
 		return nil, err
 	}
 	for _, imp := range [][2]string{{"db", c.Module + "/internal/db"}, {"pgx", "github.com/jackc/pgx/v5"}} {
-		gen.List = append(gen.List, L(Sym("import"), Sym(imp[0]), Str(imp[1])))
+		gen.List = append(gen.List, sexp.L(sexp.Sym("import"), sexp.Sym(imp[0]), sexp.Str(imp[1])))
 	}
 	return append(nodes, gen), nil
 }

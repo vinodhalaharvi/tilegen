@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
 )
@@ -373,7 +374,7 @@ func typeString(t types.Type, qual types.Qualifier) string { return types.TypeSt
 // quoteType quotes a type when the spec needs it to (spaces or parens).
 func quoteType(s string) string {
 	if strings.ContainsAny(s, " ()\"") {
-		return Str(s).Flat()
+		return sexp.Str(s).Flat()
 	}
 	return s
 }
@@ -393,7 +394,7 @@ func structForm(named *types.Named, st *types.Struct, qual types.Qualifier, p *p
 		}
 		fmt.Fprintf(&b, "\n  (field %s %s", f.Name(), quoteType(typeString(f.Type(), qual)))
 		if tag := reflectTag(st.Tag(i)); tag != "" {
-			fmt.Fprintf(&b, " (tag %s)", Str(tag).Flat())
+			fmt.Fprintf(&b, " (tag %s)", sexp.Str(tag).Flat())
 		}
 		b.WriteString(")")
 	}

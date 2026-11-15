@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"golang.org/x/tools/imports"
 )
 
@@ -47,7 +48,7 @@ func defaultFill() FillConfig {
 	return FillConfig{Retries: 1, Timeout: 5 * time.Minute, Build: "go build ./..."}
 }
 
-func parseFill(n *Node, fc *FillConfig, bad func(*Node, string, ...any)) {
+func parseFill(n *sexp.Node, fc *FillConfig, bad func(*sexp.Node, string, ...any)) {
 	for _, it := range n.Args() {
 		if len(it.List) != 2 || it.List[1].IsList {
 			bad(it, "expected (%s value), got %s", it.Head(), short(it))

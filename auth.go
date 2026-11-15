@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"strings"
 )
@@ -37,14 +38,14 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "auth",
 		Pass: Select,
-		Rule: Rule{Name: "auth", Pattern: Pat("(auth ?items...)"), Then: selectAuth,
+		Rule: Rule{Name: "auth", Pattern: sexp.Pat("(auth ?items...)"), Then: selectAuth,
 			Produces: "auth", Doc: "a Principal, an Authenticator interface, and middleware that fills the context",
 			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateAuth,
 	})
 }
 
-func validateAuth(v *validator, n *Node, types map[string]bool) {
+func validateAuth(v *validator, n *sexp.Node, types map[string]bool) {
 	for _, name := range []string{"Principal", "Authenticator"} {
 		if types[name] {
 			v.bad(n, "(auth ...) generates %s, but the package already declares it (one auth form per package)", name)
@@ -74,7 +75,7 @@ type AuthScheme struct {
 	Suffix string    // the implementation type: JWTAuthenticator
 	Topics []string  // GitHub topics a project using it gets
 	Import [2]string // qualifier and import path its code needs, if any
-	Emit   func(in AuthInput) ([]*Node, error)
+	Emit   func(in AuthInput) ([]*sexp.Node, error)
 
 	// Hint is the intent for Authenticate. Empty means the scheme emits
 	// complete code and leaves no hole.
@@ -92,7 +93,7 @@ type AuthInput struct {
 
 // selectAuth makes the parts every scheme shares, then asks the chosen
 // scheme for the implementation.
-func selectAuth(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectAuth(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	cov := c.Cover[pkg.Name+".Auth"]
 	if cov == nil {
@@ -112,20 +113,20 @@ func selectAuth(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if doc == "" {
 		doc = fmt.Sprintf("Principal is who a request to package %s turned out to be.", pkg.Name)
 	}
-	principal := L(Sym("go/struct"), Sym("Principal"), L(Sym("doc"), Str(doc)),
-		L(Sym("field"), Sym("Subject"), Sym("string"), L(Sym("doc"), Str("Subject identifies the caller: a user id, a service name, whatever the scheme says."))),
-		L(Sym("field"), Sym("Scopes"), Str("[]string"), L(Sym("doc"), Str("Scopes are what the caller is allowed to do, as the scheme reported them."))))
+	principal := sexp.L(sexp.Sym("go/struct"), sexp.Sym("Principal"), sexp.L(sexp.Sym("doc"), sexp.Str(doc)),
+		sexp.L(sexp.Sym("field"), sexp.Sym("Subject"), sexp.Sym("string"), sexp.L(sexp.Sym("doc"), sexp.Str("Subject identifies the caller: a user id, a service name, whatever the scheme says."))),
+		sexp.L(sexp.Sym("field"), sexp.Sym("Scopes"), sexp.Str("[]string"), sexp.L(sexp.Sym("doc"), sexp.Str("Scopes are what the caller is allowed to do, as the scheme reported them."))))
 
-	params := L(Sym("params"))
+	params := sexp.L(sexp.Sym("params"))
 	if c.Cfg.ContextFirst {
-		params.List = append(params.List, L(Sym("ctx"), Sym("context.Context")))
+		params.List = append(params.List, sexp.L(sexp.Sym("ctx"), sexp.Sym("context.Context")))
 	}
-	params.List = append(params.List, L(Sym("r"), Sym("*http.Request")))
-	iface := L(Sym("go/interface"), Sym("Authenticator"),
-		L(Sym("doc"), Str("Authenticator decides who a request is from.\nIt reports ErrUnauthenticated when it cannot say, which is not the same\nas an error: a failure to reach a key server is the scheme's own error.")),
-		L(Sym("method"), Sym("Authenticate"),
-			L(Sym("doc"), Str("Authenticate returns the principal r is from, or an error.\nIt never returns a principal alongside an error.")),
-			params, L(Sym("returns"), Sym("*Principal"), Sym("error"))))
+	params.List = append(params.List, sexp.L(sexp.Sym("r"), sexp.Sym("*http.Request")))
+	iface := sexp.L(sexp.Sym("go/interface"), sexp.Sym("Authenticator"),
+		sexp.L(sexp.Sym("doc"), sexp.Str("Authenticator decides who a request is from.\nIt reports ErrUnauthenticated when it cannot say, which is not the same\nas an error: a failure to reach a key server is the scheme's own error.")),
+		sexp.L(sexp.Sym("method"), sexp.Sym("Authenticate"),
+			sexp.L(sexp.Sym("doc"), sexp.Str("Authenticate returns the principal r is from, or an error.\nIt never returns a principal alongside an error.")),
+			params, sexp.L(sexp.Sym("returns"), sexp.Sym("*Principal"), sexp.Sym("error"))))
 
 	// Inside Protect the only context is the request's, so the call there
 	// is r.Context() even though the interface is context-first.
@@ -133,13 +134,13 @@ func selectAuth(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if ctxArg != "" {
 		callArg = "r.Context(), "
 	}
-	decls := []*Node{principal, iface, L(Sym("go/raw"), Str(authHelpers(callArg)))}
+	decls := []*sexp.Node{principal, iface, sexp.L(sexp.Sym("go/raw"), sexp.Str(authHelpers(callArg)))}
 
 	impl, err := scheme.Emit(in)
 	if err != nil {
 		return nil, err
 	}
-	assert := L(Sym("go/assert"), Sym("Authenticator"), Sym(scheme.Suffix))
+	assert := sexp.L(sexp.Sym("go/assert"), sexp.Sym("Authenticator"), sexp.Sym(scheme.Suffix))
 
 	// A scheme that emits complete code goes in the generated file with
 	// everything else. One that leaves Authenticate to the LLM gets a
@@ -149,7 +150,7 @@ func selectAuth(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		if err != nil {
 			return nil, err
 		}
-		return []*Node{gen}, nil
+		return []*sexp.Node{gen}, nil
 	}
 	gen, err := goFile(c, path.Join(pkg.Dir, "auth_gen.go"), "generated", "", append(decls, assert))
 	if err != nil {
@@ -158,13 +159,13 @@ func selectAuth(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	file := path.Join(pkg.Dir, snake(scheme.Suffix)+".go")
 	context := []string{path.Join(pkg.Dir, pkg.Name+"_gen.go"), path.Join(pkg.Dir, "auth_gen.go")}
 	stubs, tasks := stubsAndTasks(pkg, scheme.Suffix, "Authenticator", file, iface.FindAll("method"),
-		func(meth *Node) string { return scheme.Hint(in) }, context,
+		func(meth *sexp.Node) string { return scheme.Hint(in) }, context,
 		[]string{"Return ErrUnauthenticated when the request carries no usable credential, and never a principal alongside an error."})
 	implFile, err := goFile(c, file, "keep", "", append(impl, stubs...))
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{gen, implFile}, tasks...), nil
+	return append([]*sexp.Node{gen, implFile}, tasks...), nil
 }
 
 // authHelpers is the fixed code around any scheme: the two sentinel

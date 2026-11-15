@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"golang.org/x/mod/modfile"
 )
 
@@ -48,7 +49,7 @@ var (
 
 // parseRepo reads a validated (repo ...) form. project is the project name,
 // the default repository name.
-func parseRepo(n *Node, project string) *RepoInfo {
+func parseRepo(n *sexp.Node, project string) *RepoInfo {
 	r := &RepoInfo{Name: project, Visibility: "private", License: "mit"}
 	if gh := n.Text("github"); gh != "" {
 		r.GitHub = true
@@ -76,7 +77,7 @@ func parseRepo(n *Node, project string) *RepoInfo {
 	return r
 }
 
-func (v *validator) repo(n *Node) {
+func (v *validator) repo(n *sexp.Node) {
 	seen := map[string]bool{}
 	for _, it := range n.Args() {
 		h := it.Head()
@@ -129,9 +130,9 @@ func (v *validator) repo(n *Node) {
 // (module ...), then the project's committed go.mod, and only on a -git
 // run, `gh api user`. So plain generation never needs the network, and
 // every machine derives the same module path.
-func resolveProject(project *Node, name, out string, needOwner bool, r Runner, c *Ctx) error {
+func resolveProject(project *sexp.Node, name, out string, needOwner bool, r Runner, c *Ctx) error {
 	if name != "" {
-		project.List[1] = &Node{Atom: name, Pos: project.List[1].Pos}
+		project.List[1] = &sexp.Node{Atom: name, Pos: project.List[1].Pos}
 	}
 	projectName := project.List[1].Atom
 	repo := project.Find("repo")
@@ -169,12 +170,12 @@ func resolveProject(project *Node, name, out string, needOwner bool, r Runner, c
 	}
 	if info.GitHub && info.Owner != "" {
 		gh := repo.Find("github")
-		gh.List[1] = &Node{Atom: info.Full(), Pos: gh.List[1].Pos}
+		gh.List[1] = &sexp.Node{Atom: info.Full(), Pos: gh.List[1].Pos}
 	}
 	want := "github.com/" + info.Full()
 	insertModule := func(path string) {
-		mod := &Node{IsList: true, Pos: repo.Pos, List: []*Node{Sym("module"), Sym(path)}}
-		project.List = append(project.List[:2], append([]*Node{mod}, project.List[2:]...)...)
+		mod := &sexp.Node{IsList: true, Pos: repo.Pos, List: []*sexp.Node{sexp.Sym("module"), sexp.Sym(path)}}
+		project.List = append(project.List[:2], append([]*sexp.Node{mod}, project.List[2:]...)...)
 	}
 	switch {
 	case fromGoMod:
@@ -202,7 +203,7 @@ func githubOwner(module string) (string, bool) {
 
 // selectRepo is the tile for (repo ...): starter files, created once and
 // then yours, plus a (git/repo ...) target form that -git acts on.
-func selectRepo(c *Ctx, project, repo *Node) []*Node {
+func selectRepo(c *Ctx, project, repo *sexp.Node) []*sexp.Node {
 	name := project.List[1].Atom
 	info := parseRepo(repo, name)
 	topics := []string{"go", "golang", "tilegen"}
@@ -220,23 +221,23 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 		}
 	}
 	seen := map[string]bool{}
-	gr := L(Sym("git/repo"), L(Sym("name"), Str(info.Name)), L(Sym("visibility"), Sym(info.Visibility)))
+	gr := sexp.L(sexp.Sym("git/repo"), sexp.L(sexp.Sym("name"), sexp.Str(info.Name)), sexp.L(sexp.Sym("visibility"), sexp.Sym(info.Visibility)))
 	if info.GitHub {
-		gr.List = append(gr.List, L(Sym("github"), Str(info.Full())))
+		gr.List = append(gr.List, sexp.L(sexp.Sym("github"), sexp.Str(info.Full())))
 	}
 	if info.Description != "" {
-		gr.List = append(gr.List, L(Sym("description"), Str(info.Description)))
+		gr.List = append(gr.List, sexp.L(sexp.Sym("description"), sexp.Str(info.Description)))
 	}
 	for _, t := range append(topics, info.Topics...) {
 		if !seen[t] {
 			seen[t] = true
-			gr.List = append(gr.List, L(Sym("topic"), Sym(t)))
+			gr.List = append(gr.List, sexp.L(sexp.Sym("topic"), sexp.Sym(t)))
 		}
 	}
-	file := func(path, content string) *Node {
-		return L(Sym("text/file"), Str(path), L(Sym("mode"), Sym("keep")), Str(content))
+	file := func(path, content string) *sexp.Node {
+		return sexp.L(sexp.Sym("text/file"), sexp.Str(path), sexp.L(sexp.Sym("mode"), sexp.Sym("keep")), sexp.Str(content))
 	}
-	out := []*Node{
+	out := []*sexp.Node{
 		file(".gitignore", "# Build output\n/bin/\n*.test\ncoverage.out\n\n# tilegen pass dumps and API cache (both regenerate)\n/.tilegen/\n\n# Editors and OS\n.idea/\n.vscode/\n.DS_Store\n"),
 		file("README.md", readme(c, project, info)),
 		file("Makefile", makefile(c)),
@@ -254,7 +255,7 @@ func selectRepo(c *Ctx, project, repo *Node) []*Node {
 	return append(out, gr)
 }
 
-func readme(c *Ctx, project *Node, info *RepoInfo) string {
+func readme(c *Ctx, project *sexp.Node, info *RepoInfo) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", info.Name)
 	if d := project.Text("doc"); d != "" {
@@ -363,7 +364,7 @@ func shellLine(dir, name string, args []string) string {
 // gitPrepare runs before any file is written. It returns how the output
 // directory came to be a repository: "existing" (already a git repo: use
 // as is), "cloned" (the GitHub repo existed: cloned it), or "new".
-func gitPrepare(out string, gr *Node, r Runner, dry bool) (string, error) {
+func gitPrepare(out string, gr *sexp.Node, r Runner, dry bool) (string, error) {
 	if _, err := os.Stat(filepath.Join(out, ".git")); err == nil {
 		return "existing", nil
 	}
@@ -392,7 +393,7 @@ func gitPrepare(out string, gr *Node, r Runner, dry bool) (string, error) {
 // gitFinish runs after generation. New repositories get a buildable first
 // commit and, with (github ...), a GitHub repository and topics. Existing
 // and cloned ones are left for you to review and commit.
-func gitFinish(out, mode string, gr *Node, c *Ctx, r Runner, log io.Writer) error {
+func gitFinish(out, mode string, gr *sexp.Node, c *Ctx, r Runner, log io.Writer) error {
 	full := gr.Text("github")
 	var topics []string
 	for _, t := range gr.FindAll("topic") {

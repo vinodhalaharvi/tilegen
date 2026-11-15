@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"sort"
 	"strings"
 )
@@ -33,7 +34,7 @@ func init() {
 
 // needsOf reads a package's spec nodes and returns what each one needs.
 // A need's ID is stable and is the key in tilegen.lock.
-func needsOf(pkg *Node, pkgName string) []*Need {
+func needsOf(pkg *sexp.Node, pkgName string) []*Need {
 	var out []*Need
 	for _, e := range pkg.FindAll("entity") {
 		store := e.Find("store")
@@ -92,7 +93,7 @@ func needsOf(pkg *Node, pkgName string) []*Need {
 // lookupRequirements reads the operations a store was asked for and adds
 // what they imply. Asking to find an entity by anything other than its key
 // is a requirement even though nobody wrote it as one.
-func lookupRequirements(store *Node) []string {
+func lookupRequirements(store *sexp.Node) []string {
 	for _, op := range store.Args() {
 		if op.IsList && strings.HasSuffix(op.Head(), "-by") {
 			return []string{"lookup-by-field"}
@@ -101,7 +102,7 @@ func lookupRequirements(store *Node) []string {
 	return nil
 }
 
-func requirementsOf(n *Node) []string {
+func requirementsOf(n *sexp.Node) []string {
 	var out []string
 	for _, it := range n.Args() {
 		if it.IsList && len(it.List) == 1 && contains(knownRequirements(), it.Head()) {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -14,7 +15,7 @@ import (
 // asks about a type without a project in hand (the chain cost model).
 var sqlTypes = Postgres.Types
 
-func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
+func sqlFor(c *Ctx, entity string, st *sexp.Node, ops *sexp.Node) ([]*sexp.Node, error) {
 	d := dialectOf(c)
 	table := plural(snake(entity))
 	var cols, names []string
@@ -39,8 +40,8 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 		cols = append(cols, fmt.Sprintf("  %s %s", col, sqlt))
 		names = append(names, col)
 	}
-	out := []*Node{L(Sym("sql/table"), Str(table),
-		Str(fmt.Sprintf("CREATE TABLE %s (\n%s\n);", table, strings.Join(cols, ",\n"))))}
+	out := []*sexp.Node{sexp.L(sexp.Sym("sql/table"), sexp.Str(table),
+		sexp.Str(fmt.Sprintf("CREATE TABLE %s (\n%s\n);", table, strings.Join(cols, ",\n"))))}
 
 	for _, op := range ops.Args() {
 		kind, f := opKind(op)
@@ -79,21 +80,21 @@ func sqlFor(c *Ctx, entity string, st *Node, ops *Node) ([]*Node, error) {
 			continue // custom methods: no SQL
 		}
 		name := queryName(kind, entity, f)
-		out = append(out, L(Sym("sql/query"), Str(name), Str("-- name: "+name+" "+body)))
+		out = append(out, sexp.L(sexp.Sym("sql/query"), sexp.Str(name), sexp.Str("-- name: "+name+" "+body)))
 	}
 	return out, nil
 }
 
 // sqlcConfig describes sqlc.yaml. Overrides make sqlc emit the same Go
 // types the domain uses, which shrinks the mapping the LLM has to write.
-func sqlcConfig(c *Ctx) *Node {
+func sqlcConfig(c *Ctx) *sexp.Node {
 	d := dialectOf(c)
-	n := L(Sym("sqlc/config"),
-		L(Sym("engine"), Str(d.Name)),
-		L(Sym("sql-package"), Str(d.SQLPackage)),
-		L(Sym("schema"), Str("db/schema.sql")),
-		L(Sym("queries"), Str("db/query.sql")),
-		L(Sym("out"), Str("internal/db")))
+	n := sexp.L(sexp.Sym("sqlc/config"),
+		sexp.L(sexp.Sym("engine"), sexp.Str(d.Name)),
+		sexp.L(sexp.Sym("sql-package"), sexp.Str(d.SQLPackage)),
+		sexp.L(sexp.Sym("schema"), sexp.Str("db/schema.sql")),
+		sexp.L(sexp.Sym("queries"), sexp.Str("db/query.sql")),
+		sexp.L(sexp.Sym("out"), sexp.Str("internal/db")))
 	for _, o := range d.Overrides(c) {
 		n.List = append(n.List, o)
 	}

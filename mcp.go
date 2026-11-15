@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/weft/mcp"
 	"github.com/vinodhalaharvi/weft/weft"
 )
@@ -105,7 +106,7 @@ type (
 	}
 	parsed struct { // the spec as forms
 		placed
-		forms []*Node
+		forms []*sexp.Node
 	}
 	decided struct { // every pass has run: the tiles are chosen
 		parsed

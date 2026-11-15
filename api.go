@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"sort"
 	"strings"
@@ -103,7 +104,7 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "api",
 		Pass: Select,
-		Rule: Rule{Name: "api", Pattern: Pat("(api ?items...)"), Then: selectAPI,
+		Rule: Rule{Name: "api", Pattern: sexp.Pat("(api ?items...)"), Then: selectAPI,
 			Produces: "api", Doc: "a server for the package's entities, over whichever transport its clients need",
 			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateAPI,
@@ -115,7 +116,7 @@ type APITransport struct {
 	Flavor  string            // "connect" or "grpc" for the schema tiles
 	Plugin  string            // the buf plugin that generates its service code
 	Imports map[string]string // qualifier -> import path its hole signatures name
-	Emit    func(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, error)
+	Emit    func(m *Munch, n *sexp.Node, ops []apiOp, tr *APITransport) ([]*sexp.Node, error)
 }
 
 // apiVerbs are the store operations an api can serve.
@@ -124,7 +125,7 @@ var apiVerbs = []string{"get", "list", "save", "delete"}
 // apiOp is one operation an api serves: (get Order).
 type apiOp struct{ Verb, Entity string }
 
-func validateAPI(v *validator, n *Node, types map[string]bool) {
+func validateAPI(v *validator, n *sexp.Node, types map[string]bool) {
 	for _, name := range []string{"Handler", "NewHandler", "APIServer", "NewAPIServer"} {
 		if types[name] {
 			v.bad(n, "(api ...) generates %s, but the package already declares it (one api or http form per package)", name)
@@ -161,7 +162,7 @@ func validateAPI(v *validator, n *Node, types map[string]bool) {
 	}
 }
 
-func selectAPI(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectAPI(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	cov := c.Cover[pkg.Name+".API"]
 	if cov == nil {
@@ -199,7 +200,7 @@ func selectAPI(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 }
 
 // storeHas reports whether a store interface has the method a verb calls.
-func storeHas(iface *Node, verb string) bool {
+func storeHas(iface *sexp.Node, verb string) bool {
 	want := strings.ToUpper(verb[:1]) + verb[1:]
 	for _, meth := range iface.FindAll("method") {
 		if meth.List[1].Atom == want {
@@ -212,8 +213,8 @@ func storeHas(iface *Node, verb string) bool {
 // emitHTTPJSON gives each operation the route a REST reader expects and
 // hands the result to the http tile, so (api ...) and (http ...) cannot
 // drift apart.
-func emitHTTPJSON(m *Munch, n *Node, ops []apiOp, _ *APITransport) ([]*Node, error) {
-	h := L(Sym("http"))
+func emitHTTPJSON(m *Munch, n *sexp.Node, ops []apiOp, _ *APITransport) ([]*sexp.Node, error) {
+	h := sexp.L(sexp.Sym("http"))
 	h.Pos = n.Pos
 	if doc := n.Find("doc"); doc != nil {
 		h.List = append(h.List, doc)
@@ -229,9 +230,9 @@ func emitHTTPJSON(m *Munch, n *Node, ops []apiOp, _ *APITransport) ([]*Node, err
 		case "delete":
 			method, p = "DELETE", base+"/{id}"
 		}
-		h.List = append(h.List, L(Sym("route"), Sym(method), Str(p), L(Sym(op.Verb), Sym(op.Entity))))
+		h.List = append(h.List, sexp.L(sexp.Sym("route"), sexp.Sym(method), sexp.Str(p), sexp.L(sexp.Sym(op.Verb), sexp.Sym(op.Entity))))
 	}
-	return selectHTTP(m, Bindings{}, h)
+	return selectHTTP(m, sexp.Bindings{}, h)
 }
 
 // ---- the schema tiles: a .proto, and a server over it ----
@@ -527,7 +528,7 @@ func protoText(pm *protoModel) string {
 
 // emitProtoAPI writes the .proto, asks for the buf plugins, and generates
 // the server for either schema tile.
-func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, error) {
+func emitProtoAPI(m *Munch, n *sexp.Node, ops []apiOp, tr *APITransport) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	if !c.Cfg.ContextFirst {
 		return nil, fmt.Errorf("%s: the %s tile needs stores that take a context.Context, since every RPC carries one; remove (context-first false) from the config",
@@ -538,13 +539,13 @@ func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, er
 		return nil, err
 	}
 	protoFile := path.Join("proto", pm.Pkg, "v1", pm.Pkg+".proto")
-	out := []*Node{
-		L(Sym("text/file"), Str(protoFile), L(Sym("mode"), Sym("generated")), Str(protoText(pm))),
-		L(Sym("buf/plugin"), Str("protoc-gen-go")),
-		L(Sym("buf/plugin"), Str(tr.Plugin)),
+	out := []*sexp.Node{
+		sexp.L(sexp.Sym("text/file"), sexp.Str(protoFile), sexp.L(sexp.Sym("mode"), sexp.Sym("generated")), sexp.Str(protoText(pm))),
+		sexp.L(sexp.Sym("buf/plugin"), sexp.Str("protoc-gen-go")),
+		sexp.L(sexp.Sym("buf/plugin"), sexp.Str(tr.Plugin)),
 	}
 
-	gen, err := goFile(c, path.Join(pkg.Dir, "api_gen.go"), "generated", "", []*Node{L(Sym("go/raw"), Str(serverText(pm, tr, n.Text("doc"))))})
+	gen, err := goFile(c, path.Join(pkg.Dir, "api_gen.go"), "generated", "", []*sexp.Node{sexp.L(sexp.Sym("go/raw"), sexp.Str(serverText(pm, tr, n.Text("doc"))))})
 	if err != nil {
 		return nil, err
 	}
@@ -563,7 +564,7 @@ func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, er
 	}
 	for _, q := range sortedKeys(imports) {
 		if imports[q] != "" { // goimports drops the ones this server does not use
-			gen.List = append(gen.List, L(Sym("import"), Sym(q), Str(imports[q])))
+			gen.List = append(gen.List, sexp.L(sexp.Sym("import"), sexp.Sym(q), sexp.Str(imports[q])))
 		}
 	}
 	out = append(out, gen)
@@ -575,26 +576,26 @@ func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, er
 		codeType, codeDoc = "codes.Code", "codes.NotFound for ErrNotFound, codes.AlreadyExists for a conflict, codes.Internal for anything else"
 	}
 	file := path.Join(pkg.Dir, "api.go")
-	var methods []*Node
+	var methods []*sexp.Node
 	intents := map[string]string{}
 	for _, msg := range pm.Messages {
 		e, lower := msg.Name, lowerFirstWord(msg.Name)
 		if msg.Event {
-			methods = append(methods, L(Sym("method"), Sym("allow"+e),
-				L(Sym("params"), L(Sym("ctx"), Sym("context.Context")), L(Sym("e"), Sym(e))), L(Sym("returns"), Sym("bool"))))
+			methods = append(methods, sexp.L(sexp.Sym("method"), sexp.Sym("allow"+e),
+				sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("ctx"), sexp.Sym("context.Context")), sexp.L(sexp.Sym("e"), sexp.Sym(e))), sexp.L(sexp.Sym("returns"), sexp.Sym("bool"))))
 			intents["allow"+e] = fmt.Sprintf("Report whether the caller behind ctx may be sent this %s. It is asked once per event per watcher, so it must be quick and must not block. Return true to send it to everyone.", e)
 			continue
 		}
 		if serves(ops, "save", e) {
-			methods = append(methods, L(Sym("method"), Sym("validate"+e), L(Sym("params"), L(Sym(lower), Sym("*"+e))), L(Sym("returns"), Sym("error"))))
+			methods = append(methods, sexp.L(sexp.Sym("method"), sexp.Sym("validate"+e), sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym(lower), sexp.Sym("*"+e))), sexp.L(sexp.Sym("returns"), sexp.Sym("error"))))
 			intents["validate"+e] = fmt.Sprintf("Report what makes this %s unacceptable, before it reaches the store. Return nil when it is fine; the error's text is sent to the client as an invalid-argument error.", e)
 		}
-		methods = append(methods, L(Sym("method"), Sym("codeFor"+e), L(Sym("params"), L(Sym("err"), Sym("error"))), L(Sym("returns"), Sym(codeType))))
+		methods = append(methods, sexp.L(sexp.Sym("method"), sexp.Sym("codeFor"+e), sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("err"), sexp.Sym("error"))), sexp.L(sexp.Sym("returns"), sexp.Sym(codeType))))
 		intents["codeFor"+e] = fmt.Sprintf("Map an error from %sStore to a status code: %s. The error's text is sent to the client, so return the internal code for anything not meant to be seen.", e, codeDoc)
 	}
 	context := []string{path.Join(pkg.Dir, pkg.Name+"_gen.go"), path.Join(pkg.Dir, "api_gen.go")}
 	stubs, tasks := stubsAndTasksAs("s", pkg, "APIServer", "the API", file, methods,
-		func(meth *Node) string { return intents[meth.List[1].Atom] }, context, nil)
+		func(meth *sexp.Node) string { return intents[meth.List[1].Atom] }, context, nil)
 	// Which errors mean a conflict is a question about the store's driver,
 	// so name its error package and the prompt carries the real API.
 	for _, t := range tasks {
@@ -605,7 +606,7 @@ func emitProtoAPI(m *Munch, n *Node, ops []apiOp, tr *APITransport) ([]*Node, er
 		}
 		if cov := c.Cover[pkg.Name+"."+id[i+len(".codeFor"):]+"Store"]; cov != nil {
 			if be, ok := cov.Offer.Impl.(*Backend); ok && be.ErrorPackage != "" {
-				t.List = append(t.List, L(Sym("api-package"), Str(be.ErrorPackage)))
+				t.List = append(t.List, sexp.L(sexp.Sym("api-package"), sexp.Str(be.ErrorPackage)))
 			}
 		}
 	}
@@ -868,7 +869,7 @@ func bufFiles(plugins []string) (yaml, gen string) {
 
 // watchRequirements is the requirement a (watch Event) puts on its api:
 // only a tile that can hold a stream open can serve one.
-func watchRequirements(api *Node) []string {
+func watchRequirements(api *sexp.Node) []string {
 	if api.Find("watch") != nil {
 		return []string{"streaming"}
 	}

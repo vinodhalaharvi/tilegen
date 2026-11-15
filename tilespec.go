@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"sort"
 	"strconv"
@@ -41,13 +42,19 @@ import (
 // registration and a different pair of holes.
 var tileKinds = []string{"store-backend"}
 
+// tilePackages are the packages of tilegen a generated tile's signatures
+// name, by qualifier.
+var tilePackages = map[string]string{
+	"sexp": "github.com/vinodhalaharvi/tilegen/internal/sexp",
+}
+
 // tileKindCapability is the capability each kind of tile offers.
 var tileKindCapability = map[string]string{"store-backend": "store"}
 
 // unanswered reports whether a form still carries a TODO: the atom, or a
 // string that starts with it. A skeleton is full of them, and none may
 // reach a decision.
-func unanswered(n *Node) bool {
+func unanswered(n *sexp.Node) bool {
 	if !n.IsList {
 		return n.Atom == "TODO" || strings.HasPrefix(n.Atom, "TODO:") || strings.HasPrefix(n.Atom, "TODO ")
 	}
@@ -65,7 +72,7 @@ func init() {
 		Pass: Select,
 		Rule: Rule{
 			Name:     "tile-spec",
-			Pattern:  Pat("(tile-spec ?name ?items...)"),
+			Pattern:  sexp.Pat("(tile-spec ?name ?items...)"),
 			Then:     selectTileSpec,
 			Produces: "go/file",
 			Doc:      "a tile for tilegen itself: the registration compiled, the judgment left open",
@@ -81,7 +88,7 @@ var costDims = []string{"llm-work", "maintenance", "dependency", "runtime", "unc
 
 var costSources = []string{"default", "measured", "derived", "user"}
 
-func validateTileSpec(v *validator, n *Node, types map[string]bool) {
+func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
 	b := v.shape(n, "(tile-spec ?name ?items...)")
 	if b == nil {
 		return
@@ -174,7 +181,7 @@ func validateTileSpec(v *validator, n *Node, types map[string]bool) {
 
 // validateIllegalWhen checks (illegal-when (durable) "reason"). The reason
 // is not optional: it is the whole explanation a user reads in explain.
-func validateIllegalWhen(v *validator, it *Node) {
+func validateIllegalWhen(v *validator, it *sexp.Node) {
 	b := v.shape(it, "(illegal-when ?req ?reason)")
 	if b == nil {
 		return
@@ -195,7 +202,7 @@ func validateIllegalWhen(v *validator, it *Node) {
 }
 
 // validateTileCost checks (cost (llm-work 4 (source derived "...")) ...).
-func validateTileCost(v *validator, it *Node) {
+func validateTileCost(v *validator, it *sexp.Node) {
 	if len(it.Args()) == 0 {
 		v.bad(it, "(cost ...) needs at least one dimension: %s", strings.Join(costDims, ", "))
 		return
@@ -256,7 +263,7 @@ func validTileName(s string) bool {
 
 // selectTileSpec emits the tile: one scaffolded file holding the whole
 // registration and two stubs, plus a task per stub.
-func selectTileSpec(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectTileSpec(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	name := b.Atom("name")
 	kind := n.Text("kind")
@@ -265,44 +272,51 @@ func selectTileSpec(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			name, kind, strings.Join(tileKinds, ", "))
 	}
 
+	// A tile is a file of tilegen's own, so it may name tilegen's packages.
+	for q, imp := range tilePackages {
+		if c.Local[q] == "" {
+			c.Local[q] = imp
+		}
+	}
+
 	impl := tileStructName(name)
 	file := path.Join(pkg.Dir, "tile_"+strings.ReplaceAll(name, "-", "_")+".go")
 
 	methods := storeBackendHoles()
 	stubs, tasks := stubsAndTasks(pkg, impl, "the "+name+" tile", file, methods,
-		func(meth *Node) string { return storeBackendIntent(meth.List[1].Atom, name, n) },
-		[]string{"backend_memory.go", "registry.go"},
+		func(meth *sexp.Node) string { return storeBackendIntent(meth.List[1].Atom, name, n) },
+		[]string{"backend_memory.go", "registry.go", "internal/sexp/sexp.go"},
 		[]string{
 			"Return only the method asked for, with the signature given.",
-			"Emit target forms with L, Sym and Str; never write files.",
+			"Emit target forms with sexp.L, sexp.Sym and sexp.Str; never write files.",
 		})
 
-	decls := []*Node{
-		L(Sym("go/raw"), Str(storeBackendRegistration(name, impl, n))),
-		L(Sym("go/struct"), Sym(impl), L(Sym("doc"), Str(fmt.Sprintf(
+	decls := []*sexp.Node{
+		sexp.L(sexp.Sym("go/raw"), sexp.Str(storeBackendRegistration(name, impl, n))),
+		sexp.L(sexp.Sym("go/struct"), sexp.Sym(impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 			"%s carries the parts of the %s tile that are judgment rather than\ndeclaration. It holds nothing: it gives the two holes an address.", impl, name)))),
 	}
 	out, err := goFile(c, file, "keep", "", append(decls, stubs...))
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{out}, tasks...), nil
+	return append([]*sexp.Node{out}, tasks...), nil
 }
 
 // storeBackendHoles are the two methods a store backend cannot declare:
 // what its implementation struct holds, and what each op means for it.
-func storeBackendHoles() []*Node {
-	return []*Node{
-		L(Sym("method"), Sym("Implement"),
-			L(Sym("params"), L(Sym("in"), Sym("StoreInput"))),
-			L(Sym("returns"), Sym("StoreParts"), Sym("error"))),
-		L(Sym("method"), Sym("Hint"),
-			L(Sym("params"), L(Sym("meth"), Sym("*Node"))),
-			L(Sym("returns"), Sym("string"))),
+func storeBackendHoles() []*sexp.Node {
+	return []*sexp.Node{
+		sexp.L(sexp.Sym("method"), sexp.Sym("Implement"),
+			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("in"), sexp.Sym("StoreInput"))),
+			sexp.L(sexp.Sym("returns"), sexp.Sym("StoreParts"), sexp.Sym("error"))),
+		sexp.L(sexp.Sym("method"), sexp.Sym("Hint"),
+			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("meth"), sexp.Sym("*sexp.Node"))),
+			sexp.L(sexp.Sym("returns"), sexp.Sym("string"))),
 	}
 }
 
-func storeBackendIntent(method, tile string, n *Node) string {
+func storeBackendIntent(method, tile string, n *sexp.Node) string {
 	imports := importPairs(n)
 	var qualifiers []string
 	for _, im := range imports {
@@ -317,7 +331,7 @@ func storeBackendIntent(method, tile string, n *Node) string {
 		return fmt.Sprintf("Scaffold one store for the %s tile. Return StoreParts: Fields are the "+
 			"implementation struct's fields as (field name Type) nodes, Params is the constructor's "+
 			"(params ...), Body is the constructor's body as a single return statement building "+
-			"&in.Impl{...}, and Hint is this tile's Hint method. Build every node with L, Sym and Str. "+
+			"&in.Impl{...}, and Hint is this tile's Hint method. Build every node with sexp.L, sexp.Sym and sexp.Str. "+
 			"backend_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
 	case "Hint":
 		return fmt.Sprintf("Describe what each store method must do in the %s tile's own terms, for the LLM "+
@@ -333,7 +347,7 @@ func storeBackendIntent(method, tile string, n *Node) string {
 // serve. Without it the LLM writes a case for every op kind, including the
 // ones illegal-when rules out, and the tile ends up arguing with itself
 // three lines below its own clause.
-func unreachableOps(n *Node) string {
+func unreachableOps(n *sexp.Node) string {
 	var reasons []string
 	for _, it := range n.FindAll("illegal-when") {
 		if len(it.List) >= 3 && it.List[1].IsList && len(it.List[1].List) == 1 &&
@@ -352,7 +366,7 @@ func unreachableOps(n *Node) string {
 // storeBackendRegistration writes the half of the tile that follows from
 // the declaration. Nothing here is a decision; it is the reason writing a
 // tile by hand felt like paperwork.
-func storeBackendRegistration(name, impl string, n *Node) string {
+func storeBackendRegistration(name, impl string, n *sexp.Node) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// The %s tile, registered from a (tile-spec %s ...) form.\n", name, name)
 	fmt.Fprintf(&b, "// %s\nfunc init() {\n\tregisterStoreBackend(&Backend{\n", n.Text("doc"))
@@ -435,7 +449,7 @@ func storeBackendRegistration(name, impl string, n *Node) string {
 
 // importPairs reads every (import qualifier path), sorted so the generated
 // file is stable.
-func importPairs(n *Node) [][2]string {
+func importPairs(n *sexp.Node) [][2]string {
 	var out [][2]string
 	for _, it := range n.FindAll("import") {
 		if len(it.List) == 3 {

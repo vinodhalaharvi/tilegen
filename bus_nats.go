@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // NATS, as two tiles rather than one.
 //
@@ -91,17 +94,17 @@ func init() {
 // emitNatsBus declares the implementation and leaves one hole per method:
 // publishing and subscribing are a few lines of NATS API each, and which
 // encoding and subject naming a team wants is not tilegen's to decide.
-func emitNatsBus(in BusInput) ([]*Node, error) {
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+func emitNatsBus(in BusInput) ([]*sexp.Node, error) {
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by core NATS. Events are published on a subject\nper event type, so handlers in other processes receive them. Nothing is\nkept: a message published with no subscriber connected is gone.", in.Impl))),
-		L(Sym("field"), Sym("conn"), Sym("*nats.Conn")),
-		L(Sym("field"), Sym("subject"), Sym("string")))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s returns a %s publishing under the given subject prefix.", in.Impl, in.Impl))),
-		L(Sym("params"), L(Sym("conn"), Sym("*nats.Conn")), L(Sym("subject"), Sym("string"))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{conn: conn, subject: subject}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("conn"), sexp.Sym("*nats.Conn")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("subject"), sexp.Sym("string")))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns a %s publishing under the given subject prefix.", in.Impl, in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("conn"), sexp.Sym("*nats.Conn")), sexp.L(sexp.Sym("subject"), sexp.Sym("string"))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{conn: conn, subject: subject}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func natsHint(method, event string) string {
@@ -120,17 +123,17 @@ func natsHint(method, event string) string {
 // so the durability this tile claims is something the hole can reach for.
 // A tile that claims (durable) and hands the LLM a bare connection is
 // claiming something it gave nobody the means to do.
-func emitJetStreamBus(in BusInput) ([]*Node, error) {
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+func emitJetStreamBus(in BusInput) ([]*sexp.Node, error) {
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by NATS JetStream. Events go to a stream, so a\nconsumer that was not running still receives them, and a consumer can read\nback from any point.", in.Impl))),
-		L(Sym("field"), Sym("js"), Sym("jetstream.JetStream")),
-		L(Sym("field"), Sym("subject"), Sym("string")))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s returns a %s publishing under the given subject prefix.\nThe stream covering that prefix must already exist.", in.Impl, in.Impl))),
-		L(Sym("params"), L(Sym("js"), Sym("jetstream.JetStream")), L(Sym("subject"), Sym("string"))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{js: js, subject: subject}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("js"), sexp.Sym("jetstream.JetStream")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("subject"), sexp.Sym("string")))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns a %s publishing under the given subject prefix.\nThe stream covering that prefix must already exist.", in.Impl, in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("js"), sexp.Sym("jetstream.JetStream")), sexp.L(sexp.Sym("subject"), sexp.Sym("string"))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{js: js, subject: subject}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func jetStreamHint(method, event string) string {

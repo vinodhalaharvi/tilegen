@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // Three more buses, so that event-bus is a real choice rather than a
 // formality. Each declares what it cannot do, and those clauses are the
@@ -116,29 +119,29 @@ func init() {
 	registerAlias("rabbitmq", "rabbitmq")
 }
 
-func emitKafkaBus(in BusInput) ([]*Node, error) {
-	return busDecl(in, "Kafka", []*Node{
-		L(Sym("field"), Sym("client"), Sym("*kgo.Client")),
-		L(Sym("field"), Sym("topic"), Sym("string")),
-	}, L(Sym("params"), L(Sym("client"), Sym("*kgo.Client")), L(Sym("topic"), Sym("string"))),
+func emitKafkaBus(in BusInput) ([]*sexp.Node, error) {
+	return busDecl(in, "Kafka", []*sexp.Node{
+		sexp.L(sexp.Sym("field"), sexp.Sym("client"), sexp.Sym("*kgo.Client")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("topic"), sexp.Sym("string")),
+	}, sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("client"), sexp.Sym("*kgo.Client")), sexp.L(sexp.Sym("topic"), sexp.Sym("string"))),
 		fmt.Sprintf("return &%s{client: client, topic: topic}", in.Impl),
 		"Events are published to one topic, keyed so that everything about one entity stays in order.")
 }
 
-func emitRedisBus(in BusInput) ([]*Node, error) {
-	return busDecl(in, "Redis Streams", []*Node{
-		L(Sym("field"), Sym("rdb"), Sym("*redis.Client")),
-		L(Sym("field"), Sym("stream"), Sym("string")),
-	}, L(Sym("params"), L(Sym("rdb"), Sym("*redis.Client")), L(Sym("stream"), Sym("string"))),
+func emitRedisBus(in BusInput) ([]*sexp.Node, error) {
+	return busDecl(in, "Redis Streams", []*sexp.Node{
+		sexp.L(sexp.Sym("field"), sexp.Sym("rdb"), sexp.Sym("*redis.Client")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("stream"), sexp.Sym("string")),
+	}, sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("rdb"), sexp.Sym("*redis.Client")), sexp.L(sexp.Sym("stream"), sexp.Sym("string"))),
 		fmt.Sprintf("return &%s{rdb: rdb, stream: stream}", in.Impl),
 		"Events are appended to one stream, so a handler that starts later can read back what it missed.")
 }
 
-func emitRabbitBus(in BusInput) ([]*Node, error) {
-	return busDecl(in, "RabbitMQ", []*Node{
-		L(Sym("field"), Sym("ch"), Sym("*amqp.Channel")),
-		L(Sym("field"), Sym("exchange"), Sym("string")),
-	}, L(Sym("params"), L(Sym("ch"), Sym("*amqp.Channel")), L(Sym("exchange"), Sym("string"))),
+func emitRabbitBus(in BusInput) ([]*sexp.Node, error) {
+	return busDecl(in, "RabbitMQ", []*sexp.Node{
+		sexp.L(sexp.Sym("field"), sexp.Sym("ch"), sexp.Sym("*amqp.Channel")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("exchange"), sexp.Sym("string")),
+	}, sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("ch"), sexp.Sym("*amqp.Channel")), sexp.L(sexp.Sym("exchange"), sexp.Sym("string"))),
 		fmt.Sprintf("return &%s{ch: ch, exchange: exchange}", in.Impl),
 		"Events are published to one topic exchange, with the event type as the routing key.")
 }
@@ -146,16 +149,16 @@ func emitRabbitBus(in BusInput) ([]*Node, error) {
 // busDecl is the shape every remote transport has: a struct holding a
 // client and a name, and a constructor taking both. The methods are holes,
 // so this is all the tile has to build.
-func busDecl(in BusInput, what string, fields []*Node, params *Node, body, note string) ([]*Node, error) {
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+func busDecl(in BusInput, what string, fields []*sexp.Node, params *sexp.Node, body, note string) ([]*sexp.Node, error) {
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by %s. %s", in.Impl, what, note))))
 	decl.List = append(decl.List, fields...)
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s returns a %s over the given client.", in.Impl, in.Impl))),
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns a %s over the given client.", in.Impl, in.Impl))),
 		params,
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(body)))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(body)))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func kafkaHint(method, event string) string {

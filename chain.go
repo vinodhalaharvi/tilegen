@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -111,7 +112,7 @@ func convert(from, to string, e EntityShape, p *Policy) ([]Step, int, bool) {
 
 // entityShape reads an entity's fields, marking enums (declared anywhere in
 // the project), nullable pointers, and types that would land in JSONB.
-func entityShape(e *Node, pkg string, enums map[string]bool) EntityShape {
+func entityShape(e *sexp.Node, pkg string, enums map[string]bool) EntityShape {
 	shape := EntityShape{Name: e.List[1].Atom}
 	for _, f := range e.FindAll("field") {
 		typ := f.List[2].Atom

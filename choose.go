@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"sort"
 	"strings"
 )
@@ -19,7 +20,7 @@ var weightOrder = []string{"llm-work", "maintenance", "dependency", "runtime", "
 func score(c Cost) (int, string) { return DefaultPolicy().score(c) }
 
 // coverAll builds a need for every node that has one, and covers it.
-func coverAll(project *Node, c *Ctx) error {
+func coverAll(project *sexp.Node, c *Ctx) error {
 	ensureClassified()
 	c.Cover = map[string]*Covering{}
 	c.Used = nil
@@ -35,7 +36,7 @@ func coverAll(project *Node, c *Ctx) error {
 		name := pkg.List[1].Atom
 		for _, n := range needsOf(pkg, name) {
 			needs = append(needs, n)
-			if e, ok := n.Data.(*Node); ok && e != nil {
+			if e, ok := n.Data.(*sexp.Node); ok && e != nil {
 				shapes[n.ID] = entityShape(e, name, enums)
 			}
 		}
@@ -146,7 +147,7 @@ func tileNamesOf(cov *Covering) []string {
 }
 
 // checkReserved rejects project packages a chosen tile needs for itself.
-func checkReserved(project *Node, c *Ctx) error {
+func checkReserved(project *sexp.Node, c *Ctx) error {
 	var errs []error
 	for _, pkg := range project.FindAll("package") {
 		name := pkg.List[1]
@@ -164,27 +165,27 @@ func checkReserved(project *Node, c *Ctx) error {
 }
 
 // coverNodes records a covering in the tree, so -dump shows it.
-func coverNodes(cov *Covering) []*Node {
-	var out []*Node
+func coverNodes(cov *Covering) []*sexp.Node {
+	var out []*sexp.Node
 	for _, cand := range cov.Ranked {
 		head := "considered"
 		if cand.Offer == cov.Offer {
 			head = "chosen"
 		}
-		n := L(Sym(head), Sym(cand.Offer.Tile), L(Sym("score"), Sym(fmt.Sprint(cand.Score))))
+		n := sexp.L(sexp.Sym(head), sexp.Sym(cand.Offer.Tile), sexp.L(sexp.Sym("score"), sexp.Sym(fmt.Sprint(cand.Score))))
 		if len(cand.Via) > 0 {
-			n.List = append(n.List, L(Sym("own"), Sym(fmt.Sprint(cand.Own))))
+			n.List = append(n.List, sexp.L(sexp.Sym("own"), sexp.Sym(fmt.Sprint(cand.Own))))
 			for _, st := range cand.Via {
-				n.List = append(n.List, L(Sym("via"), Sym(st.Chain.Name), Sym(fmt.Sprint(st.Score)), Str(st.Detail)))
+				n.List = append(n.List, sexp.L(sexp.Sym("via"), sexp.Sym(st.Chain.Name), sexp.Sym(fmt.Sprint(st.Score)), sexp.Str(st.Detail)))
 			}
 		}
 		if head == "chosen" {
-			n.List = append(n.List, L(Sym("by"), Sym(cov.By)))
+			n.List = append(n.List, sexp.L(sexp.Sym("by"), sexp.Sym(cov.By)))
 		}
 		out = append(out, n)
 	}
 	for _, r := range cov.Illegal {
-		out = append(out, L(Sym("illegal"), Sym(r.Tile), Str(r.Reason)))
+		out = append(out, sexp.L(sexp.Sym("illegal"), sexp.Sym(r.Tile), sexp.Str(r.Reason)))
 	}
 	return out
 }

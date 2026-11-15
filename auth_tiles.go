@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // The four ways to decide who a request is from. They differ on four
 // questions a spec can ask, and the answers are properties of the scheme
@@ -130,17 +133,17 @@ func init() {
 	registerAlias("api-key", "api-key")
 }
 
-func emitJWTAuth(in AuthInput) ([]*Node, error) {
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+func emitJWTAuth(in AuthInput) ([]*sexp.Node, error) {
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s verifies bearer tokens this service signed itself. A token is\ntrusted until it expires: there is no lookup, and so no way to take one back.", in.Impl))),
-		L(Sym("field"), Sym("key"), Str("[]byte")),
-		L(Sym("field"), Sym("issuer"), Sym("string")))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s verifies tokens signed with key and issued by issuer.", in.Impl))),
-		L(Sym("params"), L(Sym("key"), Str("[]byte")), L(Sym("issuer"), Sym("string"))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{key: key, issuer: issuer}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("key"), sexp.Str("[]byte")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("issuer"), sexp.Sym("string")))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s verifies tokens signed with key and issued by issuer.", in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("key"), sexp.Str("[]byte")), sexp.L(sexp.Sym("issuer"), sexp.Sym("string"))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{key: key, issuer: issuer}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func jwtAuthHint(in AuthInput) string {
@@ -152,16 +155,16 @@ func jwtAuthHint(in AuthInput) string {
 		"is not the one you sign with, since accepting whatever the token claims is how this scheme is broken."
 }
 
-func emitOIDCAuth(in AuthInput) ([]*Node, error) {
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+func emitOIDCAuth(in AuthInput) ([]*sexp.Node, error) {
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s verifies ID tokens issued by an identity provider, against the\nkeys that provider publishes. Nothing here issues a token.", in.Impl))),
-		L(Sym("field"), Sym("verifier"), Sym("*oidc.IDTokenVerifier")))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s verifies tokens with the given verifier, which a caller builds\nfrom the provider's discovery document.", in.Impl))),
-		L(Sym("params"), L(Sym("verifier"), Sym("*oidc.IDTokenVerifier"))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{verifier: verifier}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("verifier"), sexp.Sym("*oidc.IDTokenVerifier")))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s verifies tokens with the given verifier, which a caller builds\nfrom the provider's discovery document.", in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("verifier"), sexp.Sym("*oidc.IDTokenVerifier"))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{verifier: verifier}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func oidcAuthHint(in AuthInput) string {
@@ -172,7 +175,7 @@ func oidcAuthHint(in AuthInput) string {
 		"as it is, so Protect answers 500 rather than telling a caller with a perfectly good token that it was rejected."
 }
 
-func emitSessionAuth(in AuthInput) ([]*Node, error) {
+func emitSessionAuth(in AuthInput) ([]*sexp.Node, error) {
 	// The sessions live in a store, and the store comes from the spec:
 	// this scheme reads what is there rather than inventing an entity.
 	if in.Pkg.Ifaces["SessionStore"] == nil {
@@ -181,16 +184,16 @@ func emitSessionAuth(in AuthInput) ([]*Node, error) {
 			"    (store get save delete (durable)))\n"+
 			"or choose another tile for auth", in.Pkg.Name)
 	}
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s resolves an opaque session id from a cookie against the store.\nEvery request costs a read, which is what makes a session revocable.", in.Impl))),
-		L(Sym("field"), Sym("sessions"), Sym("SessionStore")),
-		L(Sym("field"), Sym("cookie"), Sym("string")))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s reads the session id from the named cookie.", in.Impl))),
-		L(Sym("params"), L(Sym("sessions"), Sym("SessionStore")), L(Sym("cookie"), Sym("string"))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{sessions: sessions, cookie: cookie}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("sessions"), sexp.Sym("SessionStore")),
+		sexp.L(sexp.Sym("field"), sexp.Sym("cookie"), sexp.Sym("string")))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s reads the session id from the named cookie.", in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("sessions"), sexp.Sym("SessionStore")), sexp.L(sexp.Sym("cookie"), sexp.Sym("string"))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{sessions: sessions, cookie: cookie}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func sessionAuthHint(in AuthInput) string {
@@ -201,17 +204,17 @@ func sessionAuthHint(in AuthInput) string {
 		"the expired session here; Authenticate is a read, and sweeping belongs elsewhere."
 }
 
-func emitAPIKeyAuth(in AuthInput) ([]*Node, error) {
+func emitAPIKeyAuth(in AuthInput) ([]*sexp.Node, error) {
 	lookup := fmt.Sprintf("func(%sstring) (*Principal, error)", in.CtxType)
-	decl := L(Sym("go/struct"), Sym(in.Impl), L(Sym("doc"), Str(fmt.Sprintf(
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s resolves a long-lived key to a caller. Where the keys are kept is\nthe caller's business: this takes a lookup and asks it.", in.Impl))),
-		L(Sym("field"), Sym("lookup"), Str(lookup)))
-	ctor := L(Sym("go/func"), Sym("New"+in.Impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s resolves keys with lookup, which returns nil for a key it does not know.", in.Impl))),
-		L(Sym("params"), L(Sym("lookup"), Str(lookup))),
-		L(Sym("returns"), Sym("*"+in.Impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{lookup: lookup}", in.Impl))))
-	return []*Node{decl, ctor}, nil
+		sexp.L(sexp.Sym("field"), sexp.Sym("lookup"), sexp.Str(lookup)))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+in.Impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s resolves keys with lookup, which returns nil for a key it does not know.", in.Impl))),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("lookup"), sexp.Str(lookup))),
+		sexp.L(sexp.Sym("returns"), sexp.Sym("*"+in.Impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{lookup: lookup}", in.Impl))))
+	return []*sexp.Node{decl, ctor}, nil
 }
 
 func apiKeyAuthHint(in AuthInput) string {

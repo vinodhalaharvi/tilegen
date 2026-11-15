@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // The bolt backend: bbolt, one file, a bucket per entity, values stored as
 // JSON. Durable without a server, which is what makes it worth having next
@@ -36,11 +39,11 @@ func init() {
 		ErrorPackage: "bbolt",
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{
-				Fields: []*Node{
-					L(Sym("field"), Sym("db"), Sym("*bbolt.DB")),
-					L(Sym("field"), Sym("bucket"), Sym("string")),
+				Fields: []*sexp.Node{
+					sexp.L(sexp.Sym("field"), sexp.Sym("db"), sexp.Sym("*bbolt.DB")),
+					sexp.L(sexp.Sym("field"), sexp.Sym("bucket"), sexp.Sym("string")),
 				},
-				Params: L(Sym("params"), L(Sym("db"), Sym("*bbolt.DB"))),
+				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("db"), sexp.Sym("*bbolt.DB"))),
 				Body: fmt.Sprintf("return &%s{db: db, bucket: %q}",
 					in.Impl, bucketName(in.Entity)),
 				Hint: boltHint,
@@ -54,7 +57,7 @@ func bucketName(entity string) string { return lowerFirstWord(entity) + "s" }
 
 // boltHint says what each method has to do in bbolt's terms: a read is a
 // View, a write is an Update, and the value is JSON either way.
-func boltHint(meth *Node) string {
+func boltHint(meth *sexp.Node) string {
 	kind, _ := methodOp(meth)
 	switch kind {
 	case "get":

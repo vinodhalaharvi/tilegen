@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/token"
 	"strings"
 	"unicode"
@@ -20,14 +21,14 @@ import (
 var Expand = &Pass{
 	Name: "expand",
 	Rules: []Rule{
-		{Name: "entity", Pattern: Pat("(entity ?name ?items...)"), Then: expandEntity, Produces: "struct, store", Doc: "splits an entity into a struct, a store interface and an impl"},
+		{Name: "entity", Pattern: sexp.Pat("(entity ?name ?items...)"), Then: expandEntity, Produces: "struct, store", Doc: "splits an entity into a struct, a store interface and an impl"},
 	},
 }
 
-func expandEntity(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func expandEntity(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	name := b.Atom("name")
-	st := L(Sym("struct"), Sym(name))
-	var store *Node
+	st := sexp.L(sexp.Sym("struct"), sexp.Sym(name))
+	var store *sexp.Node
 	fields := map[string]string{} // field name -> type
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
@@ -41,20 +42,20 @@ func expandEntity(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 	}
 	if store == nil {
-		return []*Node{st}, nil
+		return []*sexp.Node{st}, nil
 	}
 
 	iface := name + "Store"
-	in := L(Sym("interface"), Sym(iface), L(Sym("doc"), Str(iface+" persists "+name+" values.")))
-	impl := L(Sym("impl"), Sym(iface), L(Sym("for"), Sym(name)))
-	ops := L(Sym("ops"))
+	in := sexp.L(sexp.Sym("interface"), sexp.Sym(iface), sexp.L(sexp.Sym("doc"), sexp.Str(iface+" persists "+name+" values.")))
+	impl := sexp.L(sexp.Sym("impl"), sexp.Sym(iface), sexp.L(sexp.Sym("for"), sexp.Sym(name)))
+	ops := sexp.L(sexp.Sym("ops"))
 	for _, op := range store.Args() {
 		if op.Head() == "constraint" { // travels with the impl to the LLM
 			impl.List = append(impl.List, op)
 			continue
 		}
 		if op.IsList && len(op.List) == 1 && contains(knownRequirements(), op.Head()) {
-			impl.List = append(impl.List, L(Sym("requires"), Sym(op.Head())))
+			impl.List = append(impl.List, sexp.L(sexp.Sym("requires"), sexp.Sym(op.Head())))
 			continue
 		}
 		meth, err := storeMethod(op, name, fields)
@@ -65,7 +66,7 @@ func expandEntity(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		ops.List = append(ops.List, op)
 	}
 	impl.List = append(impl.List, ops)
-	return []*Node{st, in, impl}, nil
+	return []*sexp.Node{st, in, impl}, nil
 }
 
 // Store ops. The plain ones need no field; the -by ones take one:
@@ -79,7 +80,7 @@ var (
 )
 
 // opKind splits an op into its kind and field: (list-by NoteID) -> list-by, NoteID.
-func opKind(op *Node) (kind, field string) {
+func opKind(op *sexp.Node) (kind, field string) {
 	if !op.IsList {
 		return op.Atom, ""
 	}
@@ -120,25 +121,29 @@ func fieldParam(field string) string {
 
 // storeMethod is a table of small tiles, one per op. Each method records
 // its op, so later passes can pick backend-specific hints and SQL.
-func storeMethod(op *Node, entity string, fields map[string]string) (*Node, error) {
+func storeMethod(op *sexp.Node, entity string, fields map[string]string) (*sexp.Node, error) {
 	kind, field := opKind(op)
 	ptr, v, idType := "*"+entity, paramName(entity), fields["ID"]
-	params := func(ps ...[2]string) *Node {
-		n := L(Sym("params"))
+	params := func(ps ...[2]string) *sexp.Node {
+		n := sexp.L(sexp.Sym("params"))
 		for _, p := range ps {
-			n.List = append(n.List, L(Sym(p[0]), Sym(p[1])))
+			n.List = append(n.List, sexp.L(sexp.Sym(p[0]), sexp.Sym(p[1])))
 		}
 		return n
 	}
-	returns := func(ts ...string) *Node { return L(append([]*Node{Sym("returns")}, Syms(ts...)...)...) }
-	doc := func(f string, a ...any) *Node { return L(Sym("doc"), Str(fmt.Sprintf(f, a...))) }
-	tag := L(Sym("op"), Sym(kind))
+	returns := func(ts ...string) *sexp.Node {
+		return sexp.L(append([]*sexp.Node{sexp.Sym("returns")}, sexp.Syms(ts...)...)...)
+	}
+	doc := func(f string, a ...any) *sexp.Node { return sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(f, a...))) }
+	tag := sexp.L(sexp.Sym("op"), sexp.Sym(kind))
 	if field != "" {
-		tag.List = append(tag.List, Sym(field))
+		tag.List = append(tag.List, sexp.Sym(field))
 	}
 	name := opMethodName(kind, field)
 	byField := params([2]string{fieldParam(field), fields[field]})
-	meth := func(d, ps, rs *Node) (*Node, error) { return L(Sym("method"), Sym(name), d, ps, rs, tag), nil }
+	meth := func(d, ps, rs *sexp.Node) (*sexp.Node, error) {
+		return sexp.L(sexp.Sym("method"), sexp.Sym(name), d, ps, rs, tag), nil
+	}
 
 	switch kind {
 	case "get":
@@ -162,7 +167,7 @@ func storeMethod(op *Node, entity string, fields map[string]string) (*Node, erro
 	case "delete-by":
 		return meth(doc("%s removes every %s whose %s equals %s.", name, entity, field, fieldParam(field)), byField, returns("error"))
 	case "method": // custom: carried through as written
-		return L(append(append([]*Node{Sym("method")}, op.Args()...), L(Sym("op"), Sym("custom")))...), nil
+		return sexp.L(append(append([]*sexp.Node{sexp.Sym("method")}, op.Args()...), sexp.L(sexp.Sym("op"), sexp.Sym("custom")))...), nil
 	}
 	return nil, fmt.Errorf("unknown store op %s", op.Flat())
 }

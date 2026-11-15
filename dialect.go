@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -24,7 +25,7 @@ type Dialect struct {
 	// Overrides are the sqlc type mappings this database needs: postgres
 	// hands back its own timestamptz and uuid types, while sqlite stores
 	// both as TEXT and needs nothing.
-	Overrides func(c *Ctx) []*Node
+	Overrides func(c *Ctx) []*sexp.Node
 }
 
 // Postgres is the dialect tilegen has always written.
@@ -49,11 +50,11 @@ var Postgres = &Dialect{
 			table, strings.Join(cols, ", "), strings.Join(ph, ", "), conflict)
 	},
 	Enum: checkConstraint,
-	Overrides: func(c *Ctx) []*Node {
-		out := []*Node{L(Sym("override"), Str("timestamptz"), Str("time.Time"))}
+	Overrides: func(c *Ctx) []*sexp.Node {
+		out := []*sexp.Node{sexp.L(sexp.Sym("override"), sexp.Str("timestamptz"), sexp.Str("time.Time"))}
 		for _, imp := range c.Requires {
 			if imp == "github.com/google/uuid" {
-				out = append(out, L(Sym("override"), Str("uuid"), Str("github.com/google/uuid.UUID")))
+				out = append(out, sexp.L(sexp.Sym("override"), sexp.Str("uuid"), sexp.Str("github.com/google/uuid.UUID")))
 			}
 		}
 		return out
@@ -87,7 +88,7 @@ var SQLite = &Dialect{
 	// Everything is TEXT, so sqlc's defaults are right: a uuid or a time
 	// arrives as a string and the mapper parses it, which is exactly the
 	// work the row-mapper chain already prices.
-	Overrides: func(*Ctx) []*Node { return nil },
+	Overrides: func(*Ctx) []*sexp.Node { return nil },
 }
 
 // checkConstraint is the SQL standard's way, which both dialects accept.

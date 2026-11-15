@@ -8,6 +8,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"net/http"
 	"os"
@@ -167,15 +168,15 @@ func compileRequest(req specRequest) (*compiled, error) {
 
 // parseParts reads a spec sent as text, with the config and policy that
 // may come beside it, into one list of forms.
-func parseParts(spec, config, policy string) ([]*Node, error) {
-	var forms []*Node
+func parseParts(spec, config, policy string) ([]*sexp.Node, error) {
+	var forms []*sexp.Node
 	for _, part := range []struct{ name, text string }{
 		{"spec.sexp", spec}, {"config.sexp", config}, {"policy.sexp", policy},
 	} {
 		if strings.TrimSpace(part.text) == "" {
 			continue
 		}
-		f, err := Parse(part.name, part.text)
+		f, err := sexp.Parse(part.name, part.text)
 		if err != nil {
 			return nil, err
 		}
@@ -186,13 +187,13 @@ func parseParts(spec, config, policy string) ([]*Node, error) {
 
 // checkSpecSize rejects a spec too large to be a person's, before any
 // work is done on it.
-func checkSpecSize(forms []*Node) error {
+func checkSpecSize(forms []*sexp.Node) error {
 	pkgs, items := 0, 0
 	for _, f := range forms {
 		if f.Head() != "project" && f.Head() != "package" {
 			continue
 		}
-		for _, p := range append([]*Node{f}, f.FindAll("package")...) {
+		for _, p := range append([]*sexp.Node{f}, f.FindAll("package")...) {
 			if p.Head() != "package" {
 				continue
 			}

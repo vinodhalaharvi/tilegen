@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ const lockFile = "tilegen.lock"
 // LockEntry is one pinned choice: the tile that covered a need.
 type LockEntry struct {
 	Tile string
-	Pos  Pos
+	Pos  sexp.Pos
 }
 
 // ProtoPin is the numbers one message or enum has handed out.
@@ -92,13 +93,13 @@ func (c *Ctx) pin(key string, names []string) (map[string]int, []int) {
 }
 
 // loadProtoPin reads (proto KEY (number NAME N)... (reserved N...)).
-func loadProtoPin(e *Node) (string, *ProtoPin, error) {
+func loadProtoPin(e *sexp.Node) (string, *ProtoPin, error) {
 	if len(e.List) < 2 || e.List[1].IsList {
 		return "", nil, fmt.Errorf("%s: expected (proto NAME (number FIELD N)...), got %s", e.Pos, short(e))
 	}
 	pin := &ProtoPin{Nums: map[string]int{}}
 	used := map[int]string{}
-	claim := func(it *Node, n int, who string) error {
+	claim := func(it *sexp.Node, n int, who string) error {
 		if n < 1 {
 			return fmt.Errorf("%s: %d is not a field number", it.Pos, n)
 		}
@@ -158,12 +159,12 @@ func readLock(out string) (map[string]LockEntry, map[string]*ProtoPin, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	forms, err := Parse(path, string(src))
+	forms, err := sexp.Parse(path, string(src))
 	if err != nil {
 		return nil, nil, err
 	}
-	b := Bindings{}
-	if len(forms) != 1 || !Match(Pat("(lock ?entries...)"), forms[0], b) {
+	b := sexp.Bindings{}
+	if len(forms) != 1 || !sexp.Match(sexp.Pat("(lock ?entries...)"), forms[0], b) {
 		return nil, nil, fmt.Errorf("%s: expected a single (lock ...) form; delete the file to start over", path)
 	}
 	lock, pins := map[string]LockEntry{}, map[string]*ProtoPin{}
@@ -178,8 +179,8 @@ func readLock(out string) (map[string]LockEntry, map[string]*ProtoPin, error) {
 			pins[key] = pin
 			continue
 		}
-		eb := Bindings{}
-		if !Match(Pat("(tile ?need ?tile)"), e, eb) || eb.One("need").IsList || eb.One("tile").IsList {
+		eb := sexp.Bindings{}
+		if !sexp.Match(sexp.Pat("(tile ?need ?tile)"), e, eb) || eb.One("need").IsList || eb.One("tile").IsList {
 			// A lock written by an older tilegen: say so once and choose
 			// again, rather than making the project unbuildable.
 			if e.Head() == "store" {

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/build"
 	"go/importer"
 	"go/token"
@@ -22,7 +23,7 @@ import (
 // interfaces included), a compile-time assertion, and LLM tasks. The file
 // is scaffolded once and reconciled after that, like every other.
 
-func (v *validator) implement(n *Node, ifaces, types map[string]bool) {
+func (v *validator) implement(n *sexp.Node, ifaces, types map[string]bool) {
 	b := v.shape(n, "(implement ?iface ?parts...)")
 	if b == nil {
 		return
@@ -61,7 +62,7 @@ func (v *validator) implement(n *Node, ifaces, types map[string]bool) {
 
 // packageInterfaces lists the interfaces a package declares, including the
 // NameStore interfaces its entities' stores will generate.
-func packageInterfaces(items []*Node) map[string]bool {
+func packageInterfaces(items []*sexp.Node) map[string]bool {
 	out := map[string]bool{}
 	for _, it := range items {
 		switch {
@@ -74,7 +75,7 @@ func packageInterfaces(items []*Node) map[string]bool {
 	return out
 }
 
-func selectImplement(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectImplement(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	ifaceName, impl := b.Atom("iface"), n.Text("as")
 	iface := pkg.Ifaces[ifaceName]
@@ -92,32 +93,32 @@ func selectImplement(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if doc == "" {
 		doc = fmt.Sprintf("%s implements %s.", impl, ifaceName)
 	}
-	decl := L(Sym("go/struct"), Sym(impl), L(Sym("doc"), Str(doc)))
-	params := L(Sym("params"))
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(impl), sexp.L(sexp.Sym("doc"), sexp.Str(doc)))
+	params := sexp.L(sexp.Sym("params"))
 	var inits, deps []string
-	var types []*Node
+	var types []*sexp.Node
 	for _, f := range n.FindAll("field") {
 		name, typ := f.List[1], f.List[2]
-		decl.List = append(decl.List, L(Sym("field"), name, typ))
-		params.List = append(params.List, L(name, typ))
+		decl.List = append(decl.List, sexp.L(sexp.Sym("field"), name, typ))
+		params.List = append(params.List, sexp.L(name, typ))
 		inits = append(inits, name.Atom+": "+name.Atom)
 		deps = append(deps, fmt.Sprintf("s.%s (%s)", name.Atom, typ.Atom))
 		types = append(types, typ)
 	}
-	ctor := L(Sym("go/func"), Sym("New"+impl),
-		L(Sym("doc"), Str(fmt.Sprintf("New%s returns a new %s using the given dependencies.", impl, impl))),
-		params, L(Sym("returns"), Sym("*"+impl)),
-		L(Sym("body"), Str(fmt.Sprintf("return &%s{%s}", impl, strings.Join(inits, ", ")))))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+impl),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns a new %s using the given dependencies.", impl, impl))),
+		params, sexp.L(sexp.Sym("returns"), sexp.Sym("*"+impl)),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &%s{%s}", impl, strings.Join(inits, ", ")))))
 
 	var constraints []string
 	for _, k := range n.FindAll("constraint") {
 		constraints = append(constraints, k.List[1].Atom)
 	}
 	for _, meth := range methods {
-		types = append(types, declTypes([]*Node{L(append([]*Node{Sym("go/func")}, meth.Args()...)...)})...)
+		types = append(types, declTypes([]*sexp.Node{sexp.L(append([]*sexp.Node{sexp.Sym("go/func")}, meth.Args()...)...)})...)
 	}
 	contextFiles := append([]string{genFile}, foreignGenFiles(c, types)...)
-	hint := func(meth *Node) string {
+	hint := func(meth *sexp.Node) string {
 		h := customHint(meth)
 		if h == "" {
 			h = fmt.Sprintf("Implement %s so that %s satisfies %s.", meth.List[1].Atom, impl, ifaceName)
@@ -131,24 +132,24 @@ func selectImplement(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	for _, u := range unresolved {
 		c.warn(n.Pos, "cannot list the methods of %s (embedded in %s); the compile-time check will report any %s lacks", u, ifaceName, impl)
 	}
-	f, err := goFile(c, file, "keep", "", append([]*Node{decl, ctor}, stubs...))
+	f, err := goFile(c, file, "keep", "", append([]*sexp.Node{decl, ctor}, stubs...))
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{f, L(Sym("go/assert"), Sym(ifaceName), Sym(impl))}, tasks...), nil
+	return append([]*sexp.Node{f, sexp.L(sexp.Sym("go/assert"), sexp.Sym(ifaceName), sexp.Sym(impl))}, tasks...), nil
 }
 
 // interfaceMethods returns an interface's full method set, following
 // embedded interfaces: project interfaces directly, standard-library ones
 // through Go's type checker. Embeds it cannot resolve are returned by name.
-func interfaceMethods(pkg *PkgScope, iface *Node, seen map[string]bool) (methods []*Node, unresolved []string, err error) {
+func interfaceMethods(pkg *PkgScope, iface *sexp.Node, seen map[string]bool) (methods []*sexp.Node, unresolved []string, err error) {
 	name := iface.List[1].Atom
 	if seen[name] {
 		return nil, nil, fmt.Errorf("interface %s embeds itself", name)
 	}
 	seen[name] = true
 	have := map[string]bool{}
-	add := func(ms ...*Node) {
+	add := func(ms ...*sexp.Node) {
 		for _, m := range ms {
 			if n := m.List[1].Atom; !have[n] {
 				have[n] = true
@@ -185,13 +186,13 @@ func interfaceMethods(pkg *PkgScope, iface *Node, seen map[string]bool) (methods
 
 var (
 	stdIfaceMu    sync.Mutex
-	stdIfaceCache = map[string][]*Node{}
+	stdIfaceCache = map[string][]*sexp.Node{}
 )
 
 // stdInterfaceMethods asks the Go type checker, reading the standard
 // library's own source, for the methods of an interface like io.Writer.
 // Nothing is hardcoded: whatever the installed Go version says, goes.
-func stdInterfaceMethods(pkgName, typeName string) ([]*Node, error) {
+func stdInterfaceMethods(pkgName, typeName string) ([]*sexp.Node, error) {
 	stdIfaceMu.Lock()
 	defer stdIfaceMu.Unlock()
 	key := pkgName + "." + typeName
@@ -220,11 +221,11 @@ func stdInterfaceMethods(pkgName, typeName string) ([]*Node, error) {
 		return nil, fmt.Errorf("%s is not an interface", key)
 	}
 	qual := func(p *types.Package) string { return p.Name() }
-	var ms []*Node
+	var ms []*sexp.Node
 	for i := 0; i < it.NumMethods(); i++ { // the complete method set, embeds included
 		fn := it.Method(i)
 		sig := fn.Type().(*types.Signature)
-		params := L(Sym("params"))
+		params := sexp.L(sexp.Sym("params"))
 		for j := 0; j < sig.Params().Len(); j++ {
 			v := sig.Params().At(j)
 			name := v.Name()
@@ -235,14 +236,14 @@ func stdInterfaceMethods(pkgName, typeName string) ([]*Node, error) {
 			if sig.Variadic() && j == sig.Params().Len()-1 {
 				t = "..." + types.TypeString(v.Type().(*types.Slice).Elem(), qual)
 			}
-			params.List = append(params.List, L(Sym(name), Str(t)))
+			params.List = append(params.List, sexp.L(sexp.Sym(name), sexp.Str(t)))
 		}
-		returns := L(Sym("returns"))
+		returns := sexp.L(sexp.Sym("returns"))
 		for j := 0; j < sig.Results().Len(); j++ {
-			returns.List = append(returns.List, Str(types.TypeString(sig.Results().At(j).Type(), qual)))
+			returns.List = append(returns.List, sexp.Str(types.TypeString(sig.Results().At(j).Type(), qual)))
 		}
-		ms = append(ms, L(Sym("method"), Sym(fn.Name()),
-			L(Sym("doc"), Str(fmt.Sprintf("%s implements %s.%s.", fn.Name(), key, fn.Name()))), params, returns))
+		ms = append(ms, sexp.L(sexp.Sym("method"), sexp.Sym(fn.Name()),
+			sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("%s implements %s.%s.", fn.Name(), key, fn.Name()))), params, returns))
 	}
 	stdIfaceCache[key] = ms
 	return ms, nil
