@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/token"
 	"strings"
 	"unicode"
@@ -16,7 +17,7 @@ import (
 // structure. With postgres, an enum field is a TEXT column with a CHECK
 // constraint, so the database enforces the same values.
 
-func (v *validator) enum(n *Node, types map[string]bool) {
+func (v *validator) enum(n *sexp.Node, types map[string]bool) {
 	b := v.shape(n, "(enum ?name ?items...)")
 	if b == nil {
 		return
@@ -73,7 +74,7 @@ func goName(val string) string {
 }
 
 // enumValues returns an enum's values in declaration order.
-func enumValues(n *Node) []string {
+func enumValues(n *sexp.Node) []string {
 	var out []string
 	for _, it := range n.Args()[1:] {
 		if !it.IsList {
@@ -83,32 +84,32 @@ func enumValues(n *Node) []string {
 	return out
 }
 
-func selectEnum(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectEnum(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	name := b.Atom("name")
 	vals := enumValues(n)
 	doc := n.Text("doc")
 	if doc == "" {
 		doc = fmt.Sprintf("%s is one of: %s.", name, strings.Join(vals, ", "))
 	}
-	consts := L(Sym("go/consts"))
+	consts := sexp.L(sexp.Sym("go/consts"))
 	var names []string
 	for _, v := range vals {
 		c := name + goName(v)
 		names = append(names, c)
-		consts.List = append(consts.List, L(Sym("const"), Sym(c), Sym(name), Str(v)))
+		consts.List = append(consts.List, sexp.L(sexp.Sym("const"), sexp.Sym(c), sexp.Sym(name), sexp.Str(v)))
 	}
 	list := strings.Join(names, ", ")
-	return []*Node{
-		L(Sym("go/type"), Sym(name), Sym("string"), L(Sym("doc"), Str(doc))),
+	return []*sexp.Node{
+		sexp.L(sexp.Sym("go/type"), sexp.Sym(name), sexp.Sym("string"), sexp.L(sexp.Sym("doc"), sexp.Str(doc))),
 		consts,
-		L(Sym("go/var"), Sym(name+"Values"), Str(fmt.Sprintf("[]%s{%s}", name, list)),
-			L(Sym("doc"), Str(fmt.Sprintf("%sValues lists every %s, in declaration order.", name, name)))),
-		L(Sym("go/func"), Sym("Valid"), L(Sym("doc"), Str(fmt.Sprintf("Valid reports whether s is a known %s.", name))),
-			L(Sym("recv"), Sym("s"), Sym(name)), L(Sym("params")), L(Sym("returns"), Sym("bool")),
-			L(Sym("body"), Str(fmt.Sprintf("switch s {\ncase %s:\nreturn true\n}\nreturn false", list)))),
-		L(Sym("go/func"), Sym("Parse"+name), L(Sym("doc"), Str(fmt.Sprintf("Parse%s returns the %s spelled s, or an error.", name, name))),
-			L(Sym("params"), L(Sym("s"), Sym("string"))), L(Sym("returns"), Sym(name), Sym("error")),
-			L(Sym("body"), Str(fmt.Sprintf("if v := %s(s); v.Valid() {\nreturn v, nil\n}\nreturn \"\", fmt.Errorf(\"unknown %s %%q\", s)", name, name)))),
+		sexp.L(sexp.Sym("go/var"), sexp.Sym(name+"Values"), sexp.Str(fmt.Sprintf("[]%s{%s}", name, list)),
+			sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("%sValues lists every %s, in declaration order.", name, name)))),
+		sexp.L(sexp.Sym("go/func"), sexp.Sym("Valid"), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("Valid reports whether s is a known %s.", name))),
+			sexp.L(sexp.Sym("recv"), sexp.Sym("s"), sexp.Sym(name)), sexp.L(sexp.Sym("params")), sexp.L(sexp.Sym("returns"), sexp.Sym("bool")),
+			sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("switch s {\ncase %s:\nreturn true\n}\nreturn false", list)))),
+		sexp.L(sexp.Sym("go/func"), sexp.Sym("Parse"+name), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("Parse%s returns the %s spelled s, or an error.", name, name))),
+			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("s"), sexp.Sym("string"))), sexp.L(sexp.Sym("returns"), sexp.Sym(name), sexp.Sym("error")),
+			sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("if v := %s(s); v.Valid() {\nreturn v, nil\n}\nreturn \"\", fmt.Errorf(\"unknown %s %%q\", s)", name, name)))),
 	}, nil
 }
 

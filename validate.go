@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/mod/module"
 	"golang.org/x/mod/semver"
@@ -47,12 +48,12 @@ type Ctx struct {
 // (like impl) can look up the interface and struct they implement.
 type PkgScope struct {
 	Name, Dir string
-	Structs   map[string]*Node
-	Ifaces    map[string]*Node
-	Events    map[string]*Node // the package's (event ...) forms, by name
+	Structs   map[string]*sexp.Node
+	Ifaces    map[string]*sexp.Node
+	Events    map[string]*sexp.Node // the package's (event ...) forms, by name
 }
 
-func (c *Ctx) warn(p Pos, format string, a ...any) {
+func (c *Ctx) warn(p sexp.Pos, format string, a ...any) {
 	c.Warnings = append(c.Warnings, fmt.Sprintf("%s: %s", p, fmt.Sprintf(format, a...)))
 }
 
@@ -69,7 +70,7 @@ func allStoreOps() []string {
 // Validate checks the spec's shape before any lowering. Everything here
 // reuses real tooling: x/mod for module paths and versions, go/parser for
 // type expressions, go/token for identifiers. It reports all errors at once.
-func Validate(forms []*Node, c *Ctx) error {
+func Validate(forms []*sexp.Node, c *Ctx) error {
 	v := &validator{c: c}
 	projects := 0
 	for _, f := range forms {
@@ -91,26 +92,26 @@ type validator struct {
 	errs      []error
 	goVersion string // the project's (go ...), for tiles that need a newer Go
 
-	pkgNames map[string]bool             // every project package, known up front
-	cur      string                      // package being validated
-	deps     map[string]map[string]*Node // pkg -> referenced pkg -> first type mentioning it
-	order    []string                    // package declaration order, for stable reports
+	pkgNames map[string]bool                  // every project package, known up front
+	cur      string                           // package being validated
+	deps     map[string]map[string]*sexp.Node // pkg -> referenced pkg -> first type mentioning it
+	order    []string                         // package declaration order, for stable reports
 }
 
-func (v *validator) bad(n *Node, format string, a ...any) {
+func (v *validator) bad(n *sexp.Node, format string, a ...any) {
 	v.errs = append(v.errs, fmt.Errorf("%s: %s", n.Pos, fmt.Sprintf(format, a...)))
 }
 
-func (v *validator) shape(n *Node, pat string) Bindings {
-	b := Bindings{}
-	if !Match(Pat(pat), n, b) {
+func (v *validator) shape(n *sexp.Node, pat string) sexp.Bindings {
+	b := sexp.Bindings{}
+	if !sexp.Match(sexp.Pat(pat), n, b) {
 		v.bad(n, "expected %s, got %s", pat, short(n))
 		return nil
 	}
 	return b
 }
 
-func (v *validator) ident(n *Node, what string, mustExport bool) {
+func (v *validator) ident(n *sexp.Node, what string, mustExport bool) {
 	switch {
 	case n == nil:
 	case n.IsList || !token.IsIdentifier(n.Atom):
@@ -120,7 +121,7 @@ func (v *validator) ident(n *Node, what string, mustExport bool) {
 	}
 }
 
-func (v *validator) project(p *Node) {
+func (v *validator) project(p *sexp.Node) {
 	b := v.shape(p, "(project ?name ?items...)")
 	if b == nil {
 		return
@@ -130,7 +131,7 @@ func (v *validator) project(p *Node) {
 	}
 	counts := map[string]int{}
 	pkgs := map[string]bool{}
-	v.pkgNames, v.deps = map[string]bool{}, map[string]map[string]*Node{}
+	v.pkgNames, v.deps = map[string]bool{}, map[string]map[string]*sexp.Node{}
 	for _, it := range b.Rest("items") {
 		if it.Head() == "package" && len(it.Args()) > 0 && !it.Args()[0].IsList {
 			v.pkgNames[it.Args()[0].Atom] = true
@@ -239,7 +240,7 @@ func sortedKeys[V any](m map[string]V) []string {
 	return keys
 }
 
-func (v *validator) require(r *Node) {
+func (v *validator) require(r *sexp.Node) {
 	b := v.shape(r, "(?alias ?path ?version ?importpath...)")
 	if b == nil {
 		return
@@ -257,7 +258,7 @@ func (v *validator) require(r *Node) {
 	}
 }
 
-func (v *validator) pkg(p *Node, seen map[string]bool) {
+func (v *validator) pkg(p *sexp.Node, seen map[string]bool) {
 	b := v.shape(p, "(package ?name ?items...)")
 	if b == nil {
 		return
@@ -310,7 +311,7 @@ func (v *validator) pkg(p *Node, seen map[string]bool) {
 	}
 }
 
-func (v *validator) declName(n *Node, types map[string]bool) {
+func (v *validator) declName(n *sexp.Node, types map[string]bool) {
 	v.ident(n, "type name", true)
 	if n != nil && !n.IsList {
 		if types[n.Atom] {
@@ -320,7 +321,7 @@ func (v *validator) declName(n *Node, types map[string]bool) {
 	}
 }
 
-func (v *validator) structLike(s *Node, types map[string]bool) {
+func (v *validator) structLike(s *sexp.Node, types map[string]bool) {
 	b := v.shape(s, "(_ ?name ?items...)")
 	if b == nil {
 		return
@@ -409,7 +410,7 @@ func (v *validator) structLike(s *Node, types map[string]bool) {
 	}
 }
 
-func (v *validator) iface(i *Node, types map[string]bool) {
+func (v *validator) iface(i *sexp.Node, types map[string]bool) {
 	b := v.shape(i, "(interface ?name ?items...)")
 	if b == nil {
 		return
@@ -431,7 +432,7 @@ func (v *validator) iface(i *Node, types map[string]bool) {
 	}
 }
 
-func (v *validator) method(m *Node) {
+func (v *validator) method(m *sexp.Node) {
 	b := v.shape(m, "(method ?name ?parts...)")
 	if b == nil {
 		return
@@ -453,7 +454,7 @@ func (v *validator) method(m *Node) {
 						v.bad(t, "only the last parameter can be variadic")
 						continue
 					}
-					t = &Node{Atom: strings.TrimPrefix(t.Atom, "..."), Pos: t.Pos}
+					t = &sexp.Node{Atom: strings.TrimPrefix(t.Atom, "..."), Pos: t.Pos}
 				}
 				v.typ(t)
 			}
@@ -469,7 +470,7 @@ func (v *validator) method(m *Node) {
 	}
 }
 
-func (v *validator) typ(n *Node) {
+func (v *validator) typ(n *sexp.Node) {
 	if n == nil {
 		return
 	}
@@ -493,7 +494,7 @@ func (v *validator) typ(n *Node) {
 				q, strings.ReplaceAll(n.Atom, q+".", ""))
 		case v.pkgNames[q]:
 			if v.deps[v.cur] == nil {
-				v.deps[v.cur] = map[string]*Node{}
+				v.deps[v.cur] = map[string]*sexp.Node{}
 			}
 			if v.deps[v.cur][q] == nil {
 				v.deps[v.cur][q] = n
@@ -541,7 +542,7 @@ func isType(e ast.Expr) bool {
 	return false
 }
 
-func short(n *Node) string {
+func short(n *sexp.Node) string {
 	s := n.Flat()
 	if len(s) > 60 {
 		s = s[:57] + "..."

@@ -2,7 +2,10 @@
 
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // The badger tile, registered from a (tile-spec badger ...) form.
 // embedded key-value: an LSM store, one keyspace, values as JSON
@@ -45,17 +48,17 @@ type badgerTile struct {
 
 func (s *badgerTile) Implement(in StoreInput) (StoreParts, error) {
 	return StoreParts{
-		Fields: []*Node{
-			L(Sym("field"), Sym("db"), Sym("*badger.DB")),
-			L(Sym("field"), Sym("prefix"), Sym("string")),
+		Fields: []*sexp.Node{
+			sexp.L(sexp.Sym("field"), sexp.Sym("db"), sexp.Sym("*badger.DB")),
+			sexp.L(sexp.Sym("field"), sexp.Sym("prefix"), sexp.Sym("string")),
 		},
-		Params: L(Sym("params"), L(Sym("db"), Sym("*badger.DB"))),
+		Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("db"), sexp.Sym("*badger.DB"))),
 		Body:   fmt.Sprintf("return &%s{db: db, prefix: %q}", in.Impl, lowerFirstWord(in.Entity)+":"),
 		Hint:   s.Hint,
 	}, nil
 }
 
-func (s *badgerTile) Hint(meth *Node) string {
+func (s *badgerTile) Hint(meth *sexp.Node) string {
 	kind, _ := methodOp(meth)
 	switch kind {
 	case "get":

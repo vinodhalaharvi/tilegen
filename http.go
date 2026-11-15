@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	goversion "go/version"
 	"path"
 	"sort"
@@ -30,7 +31,7 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "http",
 		Pass: Select,
-		Rule: Rule{Name: "http", Pattern: Pat("(http ?items...)"), Then: selectHTTP,
+		Rule: Rule{Name: "http", Pattern: sexp.Pat("(http ?items...)"), Then: selectHTTP,
 			Produces: "go/file", Doc: "a Handler and ServeMux over the package's stores",
 			Cost: Cost{{Dim: "llm-work", Value: 2, Source: "derived", Note: "only validation and error mapping are left open"},
 				{Dim: "maintenance", Value: 1}, {Dim: "dependency", Value: 0, Source: "derived", Note: "net/http only; Go 1.22 routes methods and wildcards"}}},
@@ -42,7 +43,7 @@ func init() {
 // does with the request.
 var httpVerbs = []string{"get", "list", "save", "delete"}
 
-func validateHTTP(v *validator, n *Node, types map[string]bool) {
+func validateHTTP(v *validator, n *sexp.Node, types map[string]bool) {
 	if v.goVersion != "" && goversion.Compare("go"+v.goVersion, "go1.22") < 0 {
 		v.bad(n, "(http ...) needs (go 1.22) or later, whose net/http routes methods and {wildcards}; the project has (go %s)", v.goVersion)
 	}
@@ -78,8 +79,8 @@ func validateHTTP(v *validator, n *Node, types map[string]bool) {
 				seen[key] = true
 			}
 			op := b.One("op")
-			ob := Bindings{}
-			if !Match(Pat("(?verb ?entity)"), op, ob) || !contains(httpVerbs, ob.Atom("verb")) {
+			ob := sexp.Bindings{}
+			if !sexp.Match(sexp.Pat("(?verb ?entity)"), op, ob) || !contains(httpVerbs, ob.Atom("verb")) {
 				v.bad(op, "a route does (VERB Entity), where VERB is %s, got %s%s",
 					strings.Join(httpVerbs, ", "), short(op), didYouMean(op.Head(), httpVerbs))
 				continue
@@ -103,10 +104,10 @@ func validateHTTP(v *validator, n *Node, types map[string]bool) {
 
 type httpRoute struct {
 	Method, Path, Verb, Entity string
-	Node                       *Node
+	Node                       *sexp.Node
 }
 
-func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectHTTP(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	var routes []httpRoute
 	resources := map[string]bool{} // entities this handler serves
@@ -126,19 +127,19 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if doc == "" {
 		doc = fmt.Sprintf("Handler serves the %s HTTP API over its stores.", pkg.Name)
 	}
-	decl := L(Sym("go/struct"), Sym("Handler"), L(Sym("doc"), Str(doc)))
-	params := L(Sym("params"))
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym("Handler"), sexp.L(sexp.Sym("doc"), sexp.Str(doc)))
+	params := sexp.L(sexp.Sym("params"))
 	var inits []string
 	for _, e := range names {
 		field := lowerFirstWord(e) + "s"
-		decl.List = append(decl.List, L(Sym("field"), Sym(field), Sym(e+"Store")))
-		params.List = append(params.List, L(Sym(field), Sym(e+"Store")))
+		decl.List = append(decl.List, sexp.L(sexp.Sym("field"), sexp.Sym(field), sexp.Sym(e+"Store")))
+		params.List = append(params.List, sexp.L(sexp.Sym(field), sexp.Sym(e+"Store")))
 		inits = append(inits, field+": "+field)
 	}
-	ctor := L(Sym("go/func"), Sym("NewHandler"),
-		L(Sym("doc"), Str("NewHandler returns a Handler over the given stores.")),
-		params, L(Sym("returns"), Sym("*Handler")),
-		L(Sym("body"), Str(fmt.Sprintf("return &Handler{%s}", strings.Join(inits, ", ")))))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("NewHandler"),
+		sexp.L(sexp.Sym("doc"), sexp.Str("NewHandler returns a Handler over the given stores.")),
+		params, sexp.L(sexp.Sym("returns"), sexp.Sym("*Handler")),
+		sexp.L(sexp.Sym("body"), sexp.Str(fmt.Sprintf("return &Handler{%s}", strings.Join(inits, ", ")))))
 
 	// Routes() registers every route; Go's ServeMux answers 404 and 405.
 	var reg []string
@@ -146,12 +147,12 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	for _, r := range routes {
 		reg = append(reg, fmt.Sprintf("\tmux.HandleFunc(%q, h.%s)", r.Method+" "+r.Path, handlerName(r)))
 	}
-	routesFn := L(Sym("go/func"), Sym("Routes"),
-		L(Sym("doc"), Str("Routes returns a mux serving every route of this API.\nnet/http answers 404 for an unknown path and 405 for a known path\nwith the wrong method, so neither is handled here.")),
-		L(Sym("recv"), Sym("h"), Sym("*Handler")), L(Sym("params")), L(Sym("returns"), Str("*http.ServeMux")),
-		L(Sym("body"), Str("mux := http.NewServeMux()\n"+strings.Join(reg, "\n")+"\nreturn mux")))
+	routesFn := sexp.L(sexp.Sym("go/func"), sexp.Sym("Routes"),
+		sexp.L(sexp.Sym("doc"), sexp.Str("Routes returns a mux serving every route of this API.\nnet/http answers 404 for an unknown path and 405 for a known path\nwith the wrong method, so neither is handled here.")),
+		sexp.L(sexp.Sym("recv"), sexp.Sym("h"), sexp.Sym("*Handler")), sexp.L(sexp.Sym("params")), sexp.L(sexp.Sym("returns"), sexp.Str("*http.ServeMux")),
+		sexp.L(sexp.Sym("body"), sexp.Str("mux := http.NewServeMux()\n"+strings.Join(reg, "\n")+"\nreturn mux")))
 
-	decls := []*Node{decl, ctor, routesFn}
+	decls := []*sexp.Node{decl, ctor, routesFn}
 	for _, r := range routes {
 		fn, err := handlerFunc(c, r)
 		if err != nil {
@@ -159,7 +160,7 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 		decls = append(decls, fn)
 	}
-	decls = append(decls, L(Sym("go/raw"), Str(httpHelpers())))
+	decls = append(decls, sexp.L(sexp.Sym("go/raw"), sexp.Str(httpHelpers())))
 
 	gen, err := goFile(c, path.Join(pkg.Dir, "http_gen.go"), "generated", "", decls)
 	if err != nil {
@@ -172,19 +173,19 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	// across a resource's routes.
 	file := path.Join(pkg.Dir, "http.go")
 	genFile := path.Join(pkg.Dir, pkg.Name+"_gen.go")
-	var methods []*Node
+	var methods []*sexp.Node
 	intents := map[string]string{}
 	for _, e := range names {
 		lower := lowerFirstWord(e)
 		methods = append(methods,
-			L(Sym("method"), Sym("validate"+e), L(Sym("params"), L(Sym(lower), Sym("*"+e))), L(Sym("returns"), Sym("error"))),
-			L(Sym("method"), Sym("statusFor"+e), L(Sym("params"), L(Sym("err"), Sym("error"))), L(Sym("returns"), Sym("int"))))
+			sexp.L(sexp.Sym("method"), sexp.Sym("validate"+e), sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym(lower), sexp.Sym("*"+e))), sexp.L(sexp.Sym("returns"), sexp.Sym("error"))),
+			sexp.L(sexp.Sym("method"), sexp.Sym("statusFor"+e), sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("err"), sexp.Sym("error"))), sexp.L(sexp.Sym("returns"), sexp.Sym("int"))))
 		intents["validate"+e] = fmt.Sprintf("Report what makes this %s unacceptable, before it reaches the store. Return nil when it is fine; the error's text is sent to the client with 400.", e)
 		intents["statusFor"+e] = fmt.Sprintf("Map an error from %sStore to an HTTP status: ErrNotFound to 404, a conflict to 409, anything else to 500. Do not leak internal detail to the client.", e)
 	}
 	context := []string{genFile, path.Join(pkg.Dir, "http_gen.go")}
 	stubs, tasks := stubsAndTasksAs("h", pkg, "Handler", "the HTTP API", file, methods,
-		func(meth *Node) string { return intents[meth.List[1].Atom] }, context, nil)
+		func(meth *sexp.Node) string { return intents[meth.List[1].Atom] }, context, nil)
 	// A statusFor hole decides which errors mean 409, which is a question
 	// about the store's driver, so name its error package: the prompt then
 	// carries the real API instead of a remembered one.
@@ -201,7 +202,7 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 			continue
 		}
 		if be, ok := cov.Offer.Impl.(*Backend); ok && be.ErrorPackage != "" {
-			t.List = append(t.List, L(Sym("api-package"), Str(be.ErrorPackage)))
+			t.List = append(t.List, sexp.L(sexp.Sym("api-package"), sexp.Str(be.ErrorPackage)))
 		}
 	}
 
@@ -209,7 +210,7 @@ func selectHTTP(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{gen, implFile}, tasks...), nil
+	return append([]*sexp.Node{gen, implFile}, tasks...), nil
 }
 
 // handlerName is the method a route becomes: GET /links/{id} -> GetLink.
@@ -223,7 +224,7 @@ func handlerName(r httpRoute) string {
 
 // handlerFunc writes one route's handler. Everything here is known from
 // the route and the store, so none of it is a hole.
-func handlerFunc(c *Ctx, r httpRoute) (*Node, error) {
+func handlerFunc(c *Ctx, r httpRoute) (*sexp.Node, error) {
 	e, recv := r.Entity, lowerFirstWord(r.Entity)+"s"
 	ctx := ""
 	if c.Cfg.ContextFirst {
@@ -253,13 +254,13 @@ func handlerFunc(c *Ctx, r httpRoute) (*Node, error) {
 	case "delete":
 		fmt.Fprintf(&body, "if err := h.%s.Delete(%sid); err != nil {\n\thttpError(w, h.statusFor%s(err), err)\n\treturn\n}\nw.WriteHeader(http.StatusNoContent)", recv, ctx, e)
 	}
-	fn := L(Sym("go/func"), Sym(handlerName(r)),
-		L(Sym("doc"), Str(fmt.Sprintf("%s serves %s %s.", handlerName(r), r.Method, r.Path))),
-		L(Sym("recv"), Sym("h"), Sym("*Handler")),
-		L(Sym("params"), L(Sym("w"), Str("http.ResponseWriter")), L(Sym("r"), Str("*http.Request"))),
-		L(Sym("returns")),
-		L(Sym("uses"), Sym(idType), Sym(r.Entity)), // types the body names, for imports
-		L(Sym("body"), Str(body.String())))
+	fn := sexp.L(sexp.Sym("go/func"), sexp.Sym(handlerName(r)),
+		sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("%s serves %s %s.", handlerName(r), r.Method, r.Path))),
+		sexp.L(sexp.Sym("recv"), sexp.Sym("h"), sexp.Sym("*Handler")),
+		sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("w"), sexp.Str("http.ResponseWriter")), sexp.L(sexp.Sym("r"), sexp.Str("*http.Request"))),
+		sexp.L(sexp.Sym("returns")),
+		sexp.L(sexp.Sym("uses"), sexp.Sym(idType), sexp.Sym(r.Entity)), // types the body names, for imports
+		sexp.L(sexp.Sym("body"), sexp.Str(body.String())))
 	return fn, nil
 }
 

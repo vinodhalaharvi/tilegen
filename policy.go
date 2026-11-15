@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"os"
 	"sort"
 	"strconv"
@@ -32,7 +33,7 @@ type Policy struct {
 	// Running is the engines the team already operates: (running postgres
 	// nats). A tile on one of them costs nothing more to operate.
 	Running map[string]bool
-	Pos     Pos
+	Pos     sexp.Pos
 }
 
 // A Preference is what people want, as opposed to what costs less. Tiles
@@ -50,7 +51,7 @@ type Preference struct {
 	Strength string // required | strong | weak
 	Source   string // client | architecture-team | ...; free text
 	Why      string
-	Pos      Pos
+	Pos      sexp.Pos
 }
 
 var preferenceStrengths = []string{"required", "strong", "weak"}
@@ -78,11 +79,11 @@ func DefaultPolicy() *Policy {
 }
 
 // ParsePolicy reads a (policy ...) form.
-func ParsePolicy(n *Node) (*Policy, error) {
+func ParsePolicy(n *sexp.Node) (*Policy, error) {
 	p := DefaultPolicy()
 	p.Pos = n.Pos
 	var errs []error
-	bad := func(at *Node, f string, a ...any) {
+	bad := func(at *sexp.Node, f string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", at.Pos, fmt.Sprintf(f, a...)))
 	}
 	seen := map[string]bool{}
@@ -169,7 +170,7 @@ func ParsePolicy(n *Node) (*Policy, error) {
 
 // parsePrefer reads (prefer TILE... [(strength S)] [(source WHO "why")]).
 // Without a strength it is weak, which is what (prefer X) has always meant.
-func (p *Policy) parsePrefer(n *Node, bad func(*Node, string, ...any)) {
+func (p *Policy) parsePrefer(n *sexp.Node, bad func(*sexp.Node, string, ...any)) {
 	pref := Preference{Strength: "weak", Pos: n.Pos}
 	var tiles []string
 	for _, a := range n.Args() {
@@ -207,7 +208,7 @@ func (p *Policy) parsePrefer(n *Node, bad func(*Node, string, ...any)) {
 	}
 }
 
-func lastAtom(n *Node) string {
+func lastAtom(n *sexp.Node) string {
 	if len(n.List) > 1 && !n.List[len(n.List)-1].IsList {
 		return n.List[len(n.List)-1].Atom
 	}
@@ -220,7 +221,7 @@ func LoadPolicy(path string) (*Policy, error) {
 	if err != nil {
 		return nil, err
 	}
-	forms, err := Parse(path, string(src))
+	forms, err := sexp.Parse(path, string(src))
 	if err != nil {
 		return nil, err
 	}

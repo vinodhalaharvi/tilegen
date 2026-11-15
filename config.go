@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/token"
 	"os"
 	"strings"
@@ -48,7 +49,7 @@ func LoadConfig(path string) (Config, error) {
 	if err != nil {
 		return DefaultConfig(), err
 	}
-	forms, err := Parse(path, string(src))
+	forms, err := sexp.Parse(path, string(src))
 	if err != nil {
 		return DefaultConfig(), err
 	}
@@ -60,16 +61,16 @@ func LoadConfig(path string) (Config, error) {
 
 // ParseConfig reads (config (key value)...), from a config file or from a
 // (config ...) form inside a spec directory.
-func ParseConfig(form *Node) (Config, error) {
+func ParseConfig(form *sexp.Node) (Config, error) {
 	cfg := DefaultConfig()
-	b := Bindings{}
-	if !Match(Pat("(config ?opts...)"), form, b) {
+	b := sexp.Bindings{}
+	if !sexp.Match(sexp.Pat("(config ?opts...)"), form, b) {
 		return cfg, fmt.Errorf("%s: expected (config ...), got %s", form.Pos, short(form))
 	}
 	var errs []error // report every problem at once, like the spec validator
 	for _, o := range b.Rest("opts") {
-		ob := Bindings{}
-		if !Match(Pat("(?key ?val)"), o, ob) || ob.One("val").IsList {
+		ob := sexp.Bindings{}
+		if !sexp.Match(sexp.Pat("(?key ?val)"), o, ob) || ob.One("val").IsList {
 			errs = append(errs, fmt.Errorf("%s: expected (key value), got %s", o.Pos, o.Flat()))
 			continue
 		}

@@ -11,6 +11,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"os"
 	"os/exec"
@@ -181,7 +182,7 @@ func main() {
 // compiled is a spec after every pass: the target forms, the shared
 // context, the -dump stages, and the options with workspace defaults.
 type compiled struct {
-	nodes  []*Node
+	nodes  []*sexp.Node
 	stages []string
 	c      *Ctx
 	o      Options
@@ -206,7 +207,7 @@ func compile(o Options, log io.Writer) (*compiled, error) {
 // compileForms is compile once the spec has been read, so a caller that
 // already has the forms - the HTTP service, whose "files" are request
 // fields - runs exactly the same compiler.
-func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
+func compileForms(forms []*sexp.Node, o Options, log io.Writer) (*compiled, error) {
 	if err := checkRegistry(); err != nil {
 		return nil, fmt.Errorf("the tile registry is inconsistent (this is a tilegen bug): %w", err)
 	}
@@ -214,7 +215,7 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 		o.Runner = execRunner{log: log, dry: o.DryRun}
 	}
 	var err error
-	stages := []string{Dump(forms)}
+	stages := []string{sexp.Dump(forms)}
 	linked, err := Merge(forms)
 	if err != nil {
 		return nil, err
@@ -270,8 +271,8 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 	if err := resolveProject(project, o.Name, o.Out, o.Git, o.Runner, c); err != nil {
 		return nil, err
 	}
-	nodes := []*Node{project}
-	stages = append(stages, Dump(nodes))
+	nodes := []*sexp.Node{project}
+	stages = append(stages, sexp.Dump(nodes))
 	if err := Validate(nodes, c); err != nil {
 		return nil, err
 	}
@@ -280,7 +281,7 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 		if !errors.As(err, &stale) {
 			return nil, err
 		}
-		c.warn(Pos{}, "%v", err)
+		c.warn(sexp.Pos{}, "%v", err)
 	}
 	c.Reselect = o.Reselect
 	if err := errors.Join(coverAll(project, c), checkReserved(project, c)); err != nil {
@@ -299,7 +300,7 @@ func compileForms(forms []*Node, o Options, log io.Writer) (*compiled, error) {
 		if nodes, err = p.Run(c, nodes); err != nil {
 			return nil, err
 		}
-		stages = append(stages, Dump(nodes))
+		stages = append(stages, sexp.Dump(nodes))
 	}
 	return &compiled{nodes: nodes, stages: stages, c: c, o: o, ws: ws}, nil
 }
@@ -312,14 +313,14 @@ func run(o Options, log io.Writer) error {
 	nodes, stages, c := cp.nodes, cp.stages, cp.c
 	o = cp.o
 
-	var gitRepo *Node
+	var gitRepo *sexp.Node
 	for _, n := range nodes {
 		if n.Head() == "git/repo" {
 			gitRepo = n
 		}
 	}
 	if o.Git && gitRepo == nil {
-		gitRepo = L(Sym("git/repo"), L(Sym("visibility"), Sym("private"))) // local repository only
+		gitRepo = sexp.L(sexp.Sym("git/repo"), sexp.L(sexp.Sym("visibility"), sexp.Sym("private"))) // local repository only
 	}
 	if o.Check {
 		rep, err := Emit(nodes, o.Out, c, false)

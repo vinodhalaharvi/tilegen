@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"net"
 	"net/http"
@@ -283,7 +284,7 @@ func draftModule(ctx context.Context, key, module, version string) DraftJSON {
 			return out
 		}
 		form := trimFence(text)
-		forms, err := Parse("draft.sexp", form)
+		forms, err := sexp.Parse("draft.sexp", form)
 		switch {
 		case err != nil || len(forms) != 1:
 			problem = fmt.Errorf("the answer was not one S-expression form")

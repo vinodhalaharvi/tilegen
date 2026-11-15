@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"strings"
 )
@@ -27,7 +28,7 @@ import (
 
 // outboxRequirements is the requirement an (outbox Entity) in the
 // package's events puts on that entity's store.
-func outboxRequirements(pkg *Node, entity string) []string {
+func outboxRequirements(pkg *sexp.Node, entity string) []string {
 	for _, ev := range pkg.FindAll("events") {
 		for _, ob := range ev.FindAll("outbox") {
 			if len(ob.List) == 2 && ob.List[1].Atom == entity {
@@ -38,7 +39,7 @@ func outboxRequirements(pkg *Node, entity string) []string {
 	return nil
 }
 
-func validateOutbox(v *validator, it *Node, types map[string]bool) {
+func validateOutbox(v *validator, it *sexp.Node, types map[string]bool) {
 	if b := v.shape(it, "(outbox ?entity)"); b == nil {
 		return
 	}
@@ -55,7 +56,7 @@ func validateOutbox(v *validator, it *Node, types map[string]bool) {
 	}
 }
 
-func selectEventsAndOutbox(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectEventsAndOutbox(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	out, err := selectEvents(m, b, n)
 	if err != nil {
 		return nil, err
@@ -77,7 +78,7 @@ func selectEventsAndOutbox(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	return out, nil
 }
 
-func selectOutbox(c *Ctx, n *Node) ([]*Node, error) {
+func selectOutbox(c *Ctx, n *sexp.Node) ([]*sexp.Node, error) {
 	pkg := c.Pkg
 	if !c.Cfg.ContextFirst {
 		return nil, fmt.Errorf("%s: (outbox ...) needs stores that take a context.Context; remove (context-first false) from the config", n.Pos)
@@ -108,26 +109,26 @@ func selectOutbox(c *Ctx, n *Node) ([]*Node, error) {
 	// other's rows. BIGSERIAL orders rows by when they were written.
 	table := pkg.Name + "_outbox"
 	q := camelUpper(pkg.Name) + "Outbox" // InsertOrdersOutbox
-	nodes := []*Node{
-		L(Sym("sql/table"), Str(table), Str(fmt.Sprintf(
+	nodes := []*sexp.Node{
+		sexp.L(sexp.Sym("sql/table"), sexp.Str(table), sexp.Str(fmt.Sprintf(
 			"CREATE TABLE %s (\n  id BIGSERIAL PRIMARY KEY,\n  topic TEXT NOT NULL,\n  payload JSONB NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now()\n);", table))),
-		L(Sym("sql/query"), Str("Insert"+q), Str(fmt.Sprintf(
+		sexp.L(sexp.Sym("sql/query"), sexp.Str("Insert"+q), sexp.Str(fmt.Sprintf(
 			"-- name: Insert%s :exec\nINSERT INTO %s (topic, payload) VALUES ($1, $2);", q, table))),
 		// SKIP LOCKED lets several relays run without waiting on each
 		// other: each takes rows no other holds.
-		L(Sym("sql/query"), Str("Next"+q), Str(fmt.Sprintf(
+		sexp.L(sexp.Sym("sql/query"), sexp.Str("Next"+q), sexp.Str(fmt.Sprintf(
 			"-- name: Next%s :many\nSELECT id, topic, payload FROM %s ORDER BY id LIMIT $1 FOR UPDATE SKIP LOCKED;", q, table))),
-		L(Sym("sql/query"), Str("Delete"+q), Str(fmt.Sprintf(
+		sexp.L(sexp.Sym("sql/query"), sexp.Str("Delete"+q), sexp.Str(fmt.Sprintf(
 			"-- name: Delete%s :exec\nDELETE FROM %s WHERE id = ANY($1::bigint[]);", q, table))),
 	}
 
 	gen, err := goFile(c, path.Join(pkg.Dir, "outbox_gen.go"), "generated", "",
-		[]*Node{L(Sym("go/raw"), Str(outboxText(pkg.Name, q, entities, events)))})
+		[]*sexp.Node{sexp.L(sexp.Sym("go/raw"), sexp.Str(outboxText(pkg.Name, q, entities, events)))})
 	if err != nil {
 		return nil, err
 	}
 	for _, imp := range [][2]string{{"db", c.Module + "/internal/db"}, {"pgx", "github.com/jackc/pgx/v5"}} {
-		gen.List = append(gen.List, L(Sym("import"), Sym(imp[0]), Str(imp[1])))
+		gen.List = append(gen.List, sexp.L(sexp.Sym("import"), sexp.Sym(imp[0]), sexp.Str(imp[1])))
 	}
 	return append(nodes, gen), nil
 }

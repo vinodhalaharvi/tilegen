@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -39,10 +40,10 @@ func init() {
 		ErrorPackage: "mongo",
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{
-				Fields: []*Node{
-					L(Sym("field"), Sym("coll"), Sym("*mongo.Collection")),
+				Fields: []*sexp.Node{
+					sexp.L(sexp.Sym("field"), sexp.Sym("coll"), sexp.Sym("*mongo.Collection")),
 				},
-				Params: L(Sym("params"), L(Sym("db"), Sym("*mongo.Database"))),
+				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("db"), sexp.Sym("*mongo.Database"))),
 				Body: fmt.Sprintf("return &%s{coll: db.Collection(%q)}",
 					in.Impl, collectionName(in.Entity)),
 				Hint: mongoHint,
@@ -92,7 +93,7 @@ func sIf(n int) string { return map[bool]string{true: "s"}[n > 1] }
 func collectionName(entity string) string { return lowerFirstWord(entity) + "s" }
 
 // mongoHint says what each method has to do in the driver's terms.
-func mongoHint(meth *Node) string {
+func mongoHint(meth *sexp.Node) string {
 	kind, f := methodOp(meth)
 	p := firstParam(meth)
 	switch kind {

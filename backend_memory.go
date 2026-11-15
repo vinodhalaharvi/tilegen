@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
+)
 
 // The memory backend: a map guarded by a mutex. Useful for tests and fakes.
 func init() {
@@ -22,11 +25,11 @@ func init() {
 		},
 		Implement: func(in StoreInput) (StoreParts, error) {
 			return StoreParts{
-				Fields: []*Node{
-					L(Sym("field"), Sym("mu"), Sym("sync.Mutex")),
-					L(Sym("field"), Sym("m"), Str(fmt.Sprintf("map[%s]*%s", in.IDType, in.Entity))),
+				Fields: []*sexp.Node{
+					sexp.L(sexp.Sym("field"), sexp.Sym("mu"), sexp.Sym("sync.Mutex")),
+					sexp.L(sexp.Sym("field"), sexp.Sym("m"), sexp.Str(fmt.Sprintf("map[%s]*%s", in.IDType, in.Entity))),
 				},
-				Params: L(Sym("params")),
+				Params: sexp.L(sexp.Sym("params")),
 				Body:   fmt.Sprintf("return &%s{m: make(map[%s]*%s)}", in.Impl, in.IDType, in.Entity),
 				Hint:   memoryHint,
 			}, nil

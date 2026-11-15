@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"os"
 	"path/filepath"
@@ -617,7 +618,7 @@ func TestImportTilesWithSymbols(t *testing.T) {
 			t.Errorf("the skeleton has no %q", want)
 		}
 	}
-	if _, err := Parse("kv.sexp", string(kv)); err != nil {
+	if _, err := sexp.Parse("kv.sexp", string(kv)); err != nil {
 		t.Errorf("the skeleton with symbols no longer parses: %v", err)
 	}
 	for _, line := range strings.Split(string(kv), "\n") {
@@ -825,12 +826,12 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 	}
 	// A TODO left in one place is still caught, and words that merely
 	// contain it are not.
-	for _, n := range []*Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*Node{{Atom: "doc"}, {IsList: true, List: []*Node{{Atom: "TODO"}}}}}} {
+	for _, n := range []*sexp.Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {IsList: true, List: []*sexp.Node{{Atom: "TODO"}}}}}} {
 		if !unanswered(n) {
 			t.Errorf("%s should count as unanswered", short(n))
 		}
 	}
-	for _, n := range []*Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*Node{{Atom: "doc"}, {Atom: "done"}}}} {
+	for _, n := range []*sexp.Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*sexp.Node{{Atom: "doc"}, {Atom: "done"}}}} {
 		if unanswered(n) {
 			t.Errorf("%s should not count as unanswered", short(n))
 		}

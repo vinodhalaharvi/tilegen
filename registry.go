@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"sort"
 	"strings"
 )
@@ -70,19 +71,19 @@ type Backend struct {
 	Doc          string   // one line for `tilegen tiles`
 	Requires     []string // external tools
 	Cost         Cost
-	Engine       string               // what a project runs for it, shared by tiles that name the same one; see Offer.Engine
-	Topics       []string             // GitHub topics a project using it gets
-	Packages     map[string]string    // project folders its code lives in, by package name (reserved)
-	Generate     string               // command to run after tilegen and before building, if any
-	GenerateDoc  string               // what it does, for the starter README
-	IllegalWhen  map[string]string    // need -> why this backend cannot serve it, e.g. durable
-	Satisfies    map[string]string    // need -> how this backend meets it; silence is not a yes
-	Unverified   map[string]string    // need -> why nobody has checked; treated as illegal
-	Imports      map[string]string    // package qualifiers its code uses -> import paths
-	ErrorPackage string               // the package whose errors its stores return, for prompts
-	Dialect      *Dialect             // for SQL backends: how this database spells things
-	ProjectForms func(c *Ctx) []*Node // project-level target forms, once per project using it
-	Form         string               // what its store code yields: "" (domain values) or e.g. db-rows
+	Engine       string                    // what a project runs for it, shared by tiles that name the same one; see Offer.Engine
+	Topics       []string                  // GitHub topics a project using it gets
+	Packages     map[string]string         // project folders its code lives in, by package name (reserved)
+	Generate     string                    // command to run after tilegen and before building, if any
+	GenerateDoc  string                    // what it does, for the starter README
+	IllegalWhen  map[string]string         // need -> why this backend cannot serve it, e.g. durable
+	Satisfies    map[string]string         // need -> how this backend meets it; silence is not a yes
+	Unverified   map[string]string         // need -> why nobody has checked; treated as illegal
+	Imports      map[string]string         // package qualifiers its code uses -> import paths
+	ErrorPackage string                    // the package whose errors its stores return, for prompts
+	Dialect      *Dialect                  // for SQL backends: how this database spells things
+	ProjectForms func(c *Ctx) []*sexp.Node // project-level target forms, once per project using it
+	Form         string                    // what its store code yields: "" (domain values) or e.g. db-rows
 
 	// Implement scaffolds one store implementation.
 	Implement func(StoreInput) (StoreParts, error)
@@ -92,22 +93,22 @@ type Backend struct {
 type StoreInput struct {
 	C      *Ctx
 	Pkg    *PkgScope
-	Entity string // Order
-	Struct *Node  // the entity's (struct ...)
-	Iface  string // OrderStore
-	Impl   string // PostgresOrderStore
+	Entity string     // Order
+	Struct *sexp.Node // the entity's (struct ...)
+	Iface  string     // OrderStore
+	Impl   string     // PostgresOrderStore
 	IDType string
-	Ops    *Node // (ops get list ...)
+	Ops    *sexp.Node // (ops get list ...)
 }
 
 // StoreParts is what a backend contributes to the implementation file.
 type StoreParts struct {
-	Fields  []*Node // (field name Type) of the implementation struct
-	Params  *Node   // the constructor's (params ...)
-	Body    string  // the constructor's body
-	Hint    func(meth *Node) string
-	Extra   []*Node  // more target forms, e.g. (sql/query ...)
-	Context []string // more context files for the LLM
+	Fields  []*sexp.Node // (field name Type) of the implementation struct
+	Params  *sexp.Node   // the constructor's (params ...)
+	Body    string       // the constructor's body
+	Hint    func(meth *sexp.Node) string
+	Extra   []*sexp.Node // more target forms, e.g. (sql/query ...)
+	Context []string     // more context files for the LLM
 }
 
 var backends = map[string]*Backend{}
@@ -168,7 +169,7 @@ type TileInfo struct {
 	Converts                  [2]string // for chains: from, to
 	CostRule                  string    // for chains: how the cost is computed
 	Name, Pass, Produces, Doc string
-	Covers                    []*Node // the pattern(s) it matches
+	Covers                    []*sexp.Node // the pattern(s) it matches
 	Requires                  []string
 	Cost                      Cost
 	Engine, Module            string // for backends: what has to be running, and the Go module used
@@ -180,15 +181,15 @@ func Registry() []TileInfo {
 	var out []TileInfo
 	for _, p := range Pipeline {
 		for _, r := range p.Rules {
-			out = append(out, TileInfo{Name: r.Name, Pass: p.Name, Covers: []*Node{r.Pattern},
+			out = append(out, TileInfo{Name: r.Name, Pass: p.Name, Covers: []*sexp.Node{r.Pattern},
 				Produces: r.Produces, Doc: r.Doc, Cost: r.Cost})
 		}
 	}
 	for _, capability := range capabilityNames() {
 		for _, o := range offersOf(capability) {
-			var covers []*Node
+			var covers []*sexp.Node
 			if a := aliasOf(o.Tile); a != "" {
-				covers = append(covers, L(Sym("alias"), Sym(a)))
+				covers = append(covers, sexp.L(sexp.Sym("alias"), sexp.Sym(a)))
 			}
 			out = append(out, TileInfo{Name: o.Tile, Pass: "select", Covers: covers, Produces: capability,
 				Doc: o.Doc, Requires: o.Requires, Cost: o.Cost, IllegalWhen: o.IllegalFor,
@@ -197,7 +198,7 @@ func Registry() []TileInfo {
 		}
 	}
 	for _, ch := range chains {
-		out = append(out, TileInfo{Name: ch.Name, Pass: "select", Covers: []*Node{L(Sym("convert"), Sym(ch.From), Sym(ch.To))},
+		out = append(out, TileInfo{Name: ch.Name, Pass: "select", Covers: []*sexp.Node{sexp.L(sexp.Sym("convert"), sexp.Sym(ch.From), sexp.Sym(ch.To))},
 			Produces: ch.To, Doc: ch.Doc, Converts: [2]string{ch.From, ch.To}, CostRule: ch.CostRule})
 	}
 	return out
@@ -205,58 +206,58 @@ func Registry() []TileInfo {
 
 // tileSexp renders a registry row as an S-expression: the shape tiles will
 // have once they can be written as data.
-func tileSexp(t TileInfo) *Node {
-	n := L(Sym("tile"), Sym(t.Name), L(Sym("pass"), Sym(t.Pass)))
+func tileSexp(t TileInfo) *sexp.Node {
+	n := sexp.L(sexp.Sym("tile"), sexp.Sym(t.Name), sexp.L(sexp.Sym("pass"), sexp.Sym(t.Pass)))
 	if t.Doc != "" {
-		n.List = append(n.List, L(Sym("doc"), Str(t.Doc)))
+		n.List = append(n.List, sexp.L(sexp.Sym("doc"), sexp.Str(t.Doc)))
 	}
 	if len(t.Covers) > 0 {
-		n.List = append(n.List, L(append([]*Node{Sym("covers")}, t.Covers...)...))
+		n.List = append(n.List, sexp.L(append([]*sexp.Node{sexp.Sym("covers")}, t.Covers...)...))
 	}
 	if t.Produces != "" {
 		head := "produces"
 		if _, isCapability := capabilities[t.Produces]; isCapability {
 			head = "offers"
 		}
-		prod := L(Sym(head))
+		prod := sexp.L(sexp.Sym(head))
 		for _, p := range strings.Split(t.Produces, ", ") {
-			prod.List = append(prod.List, Sym(p))
+			prod.List = append(prod.List, sexp.Sym(p))
 		}
 		n.List = append(n.List, prod)
 	}
 	if t.Form != "" && t.Form != domainForm {
-		n.List = append(n.List, L(Sym("form"), Sym(t.Form)))
+		n.List = append(n.List, sexp.L(sexp.Sym("form"), sexp.Sym(t.Form)))
 	}
 	if t.Converts[0] != "" {
-		n.List = append(n.List, L(Sym("converts"), Sym(t.Converts[0]), Sym(t.Converts[1])))
+		n.List = append(n.List, sexp.L(sexp.Sym("converts"), sexp.Sym(t.Converts[0]), sexp.Sym(t.Converts[1])))
 	}
 	if t.CostRule != "" {
-		n.List = append(n.List, L(Sym("cost-rule"), Str(t.CostRule)))
+		n.List = append(n.List, sexp.L(sexp.Sym("cost-rule"), sexp.Str(t.CostRule)))
 	}
 	for _, req := range sortedKeys(t.Satisfies) {
-		n.List = append(n.List, L(Sym("satisfies"), Sym(req), Str(t.Satisfies[req])))
+		n.List = append(n.List, sexp.L(sexp.Sym("satisfies"), sexp.Sym(req), sexp.Str(t.Satisfies[req])))
 	}
 	for _, req := range sortedKeys(t.IllegalWhen) {
-		n.List = append(n.List, L(Sym("illegal-when"), L(Sym(req)), Str(t.IllegalWhen[req])))
+		n.List = append(n.List, sexp.L(sexp.Sym("illegal-when"), sexp.L(sexp.Sym(req)), sexp.Str(t.IllegalWhen[req])))
 	}
 	for _, req := range sortedKeys(t.Unverified) {
-		n.List = append(n.List, L(Sym("unverified"), Sym(req), Str(t.Unverified[req])))
+		n.List = append(n.List, sexp.L(sexp.Sym("unverified"), sexp.Sym(req), sexp.Str(t.Unverified[req])))
 	}
 	if len(t.Requires) > 0 {
-		req := L(Sym("requires"))
+		req := sexp.L(sexp.Sym("requires"))
 		for _, r := range t.Requires {
-			req.List = append(req.List, L(Sym("tool"), Sym(r)))
+			req.List = append(req.List, sexp.L(sexp.Sym("tool"), sexp.Sym(r)))
 		}
 		n.List = append(n.List, req)
 	}
 	if len(t.Cost) > 0 {
-		cost := L(Sym("cost"))
+		cost := sexp.L(sexp.Sym("cost"))
 		for _, c := range t.Cost {
-			term := L(Sym(c.Dim), Sym(fmt.Sprint(c.Value)))
+			term := sexp.L(sexp.Sym(c.Dim), sexp.Sym(fmt.Sprint(c.Value)))
 			if c.Source != "" && c.Source != "default" {
-				src := L(Sym("source"), Sym(c.Source))
+				src := sexp.L(sexp.Sym("source"), sexp.Sym(c.Source))
 				if c.Note != "" {
-					src.List = append(src.List, Str(c.Note))
+					src.List = append(src.List, sexp.Str(c.Note))
 				}
 				term.List = append(term.List, src)
 			}
@@ -274,7 +275,7 @@ type PackageTile struct {
 	Form     string // the head it covers, e.g. events
 	Pass     *Pass
 	Rule     Rule
-	Validate func(v *validator, n *Node, types map[string]bool)
+	Validate func(v *validator, n *sexp.Node, types map[string]bool)
 }
 
 var packageTiles = map[string]*PackageTile{}

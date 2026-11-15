@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"io"
 	"io/fs"
 	"os"
@@ -81,16 +82,16 @@ func expandPath(base, p string) (string, error) {
 
 // ParseWorkspace validates a (workspace ...) form, reporting every problem
 // with its spec position, and resolves paths against base.
-func ParseWorkspace(n *Node, base string) (*Workspace, error) {
+func ParseWorkspace(n *sexp.Node, base string) (*Workspace, error) {
 	ws := &Workspace{Fill: defaultFill()}
 	if n == nil {
 		return ws, nil
 	}
 	var errs []error
-	bad := func(at *Node, f string, a ...any) {
+	bad := func(at *sexp.Node, f string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: %s", at.Pos, fmt.Sprintf(f, a...)))
 	}
-	one := func(it *Node) string {
+	one := func(it *sexp.Node) string {
 		if len(it.List) != 2 || it.List[1].IsList {
 			bad(it, "expected (%s value), got %s", it.Head(), short(it))
 			return ""
@@ -98,7 +99,7 @@ func ParseWorkspace(n *Node, base string) (*Workspace, error) {
 		return it.List[1].Atom
 	}
 	seen := map[string]bool{}
-	var tmux *Node
+	var tmux *sexp.Node
 	for _, it := range n.Args() {
 		h := it.Head()
 		if seen[h] {
@@ -121,8 +122,8 @@ func ParseWorkspace(n *Node, base string) (*Workspace, error) {
 		case "worktrees":
 			names := map[string]bool{}
 			for _, w := range it.Args() {
-				b := Bindings{}
-				if !Match(Pat("(worktree ?name ?opts...)"), w, b) || b.One("name").IsList {
+				b := sexp.Bindings{}
+				if !sexp.Match(sexp.Pat("(worktree ?name ?opts...)"), w, b) || b.One("name").IsList {
 					bad(w, "expected (worktree NAME (branch BRANCH)), got %s", short(w))
 					continue
 				}
@@ -167,9 +168,9 @@ func ParseWorkspace(n *Node, base string) (*Workspace, error) {
 	return ws, errors.Join(errs...)
 }
 
-func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...any)) {
-	b := Bindings{}
-	if len(t.Args()) != 1 || !Match(Pat("(session ?name ?windows...)"), t.Args()[0], b) || b.One("name").IsList {
+func parseTmux(t *sexp.Node, ws *Workspace, base string, bad func(*sexp.Node, string, ...any)) {
+	b := sexp.Bindings{}
+	if len(t.Args()) != 1 || !sexp.Match(sexp.Pat("(session ?name ?windows...)"), t.Args()[0], b) || b.One("name").IsList {
 		bad(t, "expected (tmux (session NAME (window ...)...))")
 		return
 	}
@@ -183,8 +184,8 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 	}
 	names := map[string]bool{}
 	for _, w := range b.Rest("windows") {
-		wb := Bindings{}
-		if !Match(Pat("(window ?name ?opts...)"), w, wb) || wb.One("name").IsList {
+		wb := sexp.Bindings{}
+		if !sexp.Match(sexp.Pat("(window ?name ?opts...)"), w, wb) || wb.One("name").IsList {
 			bad(w, "expected (window NAME (dir PATH)|(worktree NAME) (run \"...\")), got %s", short(w))
 			continue
 		}
@@ -251,7 +252,7 @@ func parseTmux(t *Node, ws *Workspace, base string, bad func(*Node, string, ...a
 }
 
 // parsePane reads (pane [(dir P)|(worktree W)] [(run "...")]).
-func parsePane(n *Node, ws *Workspace, root string, bad func(*Node, string, ...any)) Pane {
+func parsePane(n *sexp.Node, ws *Workspace, root string, bad func(*sexp.Node, string, ...any)) Pane {
 	p := Pane{Dir: root}
 	for _, o := range n.Args() {
 		if len(o.List) != 2 || o.List[1].IsList {

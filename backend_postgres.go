@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
 
@@ -38,7 +39,7 @@ func init() {
 		Packages:     map[string]string{"db": "internal/db"},
 		Generate:     "sqlc generate",
 		GenerateDoc:  "generate internal/db from db/*.sql",
-		ProjectForms: func(c *Ctx) []*Node { return []*Node{sqlcConfig(c)} },
+		ProjectForms: func(c *Ctx) []*sexp.Node { return []*sexp.Node{sqlcConfig(c)} },
 		Implement: func(in StoreInput) (StoreParts, error) {
 			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {
@@ -57,10 +58,10 @@ func init() {
 				}
 			}
 			return StoreParts{
-				Fields: []*Node{L(Sym("field"), Sym("q"), Sym("*db.Queries"))},
-				Params: L(Sym("params"), L(Sym("q"), Sym("*db.Queries"))),
+				Fields: []*sexp.Node{sexp.L(sexp.Sym("field"), sexp.Sym("q"), sexp.Sym("*db.Queries"))},
+				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("q"), sexp.Sym("*db.Queries"))),
 				Body:   fmt.Sprintf("return &%s{q: q}", in.Impl),
-				Hint: func(meth *Node) string {
+				Hint: func(meth *sexp.Node) string {
 					h := postgresHint(meth, in.Entity)
 					if kind, _ := methodOp(meth); len(parse) > 0 && (kind == "get" || kind == "get-by" || kind == "list" || kind == "list-by") {
 						h += " Convert " + strings.Join(parse, ", ") + ", never with a bare cast."

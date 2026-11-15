@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"regexp"
 	"strconv"
 	"strings"
@@ -55,7 +56,7 @@ func parseDrafts(text string) ([]*Offer, error) {
 	if strings.TrimSpace(text) == "" {
 		return nil, nil
 	}
-	forms, err := Parse("tiles.sexp", text)
+	forms, err := sexp.Parse("tiles.sexp", text)
 	if err != nil {
 		return nil, err
 	}
@@ -78,9 +79,9 @@ func parseDrafts(text string) ([]*Offer, error) {
 	return out, errors.Join(errs...)
 }
 
-func parseDraft(f *Node) (*Offer, error) {
+func parseDraft(f *sexp.Node) (*Offer, error) {
 	var errs []error
-	bad := func(n *Node, format string, a ...any) {
+	bad := func(n *sexp.Node, format string, a ...any) {
 		errs = append(errs, fmt.Errorf("%s: "+format, append([]any{n.Pos}, a...)...))
 	}
 	if f.Head() != "tile" || len(f.List) < 2 || f.List[1].IsList {
@@ -107,7 +108,7 @@ func parseDraft(f *Node) (*Offer, error) {
 	} else {
 		o.Capability = cap.Name
 	}
-	claim := func(it *Node, into map[string]string) {
+	claim := func(it *sexp.Node, into map[string]string) {
 		if len(it.List) != 3 || !it.List[1].IsList || len(it.List[1].List) != 1 || it.List[2].IsList || !it.List[2].Quoted || strings.TrimSpace(it.List[2].Atom) == "" {
 			bad(it, `expected (%s (REQUIREMENT) "why"), got %s`, it.Head(), short(it))
 			return

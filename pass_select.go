@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"os/exec"
 	"path"
 	"sort"
@@ -28,31 +29,31 @@ import (
 var Select = &Pass{
 	Name: "select",
 	Rules: []Rule{
-		{Name: "project", Pattern: Pat("(project ?name ?items...)"), Then: selectProject, Produces: "gomod", Doc: "writes go.mod and resolves imports"},
-		{Name: "package", Pattern: Pat("(package ?name ?items...)"), Then: selectPackage, Produces: "go/file", Doc: "collects a package into its generated file"},
-		{Name: "impl", Pattern: Pat("(impl ?iface ?parts...)"), Then: selectImpl, Produces: "store", Doc: "implements a store through the registered backend"},
-		{Name: "struct", Pattern: Pat("(struct ?name ?items...)"), Then: rename("go/struct"), Produces: "go/struct", Doc: "a struct, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
-		{Name: "interface", Pattern: Pat("(interface ?name ?items...)"), Then: selectInterface, Produces: "go/interface", Doc: "an interface, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
-		{Name: "implement", Pattern: Pat("(implement ?iface ?parts...)"), Then: selectImplement, Produces: "go/file", Doc: "implements any interface: struct, constructor, stubs, check", Cost: Cost{{Dim: "llm-work", Value: 5}, {Dim: "maintenance", Value: 2}}},
-		{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum, Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()", Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}}},
-		{Name: "llm", Pattern: Pat("(llm ?intent ?more...)"), Then: selectLLM, Produces: "llm/task", Doc: "an explicit hole: pure intent for the LLM", Cost: Cost{{Dim: "llm-work", Value: 8}, {Dim: "uncertainty", Value: 6}}},
-		{Name: "catch-all", Pattern: Pat("_"), Then: selectUncovered, Produces: "llm/task", Doc: "covers anything no other tile covers: the LLM as the tile of last resort", Cost: Cost{{Dim: "llm-work", Value: 10}, {Dim: "uncertainty", Value: 10}}},
+		{Name: "project", Pattern: sexp.Pat("(project ?name ?items...)"), Then: selectProject, Produces: "gomod", Doc: "writes go.mod and resolves imports"},
+		{Name: "package", Pattern: sexp.Pat("(package ?name ?items...)"), Then: selectPackage, Produces: "go/file", Doc: "collects a package into its generated file"},
+		{Name: "impl", Pattern: sexp.Pat("(impl ?iface ?parts...)"), Then: selectImpl, Produces: "store", Doc: "implements a store through the registered backend"},
+		{Name: "struct", Pattern: sexp.Pat("(struct ?name ?items...)"), Then: rename("go/struct"), Produces: "go/struct", Doc: "a struct, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
+		{Name: "interface", Pattern: sexp.Pat("(interface ?name ?items...)"), Then: selectInterface, Produces: "go/interface", Doc: "an interface, as written", Cost: Cost{{Dim: "llm-work", Value: 0}}},
+		{Name: "implement", Pattern: sexp.Pat("(implement ?iface ?parts...)"), Then: selectImplement, Produces: "go/file", Doc: "implements any interface: struct, constructor, stubs, check", Cost: Cost{{Dim: "llm-work", Value: 5}, {Dim: "maintenance", Value: 2}}},
+		{Name: "enum", Pattern: sexp.Pat("(enum ?name ?items...)"), Then: selectEnum, Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()", Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}}},
+		{Name: "llm", Pattern: sexp.Pat("(llm ?intent ?more...)"), Then: selectLLM, Produces: "llm/task", Doc: "an explicit hole: pure intent for the LLM", Cost: Cost{{Dim: "llm-work", Value: 8}, {Dim: "uncertainty", Value: 6}}},
+		{Name: "catch-all", Pattern: sexp.Pat("_"), Then: selectUncovered, Produces: "llm/task", Doc: "covers anything no other tile covers: the LLM as the tile of last resort", Cost: Cost{{Dim: "llm-work", Value: 10}, {Dim: "uncertainty", Value: 10}}},
 	},
 }
 
-func rename(head string) func(*Munch, Bindings, *Node) ([]*Node, error) {
-	return func(m *Munch, b Bindings, n *Node) ([]*Node, error) {
-		return []*Node{L(append([]*Node{Sym(head)}, n.Args()...)...)}, nil
+func rename(head string) func(*Munch, sexp.Bindings, *sexp.Node) ([]*sexp.Node, error) {
+	return func(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
+		return []*sexp.Node{sexp.L(append([]*sexp.Node{sexp.Sym(head)}, n.Args()...)...)}, nil
 	}
 }
 
 // selectInterface emits (go/interface ...), dropping the (op ...) tags that
 // store methods carry between passes.
-func selectInterface(m *Munch, b Bindings, n *Node) ([]*Node, error) {
-	out := L(Sym("go/interface"))
+func selectInterface(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
+	out := sexp.L(sexp.Sym("go/interface"))
 	for _, a := range n.Args() {
 		if a.Head() == "method" {
-			cp := L()
+			cp := sexp.L()
 			for _, part := range a.List {
 				if part.Head() != "op" {
 					cp.List = append(cp.List, part)
@@ -62,12 +63,12 @@ func selectInterface(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 		out.List = append(out.List, a)
 	}
-	return []*Node{out}, nil
+	return []*sexp.Node{out}, nil
 }
 
 // methodOp returns a store method's op kind and field; custom methods and
 // plain interface methods report "custom".
-func methodOp(meth *Node) (kind, field string) {
+func methodOp(meth *sexp.Node) (kind, field string) {
 	op := meth.Find("op")
 	if op == nil || len(op.List) < 2 {
 		return "custom", ""
@@ -79,7 +80,7 @@ func methodOp(meth *Node) (kind, field string) {
 }
 
 // firstParam is the first non-context parameter's name.
-func firstParam(meth *Node) string {
+func firstParam(meth *sexp.Node) string {
 	for _, p := range meth.Find("params").Args() {
 		if p.List[1].Atom != "context.Context" {
 			return p.List[0].Atom
@@ -88,7 +89,7 @@ func firstParam(meth *Node) string {
 	return ""
 }
 
-func memoryHint(meth *Node) string {
+func memoryHint(meth *sexp.Node) string {
 	kind, f := methodOp(meth)
 	p := firstParam(meth)
 	switch kind {
@@ -116,13 +117,15 @@ func memoryHint(meth *Node) string {
 	return customHint(meth)
 }
 
-func postgresHint(meth *Node, entity string) string { return sqlcHint(meth, entity, "pgx.ErrNoRows") }
+func postgresHint(meth *sexp.Node, entity string) string {
+	return sqlcHint(meth, entity, "pgx.ErrNoRows")
+}
 
 // sqlcHint describes a method sqlc has already written the query for. The
 // sentinel differs by driver: pgx has its own, database/sql has
 // sql.ErrNoRows, and naming the wrong one sends the reader to a package
 // the project does not import.
-func sqlcHint(meth *Node, entity, noRows string) string {
+func sqlcHint(meth *sexp.Node, entity, noRows string) string {
 	kind, f := methodOp(meth)
 	q := queryName(kind, entity, f)
 	switch kind {
@@ -140,18 +143,18 @@ func sqlcHint(meth *Node, entity, noRows string) string {
 	return customHint(meth) + " tilegen generates no SQL for custom methods: use the existing queries in s.q, or add a store op to the spec if it needs a new one."
 }
 
-func customHint(meth *Node) string {
+func customHint(meth *sexp.Node) string {
 	if d := meth.Text("doc"); d != "" {
 		return "Implement it as documented: " + d
 	}
 	return ""
 }
 
-func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectProject(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c := m.C
 	c.Module = n.Text("module")
 	c.Requires, c.Local, c.PkgDirs = map[string]string{}, map[string]string{}, map[string]string{}
-	mod := L(Sym("gomod"), L(Sym("module"), Str(c.Module)), L(Sym("go"), Str(n.Text("go"))))
+	mod := sexp.L(sexp.Sym("gomod"), sexp.L(sexp.Sym("module"), sexp.Str(c.Module)), sexp.L(sexp.Sym("go"), sexp.Str(n.Text("go"))))
 	for _, req := range n.FindAll("require") {
 		for _, r := range req.Args() {
 			alias, modPath, ver := r.List[0].Atom, r.List[1].Atom, r.List[2].Atom
@@ -160,7 +163,7 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 				imp = r.List[3].Atom
 			}
 			c.Requires[alias] = imp
-			mod.List = append(mod.List, L(Sym("require"), Str(modPath), Str(ver)))
+			mod.List = append(mod.List, sexp.L(sexp.Sym("require"), sexp.Str(modPath), sexp.Str(ver)))
 		}
 	}
 	pkgs := n.FindAll("package")
@@ -203,7 +206,7 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		}
 	}
 
-	out := []*Node{mod}
+	out := []*sexp.Node{mod}
 	res, err := m.Sub(pkgs...) // the project tile's leaves
 	if err != nil {
 		return nil, err
@@ -225,10 +228,10 @@ func selectProject(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	return out, nil
 }
 
-func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectPackage(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	name := b.Atom("name")
-	scope := &PkgScope{Name: name, Dir: n.Text("dir"), Structs: map[string]*Node{}, Ifaces: map[string]*Node{}, Events: map[string]*Node{}}
-	var items []*Node
+	scope := &PkgScope{Name: name, Dir: n.Text("dir"), Structs: map[string]*sexp.Node{}, Ifaces: map[string]*sexp.Node{}, Events: map[string]*sexp.Node{}}
+	var items []*sexp.Node
 	doc := ""
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
@@ -254,7 +257,7 @@ func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return nil, err
 	}
 
-	var decls, rest []*Node
+	var decls, rest []*sexp.Node
 	seen := map[string]bool{}
 	for _, r := range res {
 		switch r.Head() {
@@ -280,14 +283,14 @@ func selectPackage(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	return append([]*Node{gen}, rest...), nil
+	return append([]*sexp.Node{gen}, rest...), nil
 }
 
 // selectImpl is the big tile. It covers (impl ...) plus, through the
 // package symbol table, the interface and struct it refers to, and emits
 // a whole implementation file, a compile-time assertion, SQL for sqlc,
 // and one LLM task per method body.
-func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectImpl(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	ifaceName, entity, backend := b.Atom("iface"), n.Text("for"), n.Text("backend")
 	iface, st := pkg.Ifaces[ifaceName], pkg.Structs[entity]
@@ -310,8 +313,8 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	genFile := path.Join(pkg.Dir, pkg.Name+"_gen.go")
 	ptr := "*" + impl
 
-	decl := L(Sym("go/struct"), Sym(impl), L(Sym("doc"), Str(fmt.Sprintf("%s implements %s using %s storage.", impl, ifaceName, backend))))
-	ctor := L(Sym("go/func"), Sym("New"+impl), L(Sym("doc"), Str(fmt.Sprintf("New%s returns a ready-to-use %s.", impl, impl))))
+	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("%s implements %s using %s storage.", impl, ifaceName, backend))))
+	ctor := sexp.L(sexp.Sym("go/func"), sexp.Sym("New"+impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf("New%s returns a ready-to-use %s.", impl, impl))))
 	be := lookupBackend(backend)
 	if be == nil {
 		return nil, fmt.Errorf("unknown storage backend %q%s (registered: %s)", backend, didYouMean(backend, backendNames()), strings.Join(backendNames(), ", "))
@@ -321,25 +324,27 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 		return nil, err
 	}
 	decl.List = append(decl.List, parts.Fields...)
-	ctor.List = append(ctor.List, parts.Params, L(Sym("returns"), Sym(ptr)), L(Sym("body"), Str(parts.Body)))
+	ctor.List = append(ctor.List, parts.Params, sexp.L(sexp.Sym("returns"), sexp.Sym(ptr)), sexp.L(sexp.Sym("body"), sexp.Str(parts.Body)))
 	out := parts.Extra
 
 	contextFiles := []string{genFile}
-	asDecl := func(head string, n *Node) *Node { return L(append([]*Node{Sym(head)}, n.Args()...)...) }
-	contextFiles = append(contextFiles, foreignGenFiles(c, declTypes([]*Node{asDecl("go/interface", iface), asDecl("go/struct", st)}))...)
+	asDecl := func(head string, n *sexp.Node) *sexp.Node {
+		return sexp.L(append([]*sexp.Node{sexp.Sym(head)}, n.Args()...)...)
+	}
+	contextFiles = append(contextFiles, foreignGenFiles(c, declTypes([]*sexp.Node{asDecl("go/interface", iface), asDecl("go/struct", st)}))...)
 	contextFiles = append(contextFiles, parts.Context...)
 
 	stubs, tasks := stubsAndTasks(pkg, impl, ifaceName, file, iface.FindAll("method"), parts.Hint, contextFiles, constraints)
-	decls := append([]*Node{decl, ctor}, stubs...)
+	decls := append([]*sexp.Node{decl, ctor}, stubs...)
 
 	f, err := goFile(c, file, "keep", "", decls)
 	if err != nil {
 		return nil, err
 	}
-	out = append([]*Node{f,
-		L(Sym("go/assert"), Sym(ifaceName), Sym(impl)),
-		L(Sym("go/var"), Sym("ErrNotFound"), Str(fmt.Sprintf("errors.New(%q)", pkg.Name+": not found")),
-			L(Sym("doc"), Str("ErrNotFound is returned when a requested value does not exist."))),
+	out = append([]*sexp.Node{f,
+		sexp.L(sexp.Sym("go/assert"), sexp.Sym(ifaceName), sexp.Sym(impl)),
+		sexp.L(sexp.Sym("go/var"), sexp.Sym("ErrNotFound"), sexp.Str(fmt.Sprintf("errors.New(%q)", pkg.Name+": not found")),
+			sexp.L(sexp.Sym("doc"), sexp.Str("ErrNotFound is returned when a requested value does not exist."))),
 	}, out...)
 	return append(out, tasks...), nil
 }
@@ -347,7 +352,7 @@ func selectImpl(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 // foreignGenFiles returns the generated files of other project packages
 // whose types appear in ts, so an LLM filling a hole sees orders.Order's
 // definition when a billing method takes one.
-func foreignGenFiles(c *Ctx, ts []*Node) []string {
+func foreignGenFiles(c *Ctx, ts []*sexp.Node) []string {
 	seen := map[string]bool{}
 	for _, t := range ts {
 		qs, _ := typeQualifiers(t.Atom)
@@ -362,44 +367,44 @@ func foreignGenFiles(c *Ctx, ts []*Node) []string {
 
 // stubsAndTasks makes one hole-bodied method and one LLM task per method,
 // for any tile that implements an interface.
-func stubsAndTasks(pkg *PkgScope, impl, iface, file string, methods []*Node, hint func(*Node) string,
-	contextFiles, constraints []string) (stubs, tasks []*Node) {
+func stubsAndTasks(pkg *PkgScope, impl, iface, file string, methods []*sexp.Node, hint func(*sexp.Node) string,
+	contextFiles, constraints []string) (stubs, tasks []*sexp.Node) {
 	return stubsAndTasksAs("s", pkg, impl, iface, file, methods, hint, contextFiles, constraints)
 }
 
 // stubsAndTasksAs is stubsAndTasks with the receiver name a tile wants, so
 // a handler's methods read the same as the generated ones beside them.
-func stubsAndTasksAs(recv string, pkg *PkgScope, impl, iface, file string, methods []*Node, hint func(*Node) string,
-	contextFiles, constraints []string) (stubs, tasks []*Node) {
+func stubsAndTasksAs(recv string, pkg *PkgScope, impl, iface, file string, methods []*sexp.Node, hint func(*sexp.Node) string,
+	contextFiles, constraints []string) (stubs, tasks []*sexp.Node) {
 	ptr := "*" + impl
 	for _, meth := range methods {
 		name := meth.List[1].Atom
 		id := pkg.Name + "." + impl + "." + name
-		fn := L(Sym("go/func"), Sym(name), L(Sym("recv"), Sym(recv), Sym(ptr)))
+		fn := sexp.L(sexp.Sym("go/func"), sexp.Sym(name), sexp.L(sexp.Sym("recv"), sexp.Sym(recv), sexp.Sym(ptr)))
 		if p := meth.Find("params"); p != nil {
 			fn.List = append(fn.List, p)
 		}
 		if r := meth.Find("returns"); r != nil {
 			fn.List = append(fn.List, r)
 		}
-		fn.List = append(fn.List, L(Sym("body"), Str(holeBody(id))))
+		fn.List = append(fn.List, sexp.L(sexp.Sym("body"), sexp.Str(holeBody(id))))
 		stubs = append(stubs, fn)
 
 		intent := hint(meth)
 		if intent == "" {
 			intent = fmt.Sprintf("Implement %s so that %s satisfies %s.", name, impl, iface)
 		}
-		task := L(Sym("llm/task"),
-			L(Sym("id"), Str(id)),
-			L(Sym("file"), Str(file)),
-			L(Sym("symbol"), Str(fmt.Sprintf("(%s).%s", ptr, name))),
-			L(Sym("contract"), Str(signature(meth))),
-			L(Sym("intent"), Str(intent)))
+		task := sexp.L(sexp.Sym("llm/task"),
+			sexp.L(sexp.Sym("id"), sexp.Str(id)),
+			sexp.L(sexp.Sym("file"), sexp.Str(file)),
+			sexp.L(sexp.Sym("symbol"), sexp.Str(fmt.Sprintf("(%s).%s", ptr, name))),
+			sexp.L(sexp.Sym("contract"), sexp.Str(signature(meth))),
+			sexp.L(sexp.Sym("intent"), sexp.Str(intent)))
 		for _, f := range contextFiles {
-			task.List = append(task.List, L(Sym("context-file"), Str(f)))
+			task.List = append(task.List, sexp.L(sexp.Sym("context-file"), sexp.Str(f)))
 		}
 		for _, k := range constraints {
-			task.List = append(task.List, L(Sym("constraint"), Str(k)))
+			task.List = append(task.List, sexp.L(sexp.Sym("constraint"), sexp.Str(k)))
 		}
 		tasks = append(tasks, task)
 	}
@@ -412,19 +417,19 @@ func holeBody(id string) string { return fmt.Sprintf("panic(%q)", holePrefix+id)
 
 const holePrefix = "tilegen:hole "
 
-func selectLLM(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectLLM(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	m.C.seq++
-	task := L(Sym("llm/task"),
-		L(Sym("id"), Str(fmt.Sprintf("%s.llm-%d", m.C.Pkg.Name, m.C.seq))),
-		L(Sym("intent"), Str(b.Atom("intent"))),
-		L(Sym("context-file"), Str(path.Join(m.C.Pkg.Dir, m.C.Pkg.Name+"_gen.go"))))
+	task := sexp.L(sexp.Sym("llm/task"),
+		sexp.L(sexp.Sym("id"), sexp.Str(fmt.Sprintf("%s.llm-%d", m.C.Pkg.Name, m.C.seq))),
+		sexp.L(sexp.Sym("intent"), sexp.Str(b.Atom("intent"))),
+		sexp.L(sexp.Sym("context-file"), sexp.Str(path.Join(m.C.Pkg.Dir, m.C.Pkg.Name+"_gen.go"))))
 	for _, x := range b.Rest("more") {
 		task.List = append(task.List, x)
 	}
-	return []*Node{task}, nil
+	return []*sexp.Node{task}, nil
 }
 
-func selectUncovered(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectUncovered(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	if m.C.Strict {
 		return nil, fmt.Errorf("no tile covers %s", short(n))
 	}
@@ -434,20 +439,20 @@ func selectUncovered(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	if m.C.Pkg != nil {
 		pkg = m.C.Pkg.Name
 	}
-	return []*Node{L(Sym("llm/task"),
-		L(Sym("id"), Str(fmt.Sprintf("%s.uncovered-%d", pkg, m.C.seq))),
-		L(Sym("intent"), Str("No tile covers this spec form. Implement what it describes by hand, in package "+pkg+".")),
-		L(Sym("sexpr"), Str(n.Flat())))}, nil
+	return []*sexp.Node{sexp.L(sexp.Sym("llm/task"),
+		sexp.L(sexp.Sym("id"), sexp.Str(fmt.Sprintf("%s.uncovered-%d", pkg, m.C.seq))),
+		sexp.L(sexp.Sym("intent"), sexp.Str("No tile covers this spec form. Implement what it describes by hand, in package "+pkg+".")),
+		sexp.L(sexp.Sym("sexpr"), sexp.Str(n.Flat())))}, nil
 }
 
 // goFile wraps declarations into a (go/file ...) and resolves the imports
 // its types need. Declared requires and project packages get explicit
 // imports; standard-library qualifiers are verified here and left for
 // goimports (x/tools/imports) to insert, so we never hand-maintain a list.
-func goFile(c *Ctx, file, mode, doc string, decls []*Node) (*Node, error) {
-	f := L(Sym("go/file"), Str(file), L(Sym("mode"), Sym(mode)), L(Sym("package"), Sym(c.Pkg.Name)))
+func goFile(c *Ctx, file, mode, doc string, decls []*sexp.Node) (*sexp.Node, error) {
+	f := sexp.L(sexp.Sym("go/file"), sexp.Str(file), sexp.L(sexp.Sym("mode"), sexp.Sym(mode)), sexp.L(sexp.Sym("package"), sexp.Sym(c.Pkg.Name)))
 	if doc != "" {
-		f.List = append(f.List, L(Sym("doc"), Str(doc)))
+		f.List = append(f.List, sexp.L(sexp.Sym("doc"), sexp.Str(doc)))
 	}
 	imports := map[string]string{}
 	for _, t := range declTypes(decls) {
@@ -482,16 +487,16 @@ func goFile(c *Ctx, file, mode, doc string, decls []*Node) (*Node, error) {
 	}
 	sort.Strings(names)
 	for _, q := range names {
-		f.List = append(f.List, L(Sym("import"), Sym(q), Str(imports[q])))
+		f.List = append(f.List, sexp.L(sexp.Sym("import"), sexp.Sym(q), sexp.Str(imports[q])))
 	}
 	f.List = append(f.List, decls...)
 	return f, nil
 }
 
 // declTypes collects every type expression mentioned by go/* declarations.
-func declTypes(decls []*Node) []*Node {
-	var out []*Node
-	sig := func(n *Node) {
+func declTypes(decls []*sexp.Node) []*sexp.Node {
+	var out []*sexp.Node
+	sig := func(n *sexp.Node) {
 		for _, p := range n.Find("params").Args() {
 			out = append(out, p.List[1])
 		}

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/vinodhalaharvi/dyna"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -28,11 +29,11 @@ var update = flag.Bool("update", false, "rewrite golden files")
 func TestParseRoundTrip(t *testing.T) {
 	src := `; comment
 (project x (doc "a \"quoted\" (paren)") (field m "map[string]int") ())`
-	a, err := Parse("t", src)
+	a, err := sexp.Parse("t", src)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := Parse("t", Dump(a))
+	b, err := sexp.Parse("t", sexp.Dump(a))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -46,16 +47,16 @@ func TestParseRoundTrip(t *testing.T) {
 
 func TestParseErrors(t *testing.T) {
 	for _, src := range []string{"(a", ")", `"open`, `"bad \q"`} {
-		if _, err := Parse("t", src); err == nil {
+		if _, err := sexp.Parse("t", src); err == nil {
 			t.Errorf("Parse(%q) succeeded, want error", src)
 		}
 	}
 }
 
 func TestMatch(t *testing.T) {
-	n, _ := Parse("t", "(entity Order (field ID int) (field Name string))")
-	b := Bindings{}
-	if !Match(Pat("(entity ?name ?items...)"), n[0], b) {
+	n, _ := sexp.Parse("t", "(entity Order (field ID int) (field Name string))")
+	b := sexp.Bindings{}
+	if !sexp.Match(sexp.Pat("(entity ?name ?items...)"), n[0], b) {
 		t.Fatal("no match")
 	}
 	if b.Atom("name") != "Order" || len(b.Rest("items")) != 2 {
@@ -67,7 +68,7 @@ func TestMatch(t *testing.T) {
 		"(struct ?n ?rest...)":        false,
 		"(entity ?n (field ID ?t) _)": true,
 	} {
-		if got := Match(Pat(pat), n[0], Bindings{}); got != want {
+		if got := sexp.Match(sexp.Pat(pat), n[0], sexp.Bindings{}); got != want {
 			t.Errorf("Match(%s) = %v, want %v", pat, got, want)
 		}
 	}
@@ -99,7 +100,7 @@ func TestNames(t *testing.T) {
 
 func validateSrc(t *testing.T, src string, strict bool) error {
 	t.Helper()
-	nodes, err := Parse("spec.sexp", src)
+	nodes, err := sexp.Parse("spec.sexp", src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -336,9 +337,9 @@ func TestSpecDirMatchesSingleFile(t *testing.T) {
 
 func mergeSrc(t *testing.T, files ...string) error {
 	t.Helper()
-	var forms []*Node
+	var forms []*sexp.Node
 	for i, src := range files {
-		fs, err := Parse(fmt.Sprintf("f%d.sexp", i), src)
+		fs, err := sexp.Parse(fmt.Sprintf("f%d.sexp", i), src)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -516,7 +517,7 @@ func TestGitLocalOnlyRealGit(t *testing.T) {
 
 func parseWS(t *testing.T, src string) (*Workspace, error) {
 	t.Helper()
-	n, err := Parse("ws.sexp", src)
+	n, err := sexp.Parse("ws.sexp", src)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -679,7 +680,7 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 			t.Fatalf("git %v: %v %s", args, err, out)
 		}
 	}
-	n, _ := Parse("ws.sexp", `(workspace (out proj) (worktrees (worktree feat))
+	n, _ := sexp.Parse("ws.sexp", `(workspace (out proj) (worktrees (worktree feat))
 	  (tmux (session tgtest (window code (dir .)) (window feat (worktree feat)))))`)
 	ws, err := ParseWorkspace(n[0], root)
 	if err != nil {
@@ -1169,7 +1170,7 @@ func TestDidYouMeanEverywhere(t *testing.T) {
 			t.Errorf("%s\n  want %q\n  got  %v", src, want, err)
 		}
 	}
-	cfg, _ := Parse("c.sexp", `(config (json-tag snake) (storage postgress))`)
+	cfg, _ := sexp.Parse("c.sexp", `(config (json-tag snake) (storage postgress))`)
 	_, err := ParseConfig(cfg[0])
 	if err == nil || !strings.Contains(err.Error(), "(did you mean json-tags?)") || !strings.Contains(err.Error(), "(did you mean postgres?)") {
 		t.Errorf("config should report both typos at once, got %v", err)
@@ -1625,7 +1626,7 @@ func TestRegistrySexpIsData(t *testing.T) {
 	if err := tilesCmd([]string{"-sexp"}, &out); err != nil {
 		t.Fatal(err)
 	}
-	forms, err := Parse("tiles.sexp", out.String())
+	forms, err := sexp.Parse("tiles.sexp", out.String())
 	if err != nil {
 		t.Fatalf("tilegen tiles -sexp must parse back as S-expressions: %v", err)
 	}
@@ -1637,7 +1638,7 @@ func TestRegistrySexpIsData(t *testing.T) {
 			t.Errorf("malformed tile: %s", short(f))
 		}
 	}
-	var pg *Node
+	var pg *sexp.Node
 	for _, f := range forms {
 		if f.List[1].Atom == "postgres-sqlc" {
 			pg = f
@@ -1654,7 +1655,7 @@ func TestRegistrySexpIsData(t *testing.T) {
 func TestBackendsComeFromTheRegistry(t *testing.T) {
 	registerStoreBackend(&Backend{Name: "fake", Tile: "fake-store", Cost: Cost{{Dim: "llm-work", Value: 9}}, Packages: map[string]string{"fakedb": "internal/fakedb"},
 		Implement: func(in StoreInput) (StoreParts, error) {
-			return StoreParts{Params: L(Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*Node) string { return "fake" }}, nil
+			return StoreParts{Params: sexp.L(sexp.Sym("params")), Body: "return &" + in.Impl + "{}", Hint: func(*sexp.Node) string { return "fake" }}, nil
 		}})
 	defer func() {
 		delete(backends, "fake")
@@ -1668,7 +1669,7 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
 		offers["store"] = keep
 	}()
 
-	cfg, _ := Parse("c.sexp", "(config (storage fake))")
+	cfg, _ := sexp.Parse("c.sexp", "(config (storage fake))")
 	if c, err := ParseConfig(cfg[0]); err != nil || c.Storage != "fake" {
 		t.Fatalf("config should accept a registered backend: %v", err)
 	}
@@ -1691,7 +1692,7 @@ func TestBackendsComeFromTheRegistry(t *testing.T) {
 		!strings.Contains(err.Error(), `package name "fakedb" is reserved: the fake-store tile puts its code in internal/fakedb`) {
 		t.Errorf("a backend's packages should be reserved: %v", err)
 	}
-	bad, _ := Parse("c.sexp", "(config (storage fak))")
+	bad, _ := sexp.Parse("c.sexp", "(config (storage fak))")
 	if _, err := ParseConfig(bad[0]); err == nil || !strings.Contains(err.Error(), "(did you mean fake?)") {
 		t.Errorf("unknown backends should suggest registered ones: %v", err)
 	}
@@ -1990,13 +1991,13 @@ func TestBackendWithoutAChainIsIllegal(t *testing.T) {
 // it, so tests can look for a form however the pretty-printer wrapped it.
 func dumpForms(t *testing.T, text string) map[string]bool {
 	t.Helper()
-	forms, err := Parse("dump.sexp", text)
+	forms, err := sexp.Parse("dump.sexp", text)
 	if err != nil {
 		t.Fatal(err)
 	}
 	all := map[string]bool{}
-	var walk func(n *Node)
-	walk = func(n *Node) {
+	var walk func(n *sexp.Node)
+	walk = func(n *sexp.Node) {
 		all[n.Flat()] = true
 		for _, c := range n.List {
 			walk(c)
@@ -2162,12 +2163,12 @@ func TestPolicyInTheSpecAndValidation(t *testing.T) {
 		`(policy (margin -1))`:                                  "margin must be 0 to 1000",
 		`(policy (preffer memory))`:                             "(did you mean prefer?)",
 	} {
-		n, _ := Parse("policy.sexp", src)
+		n, _ := sexp.Parse("policy.sexp", src)
 		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: want %q, got %v", src, want, err)
 		}
 	}
-	n, _ := Parse("policy.sexp", `(policy (prefer postgres-sqlk) (avoid memroy))`)
+	n, _ := sexp.Parse("policy.sexp", `(policy (prefer postgres-sqlk) (avoid memroy))`)
 	p, _ := ParsePolicy(n[0])
 	err := p.checkTileNames()
 	if err == nil || !strings.Contains(err.Error(), "(prefer postgres-sqlk): no such tile (did you mean postgres-sqlc?)") ||
@@ -3210,12 +3211,12 @@ func TestPreferenceValidation(t *testing.T) {
 		`(policy (prefer x (surce client)))`:   "(did you mean source?)",
 		`(policy (prefer (strength strong)))`:  "prefer needs at least one tile name",
 	} {
-		n, _ := Parse("policy.sexp", src)
+		n, _ := sexp.Parse("policy.sexp", src)
 		if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%s: want %q, got %v", src, want, err)
 		}
 	}
-	n, _ := Parse("policy.sexp", `(policy (prefer a b (strength strong) (source client "why")))`)
+	n, _ := sexp.Parse("policy.sexp", `(policy (prefer a b (strength strong) (source client "why")))`)
 	p, err := ParsePolicy(n[0])
 	if err != nil || len(p.Prefer) != 2 || p.Prefer["a"].Strength != "strong" || p.Prefer["b"].Source != "client" || p.Prefer["a"].Why != "why" {
 		t.Fatalf("several tiles should share one preference: %+v, %v", p.Prefer, err)
@@ -3376,7 +3377,7 @@ func TestPanesWithRealTmux(t *testing.T) {
 	t.Setenv("TMUX", "")
 
 	root := canonical(t.TempDir())
-	n, _ := Parse("ws.sexp", `(workspace (out .)
+	n, _ := sexp.Parse("ws.sexp", `(workspace (out .)
 	  (tmux (session tgpanes (window split (dir .) (split vertical)
 	    (pane (run "echo ONE")) (pane (run "echo TWO")) (pane (run "echo THREE"))))))`)
 	ws, err := ParseWorkspace(n[0], root)
@@ -4311,7 +4312,7 @@ func TestExplainProject(t *testing.T) {
 	if err := explainCmd([]string{"-project", "-json", sp}, io.Discard, io.Discard); err == nil {
 		t.Error("-project with -json should be refused until it has a JSON form")
 	}
-	n, _ := Parse("policy.sexp", `(policy (extra-engine lots))`)
+	n, _ := sexp.Parse("policy.sexp", `(policy (extra-engine lots))`)
 	if _, err := ParsePolicy(n[0]); err == nil || !strings.Contains(err.Error(), "extra-engine must be 0 to 1000") {
 		t.Errorf("a bad extra-engine should be reported: %v", err)
 	}

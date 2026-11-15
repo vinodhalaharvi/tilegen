@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/token"
 	"path"
 	"regexp"
@@ -89,7 +90,7 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "secrets",
 		Pass: Select,
-		Rule: Rule{Name: "secrets", Pattern: Pat("(secrets ?items...)"), Then: selectSecrets,
+		Rule: Rule{Name: "secrets", Pattern: sexp.Pat("(secrets ?items...)"), Then: selectSecrets,
 			Produces: "secrets", Doc: "a typed Secrets interface and its implementation, from wherever the requirements allow",
 			Cost: Cost{{Dim: "llm-work", Value: 0}, {Dim: "maintenance", Value: 0}, {Dim: "dependency", Value: 0}}},
 		Validate: validateSecrets,
@@ -133,7 +134,7 @@ func secretTypes() []string {
 	return out
 }
 
-func validateSecrets(v *validator, n *Node, types map[string]bool) {
+func validateSecrets(v *validator, n *sexp.Node, types map[string]bool) {
 	for _, name := range secretTypes() {
 		if types[name] {
 			v.bad(n, "(secrets ...) generates %s, but the package already declares it (one secrets form per package)", name)
@@ -191,7 +192,7 @@ func validateSecrets(v *validator, n *Node, types map[string]bool) {
 	}
 }
 
-func selectSecrets(m *Munch, b Bindings, n *Node) ([]*Node, error) {
+func selectSecrets(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	cov := c.Cover[pkg.Name+".Secrets"]
 	if cov == nil {
@@ -223,14 +224,14 @@ func selectSecrets(m *Munch, b Bindings, n *Node) ([]*Node, error) {
 	w.WriteString(src.Emit(pkg.Name, secrets))
 	fmt.Fprintf(&w, "\n// Compile-time check that %s satisfies Secrets.\nvar _ Secrets = (*%s)(nil)", src.Suffix, src.Suffix)
 
-	f, err := goFile(c, path.Join(pkg.Dir, "secrets_gen.go"), "generated", "", []*Node{L(Sym("go/raw"), Str(w.String()))})
+	f, err := goFile(c, path.Join(pkg.Dir, "secrets_gen.go"), "generated", "", []*sexp.Node{sexp.L(sexp.Sym("go/raw"), sexp.Str(w.String()))})
 	if err != nil {
 		return nil, err
 	}
 	if src.Import[0] != "" {
-		f.List = append(f.List, L(Sym("import"), Sym(src.Import[0]), Str(src.Import[1])))
+		f.List = append(f.List, sexp.L(sexp.Sym("import"), sexp.Sym(src.Import[0]), sexp.Str(src.Import[1])))
 	}
-	return []*Node{f}, nil
+	return []*sexp.Node{f}, nil
 }
 
 // list renders one line per secret for a doc comment: "//\tDATABASE_URL".

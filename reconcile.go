@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"go/ast"
 	"go/parser"
 	"go/printer"
@@ -52,7 +53,7 @@ type Note struct {
 
 // reconcileKeep brings an existing scaffolded file in line with the
 // (go/file ...) that would have created it.
-func reconcileKeep(n *Node, full, rel string, r *Report) error {
+func reconcileKeep(n *sexp.Node, full, rel string, r *Report) error {
 	src, err := r.read(rel)
 	if err != nil {
 		return err
@@ -79,7 +80,7 @@ func reconcileKeep(n *Node, full, rel string, r *Report) error {
 		text       string
 	}
 	var edits []edit
-	var missing []*Node
+	var missing []*sexp.Node
 	for _, d := range n.FindAll("go/func") {
 		rv := d.Find("recv")
 		if rv == nil {
@@ -146,8 +147,8 @@ func reconcileKeep(n *Node, full, rel string, r *Report) error {
 	b.Write(bytes.TrimRight(src, "\n"))
 	b.WriteString("\n")
 	for _, d := range missing {
-		d = L(append([]*Node{d.List[0], d.List[1],
-			L(Sym("doc"), Str(d.List[1].Atom+" is new in the spec; tilegen appended this stub."))}, d.List[2:]...)...)
+		d = sexp.L(append([]*sexp.Node{d.List[0], d.List[1],
+			sexp.L(sexp.Sym("doc"), sexp.Str(d.List[1].Atom+" is new in the spec; tilegen appended this stub."))}, d.List[2:]...)...)
 		b.WriteString("\n" + renderFunc(d))
 		r.Added = append(r.Added, fmt.Sprintf("%s to %s", d.List[1].Atom, rel))
 	}
@@ -223,7 +224,7 @@ func funcType(fset *token.FileSet, ft *ast.FuncType) string {
 	return s
 }
 
-func expectedFuncType(d *Node) string {
+func expectedFuncType(d *sexp.Node) string {
 	src := "package p\nfunc " + signature(d) + " {}\n"
 	fset := token.NewFileSet()
 	af, err := parser.ParseFile(fset, "", src, 0)
