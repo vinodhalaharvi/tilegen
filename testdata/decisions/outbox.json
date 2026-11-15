@@ -1,0 +1,404 @@
+{
+  "policy": {
+    "weights": {
+      "dependency": 1,
+      "llm-work": 4,
+      "maintenance": 3,
+      "operations": 3,
+      "runtime": 1,
+      "uncertainty": 5
+    }
+  },
+  "coverage": [
+    {
+      "need": "ledger.BalanceStore",
+      "capability": "store",
+      "requirements": [
+        "inbox"
+      ],
+      "chosen": "postgres-sqlc",
+      "score": 44,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "postgres-sqlc",
+          "score": 44,
+          "own": 37,
+          "terms": "llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes only row-to-domain mapping; sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx, plus sqlc as a build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, plus sqlc in the build"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 7,
+              "detail": "1 entity"
+            }
+          ]
+        }
+      ],
+      "illegal": [
+        {
+          "tile": "badger",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "bolt",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "memory",
+          "reason": "nothing is committed, so a handler's writes and the record that it ran cannot share a transaction"
+        },
+        {
+          "tile": "mongo",
+          "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
+        },
+        {
+          "tile": "postgres-pgx",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "sqlite-sqlc",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        }
+      ],
+      "position": "spec.sexp:26:7"
+    },
+    {
+      "need": "ledger.Bus",
+      "capability": "event-bus",
+      "chosen": "local-bus",
+      "score": 1,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "local-bus",
+          "score": 1,
+          "own": 1,
+          "terms": "llm 0·4 + maint 0·3 + dep 0·1 + run 1·1",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 0,
+              "weight": 4
+            },
+            {
+              "dimension": "maintenance",
+              "value": 0,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 0,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            }
+          ]
+        },
+        {
+          "tile": "nats-core",
+          "score": 33,
+          "own": 33,
+          "terms": "llm 4·4 + maint 2·3 + dep 4·1 + run 1·1 + ops 2·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "subscribe and publish on a subject; there is nothing to acknowledge"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "one binary, no storage, nothing to size"
+            }
+          ]
+        },
+        {
+          "tile": "redis-streams",
+          "score": 38,
+          "own": 38,
+          "terms": "llm 4·4 + maint 3·3 + dep 2·1 + run 2·1 + ops 3·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "one server, but stream trimming and group lag to watch"
+            }
+          ]
+        },
+        {
+          "tile": "nats-jetstream",
+          "score": 47,
+          "own": 47,
+          "terms": "llm 5·4 + maint 3·3 + dep 4·1 + run 2·1 + ops 4·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "publish with an ack, and a consumer with explicit acknowledgement"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "one binary with no dependencies, but streams, consumers and retention to configure"
+            }
+          ]
+        },
+        {
+          "tile": "rabbitmq",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 4·4 + maint 4·3 + dep 3·1 + run 3·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a broker to run, plus the topology to declare and keep in step"
+            }
+          ]
+        },
+        {
+          "tile": "kafka",
+          "score": 70,
+          "own": 70,
+          "terms": "llm 5·4 + maint 5·3 + dep 4·1 + run 4·1 + ops 9·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "a client library with a large transitive graph"
+            },
+            {
+              "dimension": "runtime",
+              "value": 4,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 9,
+              "weight": 3,
+              "source": "derived",
+              "note": "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"
+            }
+          ]
+        }
+      ],
+      "position": "spec.sexp:28:5"
+    },
+    {
+      "need": "ledger.PaymentStore",
+      "capability": "store",
+      "requirements": [
+        "outbox",
+        "inbox"
+      ],
+      "chosen": "postgres-sqlc",
+      "score": 44,
+      "chosen_by": "auto",
+      "candidates": [
+        {
+          "tile": "postgres-sqlc",
+          "score": 44,
+          "own": 37,
+          "terms": "llm 3·4 + maint 2·3 + dep 3·1 + run 1·1 + ops 5·3",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "the LLM writes only row-to-domain mapping; sqlc writes the queries"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 2,
+              "weight": 3
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx, plus sqlc as a build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, plus sqlc in the build"
+            }
+          ],
+          "chain": [
+            {
+              "rule": "row-mapper",
+              "score": 7,
+              "detail": "1 entity"
+            }
+          ]
+        }
+      ],
+      "illegal": [
+        {
+          "tile": "badger",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "bolt",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "memory",
+          "reason": "nothing is committed, so there is no transaction for an event to share"
+        },
+        {
+          "tile": "mongo",
+          "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
+        },
+        {
+          "tile": "postgres-pgx",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "sqlite-sqlc",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        }
+      ],
+      "position": "spec.sexp:21:7"
+    }
+  ]
+}

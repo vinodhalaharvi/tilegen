@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
@@ -23,7 +24,7 @@ func TestOutboxChoosesTheStore(t *testing.T) {
 	// leaves Note, which asked for nothing, on the cheapest.
 	out := t.TempDir()
 	sp, _ := writeSpec(t, t.TempDir(), outboxSpec("get save", "(outbox Payment)"), "")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	lock := read(t, out, "tilegen.lock")
@@ -44,7 +45,7 @@ func TestOutboxChoosesTheStore(t *testing.T) {
 	}
 	// A config cannot put the store somewhere an outbox cannot be.
 	sp, cp := writeSpec(t, t.TempDir(), outboxSpec("get save", "(outbox Payment)"), "(config (storage sqlite))")
-	if err := run(Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "this tile does not generate one") {
+	if err := run(compile.Options{Spec: sp, Config: cp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), "this tile does not generate one") {
 		t.Errorf("sqlite should be refused for an outbox: %v", err)
 	}
 }
@@ -52,7 +53,7 @@ func TestOutboxChoosesTheStore(t *testing.T) {
 func TestOutboxGeneratesTheTransactionAndTheRelay(t *testing.T) {
 	out := t.TempDir()
 	sp, _ := writeSpec(t, t.TempDir(), outboxSpec("get save", "(outbox Payment)"), "")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	schema := read(t, out, "db/schema.sql")
@@ -110,7 +111,7 @@ func TestOutboxErrors(t *testing.T) {
 		"malformed":      {"get save", "(outbox)", "names the entity saved together with its events"},
 	} {
 		sp, _ := writeSpec(t, t.TempDir(), outboxSpec(c.store, c.events), "")
-		if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
+		if err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want an error containing %q, got: %v", name, c.want, err)
 		}
 	}
@@ -120,7 +121,7 @@ func TestNoOutboxNoRequirement(t *testing.T) {
 	// Without (outbox ...) nothing changes: the store need is as it was.
 	sp, _ := writeSpec(t, t.TempDir(), outboxSpec("get save", ""), "")
 	out := t.TempDir()
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(read(t, out, "tilegen.lock"), "(tile ledger.PaymentStore memory)") {
@@ -143,7 +144,7 @@ func TestInboxHandlesAnEventOnce(t *testing.T) {
 	out := t.TempDir()
 	two := "(entity Payment (field ID uuid.UUID) (store get save)) (entity Balance (field ID string) (field Cents int64) (store get save))"
 	sp, _ := writeSpec(t, t.TempDir(), inboxSpec(two, "(inbox PaymentTaken ID)"), "")
-	if err := run(Options{Spec: sp, Out: out}, io.Discard); err != nil {
+	if err := run(compile.Options{Spec: sp, Out: out}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
 	lock := read(t, out, "tilegen.lock")
@@ -188,7 +189,7 @@ func TestInboxHandlesAnEventOnce(t *testing.T) {
 		"nothing to write": {"", "(inbox PaymentTaken ID)", "needs an entity with a (store ...) for the handler to write"},
 	} {
 		sp, _ := writeSpec(t, t.TempDir(), inboxSpec(c.entities, c.events), "")
-		if err := run(Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
+		if err := run(compile.Options{Spec: sp, Out: t.TempDir()}, io.Discard); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want an error containing %q, got: %v", name, c.want, err)
 		}
 	}

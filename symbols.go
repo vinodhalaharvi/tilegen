@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"golang.org/x/mod/module"
 	"golang.org/x/tools/go/packages"
 )
@@ -518,8 +519,8 @@ func parseKinds(s string) ([]string, error) {
 		if k == "" {
 			continue
 		}
-		if !contains(symbolKinds, k) {
-			return nil, fmt.Errorf("-kind takes %s; got %q%s", strings.Join(symbolKinds, ", "), k, didYouMean(k, symbolKinds))
+		if !compile.Contains(symbolKinds, k) {
+			return nil, fmt.Errorf("-kind takes %s; got %q%s", strings.Join(symbolKinds, ", "), k, compile.DidYouMean(k, symbolKinds))
 		}
 		out = append(out, k)
 	}

@@ -1,0 +1,1140 @@
+{
+  "capabilities": [
+    {
+      "name": "api",
+      "doc": "serves a package's entities to clients in other programs",
+      "requirements": [
+        "typed-clients",
+        "browser-clients",
+        "grpc-native",
+        "streaming"
+      ],
+      "offered_by": [
+        "connect",
+        "grpc",
+        "http-json"
+      ]
+    },
+    {
+      "name": "auth",
+      "doc": "decides who a request is from",
+      "requirements": [
+        "revocable",
+        "third-party-idp",
+        "offline-verify",
+        "expiring"
+      ],
+      "offered_by": [
+        "api-key",
+        "jwt-local",
+        "oidc",
+        "session-store"
+      ]
+    },
+    {
+      "name": "event-bus",
+      "doc": "delivers a package's events to handlers",
+      "requirements": [
+        "durable",
+        "cross-process",
+        "replay",
+        "ordered",
+        "at-least-once",
+        "fan-out",
+        "consumer-groups",
+        "no-broker"
+      ],
+      "offered_by": [
+        "kafka",
+        "local-bus",
+        "nats-core",
+        "nats-jetstream",
+        "rabbitmq",
+        "redis-streams"
+      ]
+    },
+    {
+      "name": "secrets",
+      "doc": "gives a package the values that must never be in the code or the repository",
+      "requirements": [
+        "rotating",
+        "audited"
+      ],
+      "offered_by": [
+        "env-secrets",
+        "file-secrets",
+        "vault"
+      ]
+    },
+    {
+      "name": "store",
+      "doc": "persists an entity's values",
+      "requirements": [
+        "durable",
+        "cross-process",
+        "lookup-by-field",
+        "no-broker",
+        "outbox",
+        "inbox"
+      ],
+      "offered_by": [
+        "badger",
+        "bolt",
+        "memory",
+        "mongo",
+        "postgres-pgx",
+        "postgres-sqlc",
+        "sqlite-sqlc"
+      ]
+    },
+    {
+      "name": "transport",
+      "doc": "carries messages in from outside the program",
+      "requirements": [
+        "cross-process",
+        "durable",
+        "replay",
+        "ordered",
+        "at-least-once",
+        "no-broker"
+      ],
+      "offered_by": [
+        "kafka",
+        "nats-core"
+      ]
+    }
+  ],
+  "tiles": [
+    {
+      "name": "entity",
+      "pass": "expand",
+      "doc": "splits an entity into a struct, a store interface and an impl",
+      "produces": "struct, store",
+      "covers": [
+        "(entity ?name ?items...)"
+      ]
+    },
+    {
+      "name": "package-layout",
+      "pass": "concretize",
+      "doc": "places a package per (layout ...)",
+      "produces": "package",
+      "covers": [
+        "(package ?name ?items...)"
+      ]
+    },
+    {
+      "name": "json-tag",
+      "pass": "concretize",
+      "doc": "adds json tags per (json-tags ...)",
+      "produces": "field",
+      "covers": [
+        "(field ?name ?type ?opts...)"
+      ]
+    },
+    {
+      "name": "context-first",
+      "pass": "concretize",
+      "doc": "prepends ctx context.Context per (context-first ...)",
+      "produces": "method",
+      "covers": [
+        "(method ?name ?parts...)"
+      ]
+    },
+    {
+      "name": "backend",
+      "pass": "concretize",
+      "doc": "records the storage backend chosen by (storage ...)",
+      "produces": "impl",
+      "covers": [
+        "(impl ?iface ?parts...)"
+      ]
+    },
+    {
+      "name": "implement",
+      "pass": "concretize",
+      "doc": "keeps implement dependencies free of json tags",
+      "produces": "implement",
+      "covers": [
+        "(implement ?iface ?parts...)"
+      ]
+    },
+    {
+      "name": "project",
+      "pass": "select",
+      "doc": "writes go.mod and resolves imports",
+      "produces": "gomod",
+      "covers": [
+        "(project ?name ?items...)"
+      ]
+    },
+    {
+      "name": "package",
+      "pass": "select",
+      "doc": "collects a package into its generated file",
+      "produces": "go/file",
+      "covers": [
+        "(package ?name ?items...)"
+      ]
+    },
+    {
+      "name": "impl",
+      "pass": "select",
+      "doc": "implements a store through the registered backend",
+      "produces": "store",
+      "covers": [
+        "(impl ?iface ?parts...)"
+      ]
+    },
+    {
+      "name": "struct",
+      "pass": "select",
+      "doc": "a struct, as written",
+      "produces": "go/struct",
+      "cost": {
+        "llm-work": 0
+      },
+      "covers": [
+        "(struct ?name ?items...)"
+      ]
+    },
+    {
+      "name": "interface",
+      "pass": "select",
+      "doc": "an interface, as written",
+      "produces": "go/interface",
+      "cost": {
+        "llm-work": 0
+      },
+      "covers": [
+        "(interface ?name ?items...)"
+      ]
+    },
+    {
+      "name": "implement",
+      "pass": "select",
+      "doc": "implements any interface: struct, constructor, stubs, check",
+      "produces": "go/file",
+      "cost": {
+        "llm-work": 5,
+        "maintenance": 2
+      },
+      "covers": [
+        "(implement ?iface ?parts...)"
+      ]
+    },
+    {
+      "name": "enum",
+      "pass": "select",
+      "doc": "a string type with constants, Valid() and Parse()",
+      "produces": "go/type",
+      "cost": {
+        "llm-work": 0,
+        "maintenance": 0
+      },
+      "covers": [
+        "(enum ?name ?items...)"
+      ]
+    },
+    {
+      "name": "llm",
+      "pass": "select",
+      "doc": "an explicit hole: pure intent for the LLM",
+      "produces": "llm/task",
+      "cost": {
+        "llm-work": 8,
+        "uncertainty": 6
+      },
+      "covers": [
+        "(llm ?intent ?more...)"
+      ]
+    },
+    {
+      "name": "api",
+      "pass": "select",
+      "doc": "a server for the package's entities, over whichever transport its clients need",
+      "produces": "api",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 0
+      },
+      "covers": [
+        "(api ?items...)"
+      ]
+    },
+    {
+      "name": "auth",
+      "pass": "select",
+      "doc": "a Principal, an Authenticator interface, and middleware that fills the context",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 0
+      },
+      "covers": [
+        "(auth ?items...)"
+      ]
+    },
+    {
+      "name": "events",
+      "pass": "select",
+      "doc": "event structs, a typed Bus interface, and an in-process LocalBus",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 0
+      },
+      "covers": [
+        "(events ?items...)"
+      ]
+    },
+    {
+      "name": "http",
+      "pass": "select",
+      "doc": "a Handler and ServeMux over the package's stores",
+      "produces": "go/file",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 1
+      },
+      "covers": [
+        "(http ?items...)"
+      ],
+      "cost_notes": {
+        "dependency": "net/http only; Go 1.22 routes methods and wildcards",
+        "llm-work": "only validation and error mapping are left open"
+      }
+    },
+    {
+      "name": "secrets",
+      "pass": "select",
+      "doc": "a typed Secrets interface and its implementation, from wherever the requirements allow",
+      "produces": "secrets",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 0
+      },
+      "covers": [
+        "(secrets ?items...)"
+      ]
+    },
+    {
+      "name": "tile-spec",
+      "pass": "select",
+      "doc": "a tile for tilegen itself: the registration compiled, the judgment left open",
+      "produces": "go/file",
+      "cost": {
+        "llm-work": 2,
+        "maintenance": 1
+      },
+      "covers": [
+        "(tile-spec ?name ?items...)"
+      ]
+    },
+    {
+      "name": "catch-all",
+      "pass": "select",
+      "doc": "covers anything no other tile covers: the LLM as the tile of last resort",
+      "produces": "llm/task",
+      "cost": {
+        "llm-work": 10,
+        "uncertainty": 10
+      },
+      "covers": [
+        "_"
+      ]
+    },
+    {
+      "name": "connect",
+      "pass": "select",
+      "doc": "a .proto and a Connect server: Connect, gRPC and gRPC-Web on net/http",
+      "produces": "api",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 2,
+        "maintenance": 2
+      },
+      "requires": [
+        "buf",
+        "protoc-gen-go",
+        "protoc-gen-connect-go"
+      ],
+      "illegal_when": {
+        "grpc-native": "Connect speaks the gRPC protocol but is not grpc-go: its interceptors, reflection and health services do not plug in"
+      },
+      "engine": "none",
+      "satisfies": {
+        "browser-clients": "the Connect protocol is plain HTTP with JSON or binary bodies, so a browser calls it with no proxy",
+        "streaming": "a server-streaming RPC, over the Connect, gRPC and gRPC-Web protocols alike",
+        "typed-clients": "clients are generated from the .proto, in any language buf has a plugin for"
+      },
+      "cost_notes": {
+        "dependency": "connect and protobuf",
+        "llm-work": "only validation and error mapping are left open",
+        "maintenance": "a .proto and its generated code to keep in step, and field numbers that can never be reused"
+      }
+    },
+    {
+      "name": "grpc",
+      "pass": "select",
+      "doc": "a .proto and a grpc-go server",
+      "produces": "api",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 2,
+        "maintenance": 2
+      },
+      "requires": [
+        "buf",
+        "protoc-gen-go",
+        "protoc-gen-go-grpc"
+      ],
+      "illegal_when": {
+        "browser-clients": "a browser cannot speak gRPC; it needs gRPC-Web and a proxy in front of the server"
+      },
+      "engine": "none",
+      "satisfies": {
+        "grpc-native": "it is grpc-go: interceptors, reflection, health and load balancing work as documented",
+        "streaming": "a server-streaming RPC over HTTP/2",
+        "typed-clients": "clients are generated from the .proto, in any language protoc has a plugin for"
+      },
+      "cost_notes": {
+        "dependency": "grpc-go and protobuf: a large module tree",
+        "llm-work": "only validation and error mapping are left open",
+        "maintenance": "a .proto and its generated code to keep in step, and field numbers that can never be reused"
+      }
+    },
+    {
+      "name": "http-json",
+      "pass": "select",
+      "doc": "net/http and JSON: a Handler and ServeMux over the package's stores",
+      "produces": "api",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 1
+      },
+      "illegal_when": {
+        "grpc-native": "it is not gRPC",
+        "streaming": "this tile generates request and response handlers only; a stream of events needs one of the schema tiles",
+        "typed-clients": "there is no schema: every client writes its own requests and types by hand"
+      },
+      "covers": [
+        "(alias http)"
+      ],
+      "engine": "none",
+      "satisfies": {
+        "browser-clients": "fetch and JSON, with nothing in between"
+      },
+      "cost_notes": {
+        "dependency": "net/http only; Go 1.22 routes methods and wildcards",
+        "llm-work": "only validation and error mapping are left open"
+      }
+    },
+    {
+      "name": "api-key",
+      "pass": "select",
+      "doc": "a long-lived key per caller, resolved by a lookup you supply",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 2,
+        "operations": 1,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "expiring": "a key is valid until someone deletes it; nothing in the credential says when to stop trusting it",
+        "offline-verify": "a key carries no claims: every request is a lookup",
+        "third-party-idp": "an API key is issued by you, not by an identity provider"
+      },
+      "covers": [
+        "(alias api-key)"
+      ],
+      "satisfies": {
+        "revocable": "the key is resolved on every request, so removing it takes effect on the next one"
+      },
+      "cost_notes": {
+        "llm-work": "read a header and call the lookup; the store is the caller's",
+        "maintenance": "keys are long-lived, so leaks are found late and rotation is manual",
+        "runtime": "one lookup per request"
+      }
+    },
+    {
+      "name": "jwt-local",
+      "pass": "select",
+      "doc": "a token this service signs and verifies itself, with no lookup",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 1,
+        "runtime": 0
+      },
+      "illegal_when": {
+        "revocable": "a signed token is valid until it expires; revoking one means a lookup on every request, which is the cost this scheme exists to avoid",
+        "third-party-idp": "this issues its own tokens; it does not verify anyone else's"
+      },
+      "covers": [
+        "(alias jwt)"
+      ],
+      "satisfies": {
+        "expiring": "the exp claim is inside the signed payload, so it cannot be altered",
+        "offline-verify": "the token carries its claims and its signature; verifying it touches nothing else"
+      },
+      "cost_notes": {
+        "llm-work": "parse a bearer header, verify a signature, check iss and exp",
+        "maintenance": "the signing key has to be rotated, and rotation is a second key for a while",
+        "operations": "a secret to distribute, nothing to run",
+        "runtime": "one HMAC per request, no I/O"
+      }
+    },
+    {
+      "name": "oidc",
+      "pass": "select",
+      "doc": "an identity provider issues tokens; this verifies them against its keys",
+      "produces": "auth",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 1
+      },
+      "covers": [
+        "(alias oidc)"
+      ],
+      "satisfies": {
+        "expiring": "the exp claim is inside the signed payload",
+        "offline-verify": "verification uses cached public keys, with no call per request",
+        "revocable": "the provider stops honouring a session, and short-lived tokens stop being reissued",
+        "third-party-idp": "this is the case it exists for: tokens are issued elsewhere and verified here"
+      },
+      "cost_notes": {
+        "llm-work": "verify with the provider's verifier, then map claims to a principal",
+        "operations": "an identity provider to run or pay for, with clients, scopes and redirect URIs to keep right",
+        "runtime": "keys are cached; a refresh is occasional"
+      }
+    },
+    {
+      "name": "session-store",
+      "pass": "select",
+      "doc": "an opaque session id in a cookie, looked up in a store on every request",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 1,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "offline-verify": "the cookie carries an id and nothing else; there is nothing in it to verify without the store",
+        "third-party-idp": "a session is issued here, after whatever login you run; it says nothing about who vouched for the user"
+      },
+      "covers": [
+        "(alias session)"
+      ],
+      "satisfies": {
+        "expiring": "the stored session carries an expiry, checked on every read",
+        "revocable": "the session is read on every request, so deleting it takes effect on the next one"
+      },
+      "cost_notes": {
+        "dependency": "net/http cookies and a store the project already has",
+        "llm-work": "read a cookie, load the session, check it has not expired",
+        "maintenance": "expired sessions have to be swept, or the store grows forever",
+        "operations": "nothing new to run: the sessions live in a store already chosen",
+        "runtime": "one store read per request"
+      }
+    },
+    {
+      "name": "kafka",
+      "pass": "select",
+      "doc": "Kafka: a partitioned log, ordered per key, read back at will",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 9,
+        "runtime": 4
+      },
+      "illegal_when": {
+        "no-broker": "a cluster to run, partitions to size, and retention and consumer lag to watch"
+      },
+      "covers": [
+        "(alias kafka)"
+      ],
+      "satisfies": {
+        "at-least-once": "an uncommitted offset is redelivered to whoever takes the partition next",
+        "consumer-groups": "a group shares partitions among its members and rebalances them",
+        "cross-process": "consumers in other processes read the topic over the network",
+        "durable": "a produce is acknowledged once the partition's replicas have the record",
+        "fan-out": "several consumer groups on one topic each see every record",
+        "ordered": "records with the same key go to one partition, and a partition is an ordered log",
+        "replay": "a consumer group can seek to any offset still inside retention"
+      },
+      "cost_notes": {
+        "dependency": "a client library with a large transitive graph",
+        "operations": "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"
+      }
+    },
+    {
+      "name": "local-bus",
+      "pass": "select",
+      "doc": "in-process bus: synchronous delivery, ordered, errors joined",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 0,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "at-least-once": "a handler that returns an error is not called again: the error is joined and returned to the publisher",
+        "consumer-groups": "every handler is called for every event; there is no way to compete for one",
+        "cross-process": "an in-process bus only reaches handlers in this program",
+        "durable": "an in-process bus loses undelivered events on restart",
+        "replay": "nothing is kept: a handler that subscribes later sees only what comes next"
+      },
+      "covers": [
+        "(alias local)"
+      ],
+      "engine": "none",
+      "satisfies": {
+        "fan-out": "every subscriber is called for every event",
+        "no-broker": "a slice of handlers and a mutex; there is nothing to run",
+        "ordered": "Publish calls every handler in subscription order, in the publisher's goroutine"
+      }
+    },
+    {
+      "name": "nats-core",
+      "pass": "select",
+      "doc": "core NATS: subjects and queue groups, with nothing kept",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 4,
+        "maintenance": 2,
+        "operations": 2,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "at-least-once": "core NATS delivers at most once and does not redeliver on failure",
+        "durable": "core NATS is fire-and-forget: a message with no connected subscriber is gone",
+        "no-broker": "there is a server to run, though only one binary and no state",
+        "replay": "core NATS keeps no stream; there is nothing to read back"
+      },
+      "covers": [
+        "(alias nats)"
+      ],
+      "engine": "nats",
+      "satisfies": {
+        "consumer-groups": "a queue group delivers each message to one of its members",
+        "cross-process": "subscribers in other processes receive what is published on a subject",
+        "fan-out": "every plain subscriber to a subject receives every message"
+      },
+      "unverified": {
+        "ordered": "messages from one publisher arrive in order on one connection, but nobody has checked what holds across a reconnect"
+      },
+      "cost_notes": {
+        "llm-work": "subscribe and publish on a subject; there is nothing to acknowledge",
+        "operations": "one binary, no storage, nothing to size"
+      }
+    },
+    {
+      "name": "nats-jetstream",
+      "pass": "select",
+      "doc": "NATS JetStream: the same server with a log, so events are kept and can be read back",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 3,
+        "operations": 4,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "no-broker": "a server to run, with streams and consumers to size and retain"
+      },
+      "covers": [
+        "(alias jetstream)"
+      ],
+      "engine": "nats",
+      "satisfies": {
+        "at-least-once": "an unacknowledged message is redelivered until it is acknowledged or expires",
+        "consumer-groups": "a queue consumer shares its messages among its members",
+        "cross-process": "consumers in other processes read the stream over the network",
+        "durable": "a publish is acknowledged only once the stream has stored the message",
+        "fan-out": "several consumers on one stream each see every message",
+        "ordered": "a stream is an ordered log, and a consumer reads it in sequence",
+        "replay": "a consumer can start at any sequence or time in the stream"
+      },
+      "cost_notes": {
+        "llm-work": "publish with an ack, and a consumer with explicit acknowledgement",
+        "operations": "one binary with no dependencies, but streams, consumers and retention to configure"
+      }
+    },
+    {
+      "name": "rabbitmq",
+      "pass": "select",
+      "doc": "RabbitMQ: exchanges, bindings and competing consumers",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 5,
+        "runtime": 3
+      },
+      "illegal_when": {
+        "no-broker": "a broker to run, and exchanges and bindings to get right",
+        "replay": "a classic queue removes a message when it is acknowledged; there is nothing left to read back"
+      },
+      "covers": [
+        "(alias rabbitmq)"
+      ],
+      "satisfies": {
+        "at-least-once": "an unacknowledged message is requeued when the channel closes",
+        "consumer-groups": "several consumers on one queue compete for its messages",
+        "cross-process": "consumers in other processes bind to the exchange over the network",
+        "fan-out": "several queues bound to one exchange each receive every message"
+      },
+      "unverified": {
+        "durable": "a durable exchange, a durable queue and persistent messages are all needed, and this tile declares none of them",
+        "ordered": "one consumer on one queue sees publisher order, but nobody has checked what requeueing does to it"
+      },
+      "cost_notes": {
+        "operations": "a broker to run, plus the topology to declare and keep in step"
+      }
+    },
+    {
+      "name": "redis-streams",
+      "pass": "select",
+      "doc": "Redis Streams: an append-only log with consumer groups",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 3,
+        "operations": 3,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "durable": "durability is an operator setting: under the default append-only policy a second of writes can be lost on a crash",
+        "no-broker": "there is a Redis to run"
+      },
+      "covers": [
+        "(alias redis)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "at-least-once": "an unacknowledged entry stays in the pending list and can be claimed again",
+        "consumer-groups": "a group shares entries among its consumers",
+        "cross-process": "clients in other processes read the stream over the network",
+        "fan-out": "several groups on one stream each see every entry",
+        "ordered": "one stream is an ordered sequence of ids",
+        "replay": "a stream is read from any id, so a late reader can start at the beginning"
+      },
+      "cost_notes": {
+        "operations": "one server, but stream trimming and group lag to watch"
+      }
+    },
+    {
+      "name": "env-secrets",
+      "pass": "select",
+      "doc": "environment variables, read once when the process starts",
+      "produces": "secrets",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 1,
+        "operations": 0
+      },
+      "illegal_when": {
+        "audited": "nothing records which process read a variable, or when",
+        "rotating": "a process's environment is fixed when it starts: a new value is not seen until a restart"
+      },
+      "covers": [
+        "(alias env)"
+      ],
+      "engine": "none",
+      "cost_notes": {
+        "dependency": "os.Getenv",
+        "operations": "whatever starts the process already sets its environment"
+      }
+    },
+    {
+      "name": "file-secrets",
+      "pass": "select",
+      "doc": "one file per secret in a mounted directory, read on every call",
+      "produces": "secrets",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 0,
+        "maintenance": 1,
+        "operations": 1,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "audited": "the file system does not record who read a file"
+      },
+      "covers": [
+        "(alias file)"
+      ],
+      "engine": "none",
+      "satisfies": {
+        "rotating": "the file is read on every call, so a replaced file is seen at once"
+      },
+      "cost_notes": {
+        "dependency": "os.ReadFile",
+        "operations": "something has to mount the directory: Kubernetes and Docker secrets do",
+        "runtime": "a small file read per call"
+      }
+    },
+    {
+      "name": "vault",
+      "pass": "select",
+      "doc": "one path of a HashiCorp Vault KV v2 mount, read through a short cache",
+      "produces": "secrets",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 0,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 1
+      },
+      "engine": "vault",
+      "satisfies": {
+        "audited": "Vault's audit log records every read with the identity that made it",
+        "rotating": "a read is kept for a ttl you choose, so a new version is seen within it"
+      },
+      "cost_notes": {
+        "dependency": "the Vault API client and its module tree",
+        "maintenance": "a client to keep logged in, and policies to keep in step with the paths",
+        "operations": "a Vault to run, unseal, back up and upgrade",
+        "runtime": "a network read when the cache expires"
+      }
+    },
+    {
+      "name": "badger",
+      "pass": "select",
+      "doc": "embedded key-value: an LSM store, one keyspace, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 3,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "cross-process": "badger takes a directory lock; a second process cannot open the same store",
+        "lookup-by-field": "one keyspace, one key; a secondary index would be written and repaired by hand"
+      },
+      "covers": [
+        "(alias badger)"
+      ],
+      "satisfies": {
+        "durable": "a directory on disk with a write-ahead log replayed on open",
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "badger and its own dependencies, but no server and no build-time tool",
+        "llm-work": "id-keyed get, save and delete in one transaction; secondary indexes are excluded by illegal-when, not priced here",
+        "maintenance": "no schema and no migrations: a field added to the struct changes stored values silently",
+        "runtime": "an LSM tree with background compaction, unlike bbolt's single file"
+      }
+    },
+    {
+      "name": "bolt",
+      "pass": "select",
+      "doc": "embedded key-value: one file, a bucket per entity, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 7,
+        "maintenance": 6,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "cross-process": "bbolt takes an exclusive lock on the file; a second process cannot open it",
+        "lookup-by-field": "a bucket has one key; a secondary index would be written and repaired by hand"
+      },
+      "covers": [
+        "(alias bolt)"
+      ],
+      "satisfies": {
+        "durable": "one memory-mapped file; a committed write transaction is fsynced before it returns",
+        "no-broker": "a file and a library; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "bbolt only, and no build-time tool",
+        "llm-work": "every read, write and scan written by hand, including the key encoding",
+        "maintenance": "no schema and no migrations: a field added to the struct changes stored documents silently, and nothing reports it"
+      }
+    },
+    {
+      "name": "memory",
+      "pass": "select",
+      "doc": "in-memory store: a map guarded by a mutex",
+      "produces": "store",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 1,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "cross-process": "the map lives in this process's heap; another process has its own, empty one",
+        "durable": "an in-memory map loses its data on restart",
+        "inbox": "nothing is committed, so a handler's writes and the record that it ran cannot share a transaction",
+        "outbox": "nothing is committed, so there is no transaction for an event to share"
+      },
+      "covers": [
+        "(alias memory)"
+      ],
+      "engine": "none",
+      "satisfies": {
+        "lookup-by-field": "a scan over the map: correct at any size, slow at a large one",
+        "no-broker": "a map and a mutex; there is nothing to run"
+      }
+    },
+    {
+      "name": "mongo",
+      "pass": "select",
+      "doc": "mongo: a collection per entity, documents rather than rows",
+      "produces": "store",
+      "form": "bson-docs",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 3,
+        "operations": 5,
+        "runtime": 2
+      },
+      "illegal_when": {
+        "no-broker": "a mongo to run, with backups and a replica set for durability"
+      },
+      "covers": [
+        "(alias mongo)"
+      ],
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "lookup-by-field": "a filter on any field, and an index when you add one"
+      },
+      "unverified": {
+        "durable": "a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it",
+        "inbox": "a multi-document transaction needs a replica set, and this tile does not generate one",
+        "outbox": "a multi-document transaction needs a replica set, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the driver, and a server to run",
+        "llm-work": "filters and updates written by hand, but no schema to keep in step",
+        "operations": "a server to run, and a replica set if you want durable writes"
+      }
+    },
+    {
+      "name": "postgres-pgx",
+      "pass": "select",
+      "doc": "postgres via pgx: tilegen writes the schema, the LLM writes the SQL",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 7,
+        "maintenance": 5,
+        "operations": 5,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "no-broker": "a postgres to run, with backups, connections and upgrades"
+      },
+      "covers": [
+        "(alias pgx)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed transaction is on disk before COMMIT returns",
+        "lookup-by-field": "a WHERE clause, and an index when you add one"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "pgx only, and no build-time tool",
+        "llm-work": "the LLM writes every query and scan by hand",
+        "maintenance": "hand-written SQL drifts from the schema silently",
+        "operations": "a server to run, with backups, connections and upgrades"
+      }
+    },
+    {
+      "name": "postgres-sqlc",
+      "pass": "select",
+      "doc": "postgres via sqlc: tilegen writes SQL, sqlc writes the Go, the LLM maps rows",
+      "produces": "store",
+      "form": "db-rows",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 1
+      },
+      "requires": [
+        "sqlc"
+      ],
+      "illegal_when": {
+        "no-broker": "a postgres to run, with backups, connections and upgrades"
+      },
+      "covers": [
+        "(alias postgres)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed transaction is on disk before COMMIT returns",
+        "inbox": "a handler's writes and the record that it ran are committed in one transaction",
+        "lookup-by-field": "a WHERE clause, and an index when you add one",
+        "outbox": "the entity's row and the event's row are written in one transaction"
+      },
+      "cost_notes": {
+        "dependency": "pgx, plus sqlc as a build-time tool",
+        "llm-work": "the LLM writes only row-to-domain mapping; sqlc writes the queries",
+        "operations": "a server to run, plus sqlc in the build"
+      }
+    },
+    {
+      "name": "sqlite-sqlc",
+      "pass": "select",
+      "doc": "sqlite via sqlc: one file, no server; uuid and time are TEXT",
+      "produces": "store",
+      "form": "db-rows",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 3,
+        "maintenance": 2,
+        "runtime": 1
+      },
+      "requires": [
+        "sqlc"
+      ],
+      "illegal_when": {
+        "cross-process": "a sqlite file serves one process; another would need its own connection to the same disk"
+      },
+      "covers": [
+        "(alias sqlite)"
+      ],
+      "engine": "sqlite",
+      "satisfies": {
+        "durable": "the database is a file on disk, and a committed transaction is in it",
+        "lookup-by-field": "a WHERE clause, and an index when you add one",
+        "no-broker": "one file and a library; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "a driver and sqlc, but no server to run",
+        "llm-work": "same as postgres-sqlc: sqlc writes the queries"
+      }
+    },
+    {
+      "name": "kafka",
+      "pass": "select",
+      "doc": "Kafka as an inbound edge: consume a topic, at your own offset",
+      "produces": "transport",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 7,
+        "maintenance": 5,
+        "operations": 9,
+        "runtime": 4
+      },
+      "illegal_when": {
+        "no-broker": "a cluster to run, partitions to size, and retention and consumer lag to watch"
+      },
+      "covers": [
+        "(alias kafka)"
+      ],
+      "satisfies": {
+        "at-least-once": "an uncommitted offset is redelivered after a rebalance or a restart",
+        "cross-process": "the producers are other systems entirely; that is what an inbound edge is",
+        "durable": "a record is on the partition's replicas before it is acknowledged",
+        "ordered": "a partition is an ordered log, and one key goes to one partition",
+        "replay": "a consumer can start at any offset still inside retention"
+      },
+      "cost_notes": {
+        "dependency": "a client library with a large transitive graph",
+        "llm-work": "a consumer group, offset commits after the handler, and a rebalance callback: more than the publish side",
+        "operations": "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"
+      }
+    },
+    {
+      "name": "nats-core",
+      "pass": "select",
+      "doc": "core NATS: subjects and queue groups, with nothing kept",
+      "produces": "transport",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 2,
+        "maintenance": 1,
+        "operations": 2,
+        "runtime": 1
+      },
+      "illegal_when": {
+        "at-least-once": "core NATS delivers at most once and does not redeliver on failure",
+        "durable": "core NATS is fire-and-forget: a message with no connected consumer is gone",
+        "no-broker": "there is a server to run, though only one binary and no state",
+        "replay": "core NATS keeps no stream; JetStream is the same broker with a log"
+      },
+      "covers": [
+        "(alias nats)"
+      ],
+      "engine": "nats",
+      "satisfies": {
+        "cross-process": "publishers in other processes reach this subject over the network"
+      },
+      "unverified": {
+        "ordered": "messages from one publisher arrive in order on one connection, but nobody has checked what holds across a reconnect"
+      },
+      "cost_notes": {
+        "llm-work": "subscribe to a subject and decode; there are no offsets to keep",
+        "operations": "one binary, no storage, nothing to size"
+      }
+    },
+    {
+      "name": "doc-mapper",
+      "pass": "select",
+      "doc": "decodes mongo documents into domain types, by hand",
+      "produces": "domain",
+      "covers": [
+        "(convert bson-docs domain)"
+      ]
+    },
+    {
+      "name": "row-mapper",
+      "pass": "select",
+      "doc": "converts sqlc's row types to domain types, by hand",
+      "produces": "domain",
+      "covers": [
+        "(convert db-rows domain)"
+      ]
+    }
+  ]
+}

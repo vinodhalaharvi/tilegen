@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"sort"
@@ -45,7 +46,8 @@ var tileKinds = []string{"store-backend"}
 // tilePackages are the packages of tilegen a generated tile's signatures
 // name, by qualifier.
 var tilePackages = map[string]string{
-	"sexp": "github.com/vinodhalaharvi/tilegen/internal/sexp",
+	"compile": "github.com/vinodhalaharvi/tilegen/internal/compile",
+	"sexp":    "github.com/vinodhalaharvi/tilegen/internal/sexp",
 }
 
 // tileKindCapability is the capability each kind of tile offers.
@@ -67,16 +69,16 @@ func unanswered(n *sexp.Node) bool {
 }
 
 func init() {
-	RegisterPackageTile(&PackageTile{
+	compile.RegisterPackageTile(&compile.PackageTile{
 		Form: "tile-spec",
-		Pass: Select,
-		Rule: Rule{
+		Pass: compile.Select,
+		Rule: compile.Rule{
 			Name:     "tile-spec",
 			Pattern:  sexp.Pat("(tile-spec ?name ?items...)"),
 			Then:     selectTileSpec,
 			Produces: "go/file",
 			Doc:      "a tile for tilegen itself: the registration compiled, the judgment left open",
-			Cost:     Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1}},
+			Cost:     compile.Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1}},
 		},
 		Validate: validateTileSpec,
 	})
@@ -88,14 +90,14 @@ var costDims = []string{"llm-work", "maintenance", "dependency", "runtime", "unc
 
 var costSources = []string{"default", "measured", "derived", "user"}
 
-func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
-	b := v.shape(n, "(tile-spec ?name ?items...)")
+func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool) {
+	b := v.Shape(n, "(tile-spec ?name ?items...)")
 	if b == nil {
 		return
 	}
 	name := b.One("name")
 	if name == nil || name.IsList || !validTileName(name.Atom) {
-		v.bad(n, "a tile name is lower-case letters, digits and hyphens, like postgres-sqlc, got %s", short(n))
+		v.Bad(n, "a tile name is lower-case letters, digits and hyphens, like postgres-sqlc, got %s", compile.Short(n))
 		return
 	}
 
@@ -103,7 +105,7 @@ func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
 	// anything else in the package is reported here rather than by the
 	// Go compiler later.
 	if decl := tileStructName(name.Atom); types[decl] {
-		v.bad(n, "(tile-spec %s ...) generates %s, but the package already declares it", name.Atom, decl)
+		v.Bad(n, "(tile-spec %s ...) generates %s, but the package already declares it", name.Atom, decl)
 	} else {
 		types[decl] = true
 	}
@@ -113,7 +115,7 @@ func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
 	open := false
 	for _, it := range b.Rest("items") {
 		if unanswered(it) {
-			v.bad(it, "(tile-spec %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, short(it))
+			v.Bad(it, "(tile-spec %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, compile.Short(it))
 			open = true
 		}
 	}
@@ -126,32 +128,32 @@ func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
 		case "kind":
-			if kb := v.shape(it, "(kind ?name)"); kb != nil {
+			if kb := v.Shape(it, "(kind ?name)"); kb != nil {
 				kind = kb.Atom("name")
-				if !contains(tileKinds, kind) {
-					v.bad(it, "unknown tile kind %q%s; tilegen knows %s", kind,
-						didYouMean(kind, tileKinds), strings.Join(tileKinds, ", "))
+				if !compile.Contains(tileKinds, kind) {
+					v.Bad(it, "unknown tile kind %q%s; tilegen knows %s", kind,
+						compile.DidYouMean(kind, tileKinds), strings.Join(tileKinds, ", "))
 				}
 			}
 		case "doc":
-			v.shape(it, "(doc ?text)")
+			v.Shape(it, "(doc ?text)")
 		case "alias":
-			v.shape(it, "(alias ?name)")
+			v.Shape(it, "(alias ?name)")
 		case "error-package":
-			v.shape(it, "(error-package ?qualifier)")
+			v.Shape(it, "(error-package ?qualifier)")
 		case "import":
-			v.shape(it, "(import ?qualifier ?path)")
+			v.Shape(it, "(import ?qualifier ?path)")
 		case "topics":
 			if len(it.Args()) == 0 {
-				v.bad(it, "(topics ...) needs at least one topic")
+				v.Bad(it, "(topics ...) needs at least one topic")
 			}
 		case "form":
-			v.shape(it, "(form ?name)")
+			v.Shape(it, "(form ?name)")
 		case "engine":
-			v.shape(it, "(engine ?name)")
+			v.Shape(it, "(engine ?name)")
 		case "requires":
 			for _, r := range it.Args() {
-				v.shape(r, "(tool ?name)")
+				v.Shape(r, "(tool ?name)")
 			}
 		case "illegal-when":
 			validateIllegalWhen(v, it)
@@ -159,80 +161,80 @@ func validateTileSpec(v *validator, n *sexp.Node, types map[string]bool) {
 			validateTileCost(v, it)
 		default:
 			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "illegal-when", "cost"}
-			v.bad(it, "a tile-spec contains %s, got %s%s",
-				strings.Join(known, ", "), short(it), didYouMean(it.Head(), known))
+			v.Bad(it, "a tile-spec contains %s, got %s%s",
+				strings.Join(known, ", "), compile.Short(it), compile.DidYouMean(it.Head(), known))
 			continue
 		}
 		if it.Head() != "illegal-when" && it.Head() != "import" && seen[it.Head()] {
-			v.bad(it, "duplicate (%s ...) in tile-spec %s", it.Head(), name.Atom)
+			v.Bad(it, "duplicate (%s ...) in tile-spec %s", it.Head(), name.Atom)
 		}
 		seen[it.Head()] = true
 	}
 	if kind == "" {
-		v.bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(tileKinds, ", "))
+		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(tileKinds, ", "))
 	}
 	if n.Text("doc") == "" {
-		v.bad(n, "(tile-spec %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
+		v.Bad(n, "(tile-spec %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
 	}
 	if n.Find("cost") == nil {
-		v.bad(n, "(tile-spec %s ...) needs a (cost ...): a tile that declares no cost can never be compared with one that does", name.Atom)
+		v.Bad(n, "(tile-spec %s ...) needs a (cost ...): a tile that declares no cost can never be compared with one that does", name.Atom)
 	}
 }
 
 // validateIllegalWhen checks (illegal-when (durable) "reason"). The reason
 // is not optional: it is the whole explanation a user reads in explain.
-func validateIllegalWhen(v *validator, it *sexp.Node) {
-	b := v.shape(it, "(illegal-when ?req ?reason)")
+func validateIllegalWhen(v *compile.Validator, it *sexp.Node) {
+	b := v.Shape(it, "(illegal-when ?req ?reason)")
 	if b == nil {
 		return
 	}
 	req := b.One("req")
 	if req == nil || !req.IsList || len(req.List) != 1 || req.List[0].IsList {
-		v.bad(it, "(illegal-when ...) takes a bare requirement form like (durable), got %s", short(it))
+		v.Bad(it, "(illegal-when ...) takes a bare requirement form like (durable), got %s", compile.Short(it))
 		return
 	}
 	name := req.List[0].Atom
-	if !contains(knownRequirements(), name) {
-		v.bad(req, "unknown requirement (%s)%s; the shared vocabulary is %s", name,
-			didYouMean(name, knownRequirements()), strings.Join(knownRequirements(), ", "))
+	if !compile.Contains(compile.KnownRequirements(), name) {
+		v.Bad(req, "unknown requirement (%s)%s; the shared vocabulary is %s", name,
+			compile.DidYouMean(name, compile.KnownRequirements()), strings.Join(compile.KnownRequirements(), ", "))
 	}
 	if reason := b.One("reason"); reason == nil || strings.TrimSpace(reason.Atom) == "" {
-		v.bad(it, "(illegal-when (%s) ...) needs a reason: it is what explain prints when this tile is ruled out", name)
+		v.Bad(it, "(illegal-when (%s) ...) needs a reason: it is what explain prints when this tile is ruled out", name)
 	}
 }
 
 // validateTileCost checks (cost (llm-work 4 (source derived "...")) ...).
-func validateTileCost(v *validator, it *sexp.Node) {
+func validateTileCost(v *compile.Validator, it *sexp.Node) {
 	if len(it.Args()) == 0 {
-		v.bad(it, "(cost ...) needs at least one dimension: %s", strings.Join(costDims, ", "))
+		v.Bad(it, "(cost ...) needs at least one dimension: %s", strings.Join(costDims, ", "))
 		return
 	}
 	seen := map[string]bool{}
 	for _, term := range it.Args() {
 		if !term.IsList || len(term.List) < 2 {
-			v.bad(term, "a cost term is (DIMENSION N [(source ...)]), got %s", short(term))
+			v.Bad(term, "a cost term is (DIMENSION N [(source ...)]), got %s", compile.Short(term))
 			continue
 		}
 		dim := term.List[0].Atom
-		if !contains(costDims, dim) {
-			v.bad(term, "unknown cost dimension %q%s; tilegen weighs %s", dim,
-				didYouMean(dim, costDims), strings.Join(costDims, ", "))
+		if !compile.Contains(costDims, dim) {
+			v.Bad(term, "unknown cost dimension %q%s; tilegen weighs %s", dim,
+				compile.DidYouMean(dim, costDims), strings.Join(costDims, ", "))
 		}
 		if seen[dim] {
-			v.bad(term, "duplicate cost dimension %q", dim)
+			v.Bad(term, "duplicate cost dimension %q", dim)
 		}
 		seen[dim] = true
 		if _, err := strconv.Atoi(term.List[1].Atom); err != nil {
-			v.bad(term, "cost %s must be a whole number, got %q", dim, term.List[1].Atom)
+			v.Bad(term, "cost %s must be a whole number, got %q", dim, term.List[1].Atom)
 		}
 		for _, extra := range term.List[2:] {
-			sb := v.shape(extra, "(source ?kind ?note...)")
+			sb := v.Shape(extra, "(source ?kind ?note...)")
 			if sb == nil {
 				continue
 			}
-			if kind := sb.Atom("kind"); !contains(costSources, kind) {
-				v.bad(extra, "unknown cost source %q%s; tilegen records %s", kind,
-					didYouMean(kind, costSources), strings.Join(costSources, ", "))
+			if kind := sb.Atom("kind"); !compile.Contains(costSources, kind) {
+				v.Bad(extra, "unknown cost source %q%s; tilegen records %s", kind,
+					compile.DidYouMean(kind, costSources), strings.Join(costSources, ", "))
 			}
 		}
 	}
@@ -240,7 +242,7 @@ func validateTileCost(v *validator, it *sexp.Node) {
 
 // tileStructName is the type the generated file declares: the address the
 // two holes live at.
-func tileStructName(tile string) string { return lowerFirstWord(goName(tile)) + "Tile" }
+func tileStructName(tile string) string { return compile.LowerFirstWord(compile.GoName(tile)) + "Tile" }
 
 // validTileName accepts the shape every tile in the registry already has:
 // lower-case letters, digits and hyphens, starting with a letter.
@@ -263,7 +265,7 @@ func validTileName(s string) bool {
 
 // selectTileSpec emits the tile: one scaffolded file holding the whole
 // registration and two stubs, plus a task per stub.
-func selectTileSpec(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
+func selectTileSpec(m *compile.Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	name := b.Atom("name")
 	kind := n.Text("kind")
@@ -283,9 +285,9 @@ func selectTileSpec(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, erro
 	file := path.Join(pkg.Dir, "tile_"+strings.ReplaceAll(name, "-", "_")+".go")
 
 	methods := storeBackendHoles()
-	stubs, tasks := stubsAndTasks(pkg, impl, "the "+name+" tile", file, methods,
+	stubs, tasks := compile.StubsAndTasks(pkg, impl, "the "+name+" tile", file, methods,
 		func(meth *sexp.Node) string { return storeBackendIntent(meth.List[1].Atom, name, n) },
-		[]string{"backend_memory.go", "registry.go", "internal/sexp/sexp.go"},
+		[]string{"backend_memory.go", "internal/compile/registry.go", "internal/sexp/sexp.go"},
 		[]string{
 			"Return only the method asked for, with the signature given.",
 			"Emit target forms with sexp.L, sexp.Sym and sexp.Str; never write files.",
@@ -296,7 +298,7 @@ func selectTileSpec(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, erro
 		sexp.L(sexp.Sym("go/struct"), sexp.Sym(impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 			"%s carries the parts of the %s tile that are judgment rather than\ndeclaration. It holds nothing: it gives the two holes an address.", impl, name)))),
 	}
-	out, err := goFile(c, file, "keep", "", append(decls, stubs...))
+	out, err := compile.GoFile(c, file, "keep", "", append(decls, stubs...))
 	if err != nil {
 		return nil, err
 	}
@@ -308,8 +310,8 @@ func selectTileSpec(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, erro
 func storeBackendHoles() []*sexp.Node {
 	return []*sexp.Node{
 		sexp.L(sexp.Sym("method"), sexp.Sym("Implement"),
-			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("in"), sexp.Sym("StoreInput"))),
-			sexp.L(sexp.Sym("returns"), sexp.Sym("StoreParts"), sexp.Sym("error"))),
+			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("in"), sexp.Sym("compile.StoreInput"))),
+			sexp.L(sexp.Sym("returns"), sexp.Sym("compile.StoreParts"), sexp.Sym("error"))),
 		sexp.L(sexp.Sym("method"), sexp.Sym("Hint"),
 			sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("meth"), sexp.Sym("*sexp.Node"))),
 			sexp.L(sexp.Sym("returns"), sexp.Sym("string"))),
@@ -328,17 +330,17 @@ func storeBackendIntent(method, tile string, n *sexp.Node) string {
 	}
 	switch method {
 	case "Implement":
-		return fmt.Sprintf("Scaffold one store for the %s tile. Return StoreParts: Fields are the "+
+		return fmt.Sprintf("Scaffold one store for the %s tile. Return compile.StoreParts: Fields are the "+
 			"implementation struct's fields as (field name Type) nodes, Params is the constructor's "+
 			"(params ...), Body is the constructor's body as a single return statement building "+
 			"&in.Impl{...}, and Hint is this tile's Hint method. Build every node with sexp.L, sexp.Sym and sexp.Str. "+
 			"backend_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
 	case "Hint":
 		return fmt.Sprintf("Describe what each store method must do in the %s tile's own terms, for the LLM "+
-			"that will write the body. Switch on methodOp(meth), which returns the op kind and field: "+
+			"that will write the body. Switch on compile.MethodOp(meth), which returns the op kind and field: "+
 			"get, list, save, delete, count, list-by, get-by, count-by, exists-by, delete-by. "+
-			"firstParam(meth) is the first non-context parameter's name. Return customHint(meth) for "+
-			"anything else. memoryHint in pass_select.go is the same method for the memory tile.%s%s", tile, using, unreachableOps(n))
+			"compile.FirstParam(meth) is the first non-context parameter's name. Return compile.CustomHint(meth) for "+
+			"anything else. compile.MemoryHint in internal/compile/pass_select.go is the same method for the memory tile.%s%s", tile, using, unreachableOps(n))
 	}
 	return ""
 }
@@ -369,7 +371,7 @@ func unreachableOps(n *sexp.Node) string {
 func storeBackendRegistration(name, impl string, n *sexp.Node) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "// The %s tile, registered from a (tile-spec %s ...) form.\n", name, name)
-	fmt.Fprintf(&b, "// %s\nfunc init() {\n\tregisterStoreBackend(&Backend{\n", n.Text("doc"))
+	fmt.Fprintf(&b, "// %s\nfunc init() {\n\tcompile.RegisterStoreBackend(&compile.Backend{\n", n.Text("doc"))
 
 	alias := n.Text("alias")
 	if alias == "" {
@@ -379,7 +381,7 @@ func storeBackendRegistration(name, impl string, n *sexp.Node) string {
 	fmt.Fprintf(&b, "\t\tTile: %s,\n", strconv.Quote(name))
 	fmt.Fprintf(&b, "\t\tDoc:  %s,\n", strconv.Quote(n.Text("doc")))
 
-	b.WriteString("\t\tCost: Cost{\n")
+	b.WriteString("\t\tCost: compile.Cost{\n")
 	for _, term := range n.Find("cost").Args() {
 		dim, value := term.List[0].Atom, term.List[1].Atom
 		fmt.Fprintf(&b, "\t\t\t{Dim: %s, Value: %s", strconv.Quote(dim), value)
@@ -401,7 +403,7 @@ func storeBackendRegistration(name, impl string, n *sexp.Node) string {
 			}
 		}
 		b.WriteString("\t\tIllegalWhen: map[string]string{\n")
-		for _, req := range sortedKeys(reasons) {
+		for _, req := range compile.SortedKeys(reasons) {
 			fmt.Fprintf(&b, "\t\t\t%s: %s,\n", strconv.Quote(req), strconv.Quote(reasons[req]))
 		}
 		b.WriteString("\t\t},\n")

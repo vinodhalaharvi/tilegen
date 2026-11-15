@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"io"
 	"os"
 	"path"
@@ -42,28 +43,28 @@ type tileCoverage struct {
 func coveredModules() map[string][]string {
 	out := map[string][]string{}
 	add := func(path, tile string) {
-		if path == "" || contains(out[path], tile) {
+		if path == "" || compile.Contains(out[path], tile) {
 			return
 		}
 		out[path] = append(out[path], tile)
 	}
-	for _, b := range backends {
+	for _, b := range compile.Backends {
 		for _, p := range b.Imports {
 			add(p, b.Tile)
 		}
 	}
-	for _, capability := range capabilityNames() {
-		for _, o := range offersOf(capability) {
+	for _, capability := range compile.CapabilityNames() {
+		for _, o := range compile.OffersOf(capability) {
 			switch impl := o.Impl.(type) {
-			case *BusTransport:
+			case *compile.BusTransport:
 				add(impl.Import[1], o.Tile)
-			case *AuthScheme:
+			case *compile.AuthScheme:
 				add(impl.Import[1], o.Tile)
-			case *Transport:
+			case *compile.Transport:
 				add(impl.Import[1], o.Tile)
-			case *SecretSource:
+			case *compile.SecretSource:
 				add(impl.Import[1], o.Tile)
-			case *APITransport:
+			case *compile.APITransport:
 				for _, p := range impl.Imports {
 					add(p, o.Tile)
 				}
@@ -91,7 +92,7 @@ func tilesFor(module string, covered map[string][]string) []string {
 	for p, tiles := range covered {
 		if strings.HasPrefix(p, module+"/") {
 			for _, t := range tiles {
-				if !contains(out, t) {
+				if !compile.Contains(out, t) {
 					out = append(out, t)
 				}
 			}
@@ -109,7 +110,7 @@ func scanModule(dir string) (modPath string, cov []tileCoverage, err error) {
 		return "", nil, err
 	}
 	covered := coveredModules()
-	for _, m := range sortedKeys(requires) {
+	for _, m := range compile.SortedKeys(requires) {
 		cov = append(cov, tileCoverage{Module: m, Version: requires[m], Tiles: tilesFor(m, covered)})
 	}
 	sort.SliceStable(cov, func(i, j int) bool {
@@ -221,12 +222,12 @@ func writeWrapped(b *strings.Builder, first, rest string, items []string) {
 // has of a kind, with the tile at each end: something to set a number
 // against.
 func kindComparison(kind string) string {
-	costs := map[string]Cost{}
-	for _, row := range Registry() {
+	costs := map[string]compile.Cost{}
+	for _, row := range compile.Registry() {
 		costs[row.Name] = row.Cost
 	}
 	lo, hi, loTile, hiTile := 0, 0, "", ""
-	for _, o := range offersOf(tileKindCapability[kind]) {
+	for _, o := range compile.OffersOf(tileKindCapability[kind]) {
 		for _, term := range costs[o.Tile] {
 			if term.Dim != "llm-work" {
 				continue
@@ -305,7 +306,7 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("      ; TODO: which requirements make this the wrong answer? One clause\n")
 	b.WriteString("      ; per case, or none if it can meet them all. The reason is what a\n")
 	b.WriteString("      ; user reads when this tile is ruled out, so write it for a person.\n")
-	writeWrapped(&b, "      ; Requirements: ", "      ;   ", knownRequirements())
+	writeWrapped(&b, "      ; Requirements: ", "      ;   ", compile.KnownRequirements())
 	b.WriteString("      ; (illegal-when (REQUIREMENT) \"...\")\n\n")
 
 	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
@@ -324,5 +325,5 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 
 // importPathFor guesses nothing: a module path is a valid import path for
 // its root package, and the skeleton says so. If the package the tile
-// needs is below the root, the person writing the tile changes this line.
+// Needs is below the root, the person writing the tile changes this line.
 func importPathFor(module string) string { return module }

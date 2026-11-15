@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -16,7 +17,7 @@ import (
 // the legality and the price.
 
 func init() {
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "kafka",
 		Capability: "event-bus",
 		Doc:        "Kafka: a partitioned log, ordered per key, read back at will",
@@ -32,14 +33,14 @@ func init() {
 			"fan-out":         "several consumer groups on one topic each see every record",
 			"consumer-groups": "a group shares partitions among its members and rebalances them",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 5},
 			{Dim: "maintenance", Value: 5},
 			{Dim: "dependency", Value: 4, Source: "derived", Note: "a client library with a large transitive graph"},
 			{Dim: "runtime", Value: 4},
 			{Dim: "operations", Value: 9, Source: "derived", Note: "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"},
 		},
-		Impl: &BusTransport{
+		Impl: &compile.BusTransport{
 			Suffix: "KafkaBus",
 			Topics: []string{"kafka"},
 			Import: [2]string{"kgo", "github.com/twmb/franz-go/pkg/kgo"},
@@ -47,9 +48,9 @@ func init() {
 			Hint:   kafkaHint,
 		},
 	})
-	registerAlias("kafka", "kafka")
+	compile.RegisterAlias("kafka", "kafka")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "redis-streams",
 		Engine:     "redis",
 		Capability: "event-bus",
@@ -66,14 +67,14 @@ func init() {
 			"fan-out":         "several groups on one stream each see every entry",
 			"consumer-groups": "a group shares entries among its consumers",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 4},
 			{Dim: "maintenance", Value: 3},
 			{Dim: "dependency", Value: 2},
 			{Dim: "runtime", Value: 2},
 			{Dim: "operations", Value: 3, Source: "derived", Note: "one server, but stream trimming and group lag to watch"},
 		},
-		Impl: &BusTransport{
+		Impl: &compile.BusTransport{
 			Suffix: "RedisBus",
 			Topics: []string{"redis"},
 			Import: [2]string{"redis", "github.com/redis/go-redis/v9"},
@@ -81,9 +82,9 @@ func init() {
 			Hint:   redisHint,
 		},
 	})
-	registerAlias("redis-streams", "redis")
+	compile.RegisterAlias("redis-streams", "redis")
 
-	RegisterOffer(&Offer{
+	compile.RegisterOffer(&compile.Offer{
 		Tile:       "rabbitmq",
 		Capability: "event-bus",
 		Doc:        "RabbitMQ: exchanges, bindings and competing consumers",
@@ -101,14 +102,14 @@ func init() {
 			"durable": "a durable exchange, a durable queue and persistent messages are all needed, and this tile declares none of them",
 			"ordered": "one consumer on one queue sees publisher order, but nobody has checked what requeueing does to it",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 4},
 			{Dim: "maintenance", Value: 4},
 			{Dim: "dependency", Value: 3},
 			{Dim: "runtime", Value: 3},
 			{Dim: "operations", Value: 5, Source: "derived", Note: "a broker to run, plus the topology to declare and keep in step"},
 		},
-		Impl: &BusTransport{
+		Impl: &compile.BusTransport{
 			Suffix: "RabbitBus",
 			Topics: []string{"rabbitmq", "amqp"},
 			Import: [2]string{"amqp", "github.com/rabbitmq/amqp091-go"},
@@ -116,10 +117,10 @@ func init() {
 			Hint:   rabbitHint,
 		},
 	})
-	registerAlias("rabbitmq", "rabbitmq")
+	compile.RegisterAlias("rabbitmq", "rabbitmq")
 }
 
-func emitKafkaBus(in BusInput) ([]*sexp.Node, error) {
+func emitKafkaBus(in compile.BusInput) ([]*sexp.Node, error) {
 	return busDecl(in, "Kafka", []*sexp.Node{
 		sexp.L(sexp.Sym("field"), sexp.Sym("client"), sexp.Sym("*kgo.Client")),
 		sexp.L(sexp.Sym("field"), sexp.Sym("topic"), sexp.Sym("string")),
@@ -128,7 +129,7 @@ func emitKafkaBus(in BusInput) ([]*sexp.Node, error) {
 		"Events are published to one topic, keyed so that everything about one entity stays in order.")
 }
 
-func emitRedisBus(in BusInput) ([]*sexp.Node, error) {
+func emitRedisBus(in compile.BusInput) ([]*sexp.Node, error) {
 	return busDecl(in, "Redis Streams", []*sexp.Node{
 		sexp.L(sexp.Sym("field"), sexp.Sym("rdb"), sexp.Sym("*redis.Client")),
 		sexp.L(sexp.Sym("field"), sexp.Sym("stream"), sexp.Sym("string")),
@@ -137,7 +138,7 @@ func emitRedisBus(in BusInput) ([]*sexp.Node, error) {
 		"Events are appended to one stream, so a handler that starts later can read back what it missed.")
 }
 
-func emitRabbitBus(in BusInput) ([]*sexp.Node, error) {
+func emitRabbitBus(in compile.BusInput) ([]*sexp.Node, error) {
 	return busDecl(in, "RabbitMQ", []*sexp.Node{
 		sexp.L(sexp.Sym("field"), sexp.Sym("ch"), sexp.Sym("*amqp.Channel")),
 		sexp.L(sexp.Sym("field"), sexp.Sym("exchange"), sexp.Sym("string")),
@@ -149,7 +150,7 @@ func emitRabbitBus(in BusInput) ([]*sexp.Node, error) {
 // busDecl is the shape every remote transport has: a struct holding a
 // client and a name, and a constructor taking both. The methods are holes,
 // so this is all the tile has to build.
-func busDecl(in BusInput, what string, fields []*sexp.Node, params *sexp.Node, body, note string) ([]*sexp.Node, error) {
+func busDecl(in compile.BusInput, what string, fields []*sexp.Node, params *sexp.Node, body, note string) ([]*sexp.Node, error) {
 	decl := sexp.L(sexp.Sym("go/struct"), sexp.Sym(in.Impl), sexp.L(sexp.Sym("doc"), sexp.Str(fmt.Sprintf(
 		"%s is a Bus backed by %s. %s", in.Impl, what, note))))
 	decl.List = append(decl.List, fields...)

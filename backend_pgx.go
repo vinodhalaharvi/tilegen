@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
@@ -11,7 +12,7 @@ import (
 // pgxpool.Pool, with the query tilegen would have given sqlc as a hint.
 // More LLM work and more to maintain than sqlc, but no generate step.
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name:   "pgx",
 		Tile:   "postgres-pgx",
 		Engine: "postgres",
@@ -28,7 +29,7 @@ func init() {
 			"cross-process":   "a server other processes connect to over the network",
 			"lookup-by-field": "a WHERE clause, and an index when you add one",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 7, Source: "derived", Note: "the LLM writes every query and scan by hand"},
 			{Dim: "maintenance", Value: 5, Source: "derived", Note: "hand-written SQL drifts from the schema silently"},
 			{Dim: "dependency", Value: 1, Source: "derived", Note: "pgx only, and no build-time tool"},
@@ -38,10 +39,10 @@ func init() {
 		Topics:       []string{"postgres", "pgx"},
 		ErrorPackage: "github.com/jackc/pgx/v5/pgconn", // PgError and its SQLSTATE codes
 		Imports:      map[string]string{"pgxpool": "github.com/jackc/pgx/v5/pgxpool"},
-		Implement: func(in StoreInput) (StoreParts, error) {
-			sql, err := sqlFor(in.C, in.Entity, in.Struct, in.Ops)
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) {
+			sql, err := compile.SQLFor(in.C, in.Entity, in.Struct, in.Ops)
 			if err != nil {
-				return StoreParts{}, err
+				return compile.StoreParts{}, err
 			}
 			var extra []*sexp.Node
 			suggest := map[string]string{} // query name -> the SQL sqlc would have compiled
@@ -54,20 +55,20 @@ func init() {
 					suggest[n.List[1].Atom] = strings.Join(strings.Fields(text), " ")
 				}
 			}
-			return StoreParts{
+			return compile.StoreParts{
 				Fields: []*sexp.Node{sexp.L(sexp.Sym("field"), sexp.Sym("pool"), sexp.Sym("*pgxpool.Pool"))},
 				Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("pool"), sexp.Sym("*pgxpool.Pool"))),
 				Body:   fmt.Sprintf("return &%s{pool: pool}", in.Impl),
 				Hint: func(meth *sexp.Node) string {
-					kind, f := methodOp(meth)
+					kind, f := compile.MethodOp(meth)
 					h := "Write the SQL and run it with s.pool (pgx v5), against the table in db/schema.sql."
-					if q := suggest[queryName(kind, in.Entity, f)]; q != "" {
+					if q := suggest[compile.QueryName(kind, in.Entity, f)]; q != "" {
 						h += " A query that fits: " + q
 					}
 					if kind == "get" || kind == "get-by" {
 						h += " Map pgx.ErrNoRows to ErrNotFound."
 					}
-					if d := customHint(meth); kind == "custom" && d != "" {
+					if d := compile.CustomHint(meth); kind == "custom" && d != "" {
 						h = d + " " + h
 					}
 					return h

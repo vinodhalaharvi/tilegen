@@ -538,7 +538,7 @@ rather than at compile time.
 A pattern, a function, and registry metadata:
 
 ```go
-{Name: "enum", Pattern: Pat("(enum ?name ?items...)"), Then: selectEnum,
+{Name: "enum", Pattern: sexp.Pat("(enum ?name ?items...)"), Then: selectEnum,
 	Produces: "go/type", Doc: "a string type with constants, Valid() and Parse()",
 	Cost: Cost{{"llm-work", 0}, {"maintenance", 0}}},
 ```
@@ -555,14 +555,14 @@ the registry, so adding one changes nothing else:
 
 ```go
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name:        "memory",
 		Tile:        "memory",
 		Doc:         "in-memory store: a map guarded by a mutex",
-		Cost:        Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1},
+		Cost:        compile.Cost{{Dim: "llm-work", Value: 2}, {Dim: "maintenance", Value: 1},
 		                  {Dim: "dependency", Value: 0}, {Dim: "runtime", Value: 1}},
 		IllegalWhen: map[string]string{"durable": "an in-memory map loses its data on restart"},
-		Implement: func(in StoreInput) (StoreParts, error) { ... },
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) { ... },
 	})
 }
 ```
@@ -577,7 +577,7 @@ A SQL backend is a `Dialect` plus a registered tile. The query shapes are
 shared, so a database only says how it spells things:
 
 ```go
-var SQLite = &Dialect{
+var SQLite = &compile.Dialect{
 	Name: "sqlite", SQLPackage: "database/sql",
 	Types: map[string]string{"int64": "INTEGER", "uuid.UUID": "TEXT", "time.Time": "TEXT", ...},
 	Placeholder: func(i int) string { return fmt.Sprintf("?%d", i+1) },
@@ -598,9 +598,9 @@ event bus is built this way, and nothing in the core names it:
 
 ```go
 func init() {
-	RegisterPackageTile(&PackageTile{
-		Form: "events", Pass: Select,
-		Rule: Rule{Name: "events", Pattern: Pat("(events ?items...)"), Then: selectEvents,
+	compile.RegisterPackageTile(&compile.PackageTile{
+		Form: "events", Pass: compile.Select,
+		Rule: compile.Rule{Name: "events", Pattern: sexp.Pat("(events ?items...)"), Then: selectEvents,
 			Produces: "event-bus",
 			Doc: "event structs, a typed Bus interface, and an in-process LocalBus"},
 		Validate: validateEvents,

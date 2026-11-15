@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
@@ -20,7 +21,7 @@ func appSpec(app, pkg string) string {
 func genApp(t *testing.T, out, spec string) error {
 	t.Helper()
 	sp, _ := writeSpec(t, t.TempDir(), spec, "")
-	return run(Options{Spec: sp, Out: out, Reselect: true}, io.Discard)
+	return run(compile.Options{Spec: sp, Out: out, Reselect: true}, io.Discard)
 }
 
 const notesPkg = `(entity Note (field ID string) (field Text string) (store get list save))

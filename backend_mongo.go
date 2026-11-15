@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"strings"
 )
@@ -9,9 +10,9 @@ import (
 // The mongo backend: a collection per entity, documents rather than rows.
 // Its store hands back bson documents, not domain values, so something has
 // to convert them - the same shape as the sqlc backends, and priced the
-// same way, by a chain rule rather than by a flat number.
+// Same way, by a chain rule rather than by a flat number.
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name: "mongo",
 		Tile: "mongo",
 		Doc:  "mongo: a collection per entity, documents rather than rows",
@@ -27,7 +28,7 @@ func init() {
 			"inbox":   "a multi-document transaction needs a replica set, and this tile does not generate one",
 			"durable": "a write is durable only under a write concern and a replica set; the default is weaker, and this tile does not set it",
 		},
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 5, Source: "derived", Note: "filters and updates written by hand, but no schema to keep in step"},
 			{Dim: "maintenance", Value: 3},
 			{Dim: "dependency", Value: 3, Source: "derived", Note: "the driver, and a server to run"},
@@ -38,8 +39,8 @@ func init() {
 		Imports:      map[string]string{"mongo": "go.mongodb.org/mongo-driver/mongo"},
 		Topics:       []string{"mongodb", "nosql"},
 		ErrorPackage: "mongo",
-		Implement: func(in StoreInput) (StoreParts, error) {
-			return StoreParts{
+		Implement: func(in compile.StoreInput) (compile.StoreParts, error) {
+			return compile.StoreParts{
 				Fields: []*sexp.Node{
 					sexp.L(sexp.Sym("field"), sexp.Sym("coll"), sexp.Sym("*mongo.Collection")),
 				},
@@ -54,14 +55,14 @@ func init() {
 	// bson documents are not domain values: every read comes back as a
 	// document that has to be decoded into the entity, and the work is the
 	// entity's shape, not a constant. Same reasoning as the row mapper.
-	RegisterChain(&Chain{
+	compile.RegisterChain(&compile.Chain{
 		Name: "doc-mapper",
 		From: "bson-docs",
-		To:   domainForm,
+		To:   compile.DomainForm,
 		Doc:  "decodes mongo documents into domain types, by hand",
 		CostRule: "1 per entity, +1 per enum field (a document stores it as a string), " +
 			"+1 per pointer field (a missing key and a null are not the same thing)",
-		Cost: func(e EntityShape) (Cost, string) {
+		Cost: func(e compile.EntityShape) (compile.Cost, string) {
 			units := 1
 			var enums, ptrs int
 			for _, f := range e.Fields {
@@ -80,7 +81,7 @@ func init() {
 			if ptrs > 0 {
 				parts = append(parts, fmt.Sprintf("%d pointer field%s", ptrs, sIf(ptrs)))
 			}
-			return Cost{{Dim: "llm-work", Value: units}, {Dim: "maintenance", Value: (units + 1) / 2}},
+			return compile.Cost{{Dim: "llm-work", Value: units}, {Dim: "maintenance", Value: (units + 1) / 2}},
 				strings.Join(parts, ", ")
 		},
 	})
@@ -90,12 +91,12 @@ func init() {
 func sIf(n int) string { return map[bool]string{true: "s"}[n > 1] }
 
 // collectionName is the collection an entity's documents live in.
-func collectionName(entity string) string { return lowerFirstWord(entity) + "s" }
+func collectionName(entity string) string { return compile.LowerFirstWord(entity) + "s" }
 
 // mongoHint says what each method has to do in the driver's terms.
 func mongoHint(meth *sexp.Node) string {
-	kind, f := methodOp(meth)
-	p := firstParam(meth)
+	kind, f := compile.MethodOp(meth)
+	p := compile.FirstParam(meth)
 	switch kind {
 	case "get":
 		return "FindOne with a filter on _id, then Decode into the value. Return ErrNotFound when the driver reports no documents."

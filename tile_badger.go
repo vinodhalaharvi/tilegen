@@ -4,17 +4,18 @@ package main
 
 import (
 	"fmt"
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
 // The badger tile, registered from a (tile-spec badger ...) form.
 // embedded key-value: an LSM store, one keyspace, values as JSON
 func init() {
-	registerStoreBackend(&Backend{
+	compile.RegisterStoreBackend(&compile.Backend{
 		Name: "badger",
 		Tile: "badger",
 		Doc:  "embedded key-value: an LSM store, one keyspace, values as JSON",
-		Cost: Cost{
+		Cost: compile.Cost{
 			{Dim: "llm-work", Value: 4, Source: "derived", Note: "id-keyed get, save and delete in one transaction; secondary indexes are excluded by illegal-when, not priced here"},
 			{Dim: "maintenance", Value: 3, Source: "derived", Note: "no schema and no migrations: a field added to the struct changes stored values silently"},
 			{Dim: "dependency", Value: 2, Source: "derived", Note: "badger and its own dependencies, but no server and no build-time tool"},
@@ -46,20 +47,20 @@ func init() {
 type badgerTile struct {
 }
 
-func (s *badgerTile) Implement(in StoreInput) (StoreParts, error) {
-	return StoreParts{
+func (s *badgerTile) Implement(in compile.StoreInput) (compile.StoreParts, error) {
+	return compile.StoreParts{
 		Fields: []*sexp.Node{
 			sexp.L(sexp.Sym("field"), sexp.Sym("db"), sexp.Sym("*badger.DB")),
 			sexp.L(sexp.Sym("field"), sexp.Sym("prefix"), sexp.Sym("string")),
 		},
 		Params: sexp.L(sexp.Sym("params"), sexp.L(sexp.Sym("db"), sexp.Sym("*badger.DB"))),
-		Body:   fmt.Sprintf("return &%s{db: db, prefix: %q}", in.Impl, lowerFirstWord(in.Entity)+":"),
+		Body:   fmt.Sprintf("return &%s{db: db, prefix: %q}", in.Impl, compile.LowerFirstWord(in.Entity)+":"),
 		Hint:   s.Hint,
 	}, nil
 }
 
 func (s *badgerTile) Hint(meth *sexp.Node) string {
-	kind, _ := methodOp(meth)
+	kind, _ := compile.MethodOp(meth)
 	switch kind {
 	case "get":
 		return "Fetch the value at s.prefix+id inside a s.db.View transaction, JSON-unmarshal its bytes into a fresh entity, and return it. Map badger.ErrKeyNotFound to ErrNotFound."
@@ -74,5 +75,5 @@ func (s *badgerTile) Hint(meth *sexp.Node) string {
 	}
 	// The *-by ops never reach here: badger is keyed by ID alone, and
 	// illegal-when rules this tile out of any store that asks for one.
-	return customHint(meth)
+	return compile.CustomHint(meth)
 }

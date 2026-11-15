@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/packages"
@@ -148,7 +149,7 @@ func importProject(dir string, force bool, log io.Writer) (*Import, error) {
 		imp.generated = tileOwnedTypes(p)
 		if len(imp.generated) > 0 {
 			var evs []string
-			for _, n := range sortedKeys(imp.generated) {
+			for _, n := range compile.SortedKeys(imp.generated) {
 				if n != "Bus" && n != "LocalBus" {
 					evs = append(evs, n)
 				}
@@ -201,7 +202,7 @@ func projectForm(modPath, goVer string, used, requires map[string]string) string
 	fmt.Fprintf(&b, "(project %s\n  (module %s)\n  (go %s)", filepath.Base(modPath), modPath, goVer)
 	if len(used) > 0 {
 		b.WriteString("\n  (require")
-		for _, q := range sortedKeys(used) {
+		for _, q := range compile.SortedKeys(used) {
 			fmt.Fprintf(&b, "\n    (%s %s %s)", q, used[q], requires[used[q]])
 		}
 		b.WriteString(")")
@@ -310,7 +311,7 @@ func importPackage(p *packages.Package, imp *Import, used, requires map[string]s
 	// (implement ...), which carries its fields, so it is not also written
 	// as a (struct ...).
 	implemented := map[string]bool{}
-	for _, name := range sortedKeys(structsByName) {
+	for _, name := range compile.SortedKeys(structsByName) {
 		named := structsByName[name]
 		for _, iface := range namedTypes {
 			u, ok := iface.Underlying().(*types.Interface)
@@ -323,7 +324,7 @@ func importPackage(p *packages.Package, imp *Import, used, requires map[string]s
 			}
 		}
 	}
-	for _, name := range sortedKeys(structsByName) {
+	for _, name := range compile.SortedKeys(structsByName) {
 		if implemented[name] {
 			continue
 		}
@@ -340,7 +341,7 @@ func importPackage(p *packages.Package, imp *Import, used, requires map[string]s
 	fmt.Fprintf(&b, "(package %s", p.Types.Name())
 	for _, group := range [][]string{enums, structs, ifaces, impls} {
 		for _, f := range group {
-			b.WriteString("\n\n" + indent(f, "  "))
+			b.WriteString("\n\n" + compile.Indent(f, "  "))
 		}
 	}
 	b.WriteString(")\n")
@@ -356,9 +357,9 @@ func qualifier(p *packages.Package, used, requires map[string]string, imp *Impor
 	}
 	return func(other *types.Package) string {
 		if other == p.Types {
-			return "" // same package: unqualified, as tilegen writes it
+			return "" // Same package: unqualified, as tilegen writes it
 		}
-		if !strings.HasPrefix(other.Path(), mod+"/") && !isStd(other.Name()) {
+		if !strings.HasPrefix(other.Path(), mod+"/") && !compile.IsStd(other.Name()) {
 			for m := range requires { // find the module this package belongs to
 				if other.Path() == m || strings.HasPrefix(other.Path(), m+"/") {
 					used[other.Name()] = m
@@ -555,15 +556,4 @@ func isGenerated(p *packages.Package) bool {
 		}
 	}
 	return true
-}
-
-// indent prefixes every line of s.
-func indent(s, prefix string) string {
-	lines := strings.Split(s, "\n")
-	for i, l := range lines {
-		if l != "" {
-			lines[i] = prefix + l
-		}
-	}
-	return strings.Join(lines, "\n")
 }
