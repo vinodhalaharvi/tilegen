@@ -628,6 +628,42 @@ Any other `{word}` is refused as a misspelling; Go's own braces, as in
 language: no conditions and no loops. A tile that needs to compute
 something from the entity is asking for Go.
 
+What a tile offers decides the rest. A store's type is named and
+described from its entity. An event bus or an auth scheme is a type of
+its own, so its tile also gives the type's name and the two doc comments:
+
+```lisp
+(tile rabbitmq
+  (offers event-bus)
+  (doc "RabbitMQ: exchanges and queues, routed by key")
+  (type-name RabbitBus)
+  (import amqp github.com/rabbitmq/amqp091-go)
+  ...what it claims and costs, as any tile...
+  (about "{impl} is a Bus backed by RabbitMQ. Events are published to one topic exchange.")
+  (holds (ch *amqp.Channel) (exchange string))
+  (about-new "New{impl} returns a {impl} over the given client.")
+  (new (params (ch *amqp.Channel) (exchange string))
+    "return &{impl}{ch: ch, exchange: exchange}")
+  (hint publish "Encode e as JSON and publish it with routing key {event} ...")
+  (hint on "Bind a queue to routing key {event}, decode each delivery ..."))
+```
+
+| Offers | A hint for each of | Names filled in |
+|---|---|---|
+| `store` | `get`, `list`, `save`, `delete`, `count`, the by-field ones, `custom` | as above |
+| `event-bus` | `publish`, `on` | `{impl}`, `{ctx-type}`, and `{event}` in a hint |
+| `auth` | `authenticate` | `{impl}`, `{ctx-type}` |
+
+`{ctx-type}` is `context.Context, ` in a project whose methods take a
+context first and nothing otherwise, so a function type can follow the
+project: `func({ctx-type}string) (*Principal, error)`.
+
+A tile that has to do more than say how a library is used stays Go: one
+that writes finished code rather than leaving a method open (`memory`,
+`local-bus`, the secret sources), one that works out a schema (the SQL
+stores, the protobuf API styles), and one that checks the spec for
+something it needs (`session-store`).
+
 The same text without `holds`, `new` and the hints is a draft: it takes
 part in every decision and explanation, in the studio or a compile, and
 generates nothing until they are added. A draft may write a cost's

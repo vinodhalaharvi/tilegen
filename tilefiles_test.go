@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -36,52 +37,81 @@ func specTiles(t *testing.T) map[string]string {
 	return out
 }
 
-// A tile that is data is the tile tilegen runs with: what the file says is
-// what is registered, down to each hint.
-func TestDataTilesAreWhatIsRegistered(t *testing.T) {
-	for spec, tile := range specTiles(t) {
-		src, err := os.ReadFile(spec)
+// loaded reads each tile file as tilegen does when it starts.
+func loaded(t *testing.T) []*tiles.Tile {
+	t.Helper()
+	var out []*tiles.Tile
+	for file := range specTiles(t) {
+		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
-		read, err := tiles.LoadTiles(spec, string(src))
+		read, err := tiles.LoadTiles(file, string(src))
 		if err != nil || len(read) != 1 {
-			t.Errorf("%s: %d tiles, %v", spec, len(read), err)
+			t.Fatalf("%s: %d tiles, %v", file, len(read), err)
+		}
+		out = append(out, read[0])
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Tile < out[j].Tile })
+	return out
+}
+
+// A tile that is data is the tile tilegen runs with: what the file says is
+// what is registered, down to each hint.
+func TestDataTilesAreWhatIsRegistered(t *testing.T) {
+	offered := map[string]int{}
+	for _, tile := range loaded(t) {
+		offered[tile.Offers]++
+		var reg *compile.Offer
+		for _, o := range compile.Offers[tile.Offers] {
+			if o.Tile == tile.Tile {
+				reg = o
+			}
+		}
+		if reg == nil || reg.Doc == "" || compile.TileAliases[tile.Tile] != tile.Name {
+			t.Errorf("%s is not offered as %s under the name %s", tile.Tile, tile.Offers, tile.Name)
 			continue
 		}
-		reg := compile.Backends[shortNameOf(tile)]
-		if reg == nil {
-			t.Errorf("%s is not registered as a store", tile)
+		if tile.Store == nil {
+			// The offer is the registration: compare all of it but the code.
+			a, b := *tile.Offer, *reg
+			a.Impl, b.Impl = nil, nil
+			if !reflect.DeepEqual(a, b) {
+				t.Errorf("%s: the file and the registry disagree:\n%+v\n%+v", tile.Tile, a, b)
+			}
 			continue
 		}
-		a, b := *read[0], *reg
+		store := compile.Backends[tile.Name]
+		if store == nil {
+			t.Errorf("%s is not registered as a store", tile.Tile)
+			continue
+		}
+		a, b := *tile.Store, *store
 		a.Implement, b.Implement = nil, nil
 		if !reflect.DeepEqual(a, b) {
-			t.Errorf("%s: the file and the registry disagree:\n%+v\n%+v", tile, a, b)
-		}
-		offered := false
-		for _, o := range compile.Offers["store"] {
-			offered = offered || (o.Tile == tile && o.Doc == reg.Doc)
-		}
-		if !offered {
-			t.Errorf("%s is not offered as a store", tile)
+			t.Errorf("%s: the file and the registry disagree:\n%+v\n%+v", tile.Tile, a, b)
 		}
 		// Each plain method has its hint, and nothing in it is left unfilled.
-		parts, err := reg.Implement(compile.StoreInput{Entity: "LineItem", Impl: "XLineItemStore", IDType: "string"})
+		parts, err := store.Implement(compile.StoreInput{Entity: "LineItem", Impl: "XLineItemStore", IDType: "string"})
 		if err != nil || len(parts.Fields) == 0 || !strings.Contains(parts.Body, "XLineItemStore") {
-			t.Errorf("%s: parts %+v, %v", tile, parts, err)
+			t.Errorf("%s: parts %+v, %v", tile.Tile, parts, err)
 			continue
 		}
 		for _, op := range []string{"get", "list", "save", "delete", "count"} {
 			hint := parts.Hint(sexp.L(sexp.Sym("method"), sexp.Sym("M"), sexp.L(sexp.Sym("op"), sexp.Sym(op))))
 			if hint == "" {
-				t.Errorf("%s has no hint for %s", tile, op)
+				t.Errorf("%s has no hint for %s", tile.Tile, op)
 			}
 			for _, left := range []string{"{impl}", "{entity}", "{name}", "{names}", "{id}", "{field}", "{param}"} {
 				if strings.Contains(hint+parts.Body, left) {
-					t.Errorf("%s: %s is left unfilled", tile, left)
+					t.Errorf("%s: %s is left unfilled", tile.Tile, left)
 				}
 			}
+		}
+	}
+	for _, capability := range tiles.Loadable() {
+		if offered[capability] == 0 {
+			t.Errorf("no tile kept as a file offers %s, so nothing shows that one can", capability)
 		}
 	}
 }
@@ -96,10 +126,10 @@ func shortNameOf(tile string) string {
 	return ""
 }
 
-// Every tile made from a spec compiles for real: pinned in a small spec,
-// it generates a project that builds and vets against the library it
-// names. A type the library does not have, or an import path that is
-// wrong, fails here.
+// Every tile kept as a file compiles for real: pinned in a small spec, it
+// generates a project that builds and vets against the library it names.
+// A type the library does not have, or an import path that is wrong,
+// fails here.
 func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
 	if testing.Short() {
 		t.Skip("fetches each tile's library")
@@ -112,30 +142,43 @@ func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
       (field ID string)
       (field Title string)
       (field Body string)
-      (store get list save delete count))))
+      (store get list save delete count))
+    (events
+      (event NoteSaved (field ID string)))
+    (auth
+      (doc "Principal is whoever a request is from."))))
 `
-	for _, tile := range specTiles(t) {
-		short := shortNameOf(tile)
-		t.Run(tile, func(t *testing.T) {
+	// What a config says to pin a tile, by what the tile offers.
+	pin := map[string]string{"store": "storage", "event-bus": "events", "auth": "auth"}
+	for _, tile := range loaded(t) {
+		t.Run(tile.Tile, func(t *testing.T) {
 			t.Parallel()
+			if pin[tile.Offers] == "" {
+				t.Fatalf("no way to pin a tile that offers %s", tile.Offers)
+			}
 			dir := t.TempDir()
 			spec := filepath.Join(dir, "spec.sexp")
 			config := filepath.Join(dir, "config.sexp")
 			if err := os.WriteFile(spec, []byte(notes), 0o644); err != nil {
 				t.Fatal(err)
 			}
-			if err := os.WriteFile(config, []byte("(config (storage "+short+"))\n"), 0o644); err != nil {
+			if err := os.WriteFile(config, []byte("(config ("+pin[tile.Offers]+" "+tile.Name+"))\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			out := filepath.Join(dir, "out")
 			if err := run(compile.Options{Spec: spec, Config: config, Out: out}, io.Discard); err != nil {
-				t.Fatalf("pinned to %s: %v", short, err)
+				t.Fatalf("pinned to %s: %v", tile.Name, err)
+			}
+			// The tile was used: its type is in what was generated.
+			lock, _ := os.ReadFile(filepath.Join(out, "tilegen.lock"))
+			if !strings.Contains(string(lock), tile.Tile) {
+				t.Fatalf("the lock does not name %s:\n%s", tile.Tile, lock)
 			}
 			for _, args := range [][]string{{"mod", "tidy"}, {"build", "./..."}, {"vet", "./..."}} {
 				cmd := exec.Command("go", args...)
 				cmd.Dir = out
 				if b, err := cmd.CombinedOutput(); err != nil {
-					t.Fatalf("a project on %s: go %s: %v\n%s", tile, strings.Join(args, " "), err, b)
+					t.Fatalf("a project on %s: go %s: %v\n%s", tile.Tile, strings.Join(args, " "), err, b)
 				}
 			}
 		})

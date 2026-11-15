@@ -39,17 +39,19 @@ it is: `store_mongo.go`, `bus_kafka.go`, `api_grpc.go`, `auth_oidc.go`,
 the tile and holds the code that emits its Go, and a test refuses a file
 that holds two tiles or is named for another.
 
-A storage tile that only has to say how a library is used is a file of
-data, `internal/tiles/store_NAME.sexp`: what the tile is, what each
-requirement means for it (met, ruled out, or unchecked, each with its
-reason), what it costs, what the generated store holds, and a hint for
-each method. tilegen reads these when it starts; nothing in one runs, and
-adding one changes no Go. `tilegen import -tiles` writes a skeleton from
-a go.mod, and `tilegen symbols` says what the library really exports.
-[TILES.md](TILES.md) has the form.
+A tile that only has to say how a library is used is a file of data
+beside the Go tiles, named the same way: `store_pebble.sexp`,
+`bus_rabbitmq.sexp`, `auth_oidc.sexp`. It says what the tile is, what
+each requirement means for it (met, ruled out, or unchecked, each with
+its reason), what it costs, what the generated type holds, and a hint for
+each method left open. tilegen reads these when it starts; nothing in one
+runs, and adding one changes no Go. `tilegen import -tiles` writes a
+skeleton from a go.mod, and `tilegen symbols` says what the library
+really exports. [TILES.md](TILES.md) has the form.
 
-A tile that has to work something out from the entity, such as a schema
-and its queries, is Go: `store_postgres_sqlc.go` is one.
+A tile that has to do more is Go: one that writes finished code, works
+out a schema from the entity, or checks the spec for something it needs.
+`store_postgres_sqlc.go` is one.
 
 A new tile is held to three things before it merges:
 
