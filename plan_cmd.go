@@ -22,7 +22,7 @@ func planCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen plan [-dot] [SPEC]\n\nWhat the plan makes, in dependency order. Writes nothing.\n\n")
 		fs.PrintDefaults()
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	o.Spec = "spec"
 	if len(pos) > 0 {
 		o.Spec = pos[0]

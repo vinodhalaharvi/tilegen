@@ -1,4 +1,4 @@
-package main
+package fill
 
 import (
 	"crypto/sha256"
@@ -33,15 +33,15 @@ import (
 // models know well. The result is cached under <out>/.tilegen/api.
 
 const (
-	apiCacheDir    = ".tilegen/api"
+	APICacheDir    = ".tilegen/api"
 	apiTokenBudget = 1200 // per package, in rough tokens (4 chars each)
 	apiMaxPackages = 4
 )
 
-// apiSurface returns the API surface sections for the packages the given
+// APISurface returns the API surface sections for the packages the given
 // files import, ready to append to a prompt. Failures are silent: a
 // prompt without an API section is worse, not broken.
-func apiSurface(out string, files []string, r *compile.Report, self string, mentions ...string) string {
+func APISurface(out string, files []string, r *compile.Report, self string, mentions ...string) string {
 	paths := importsOf(files, r)
 	// A mention that is already an import path (a tile naming a package a
 	// hole will need) is taken as is; prose is resolved through go.mod.
@@ -53,7 +53,7 @@ func apiSurface(out string, files []string, r *compile.Report, self string, ment
 			prose = append(prose, m)
 		}
 	}
-	paths = append(paths, mentionedPackages(prose, paths, out)...)
+	paths = append(paths, MentionedPackages(prose, paths, out)...)
 	if len(paths) == 0 {
 		return ""
 	}
@@ -79,11 +79,11 @@ func apiSurface(out string, files []string, r *compile.Report, self string, ment
 	return b.String()
 }
 
-// mentionedPackages resolves package names named in a task's intent or
+// MentionedPackages resolves package names named in a task's intent or
 // contract but not imported by its files yet: the LLM is about to import
 // them, so it needs their API (a postgres store told to map pgx.ErrNoRows
 // has no pgx import until it writes one).
-func mentionedPackages(texts, have []string, dir string) []string {
+func MentionedPackages(texts, have []string, dir string) []string {
 	seen := map[string]bool{}
 	for _, p := range have {
 		seen[path.Base(p)] = true
@@ -168,11 +168,11 @@ func importsOf(files []string, r *compile.Report) []string {
 // packageAPI returns one package's exported API, from the cache when it
 // is there.
 func packageAPI(out, importPath string) (string, error) {
-	cache := filepath.Join(out, apiCacheDir, apiCacheName(importPath))
+	cache := filepath.Join(out, APICacheDir, apiCacheName(importPath))
 	if b, err := os.ReadFile(cache); err == nil {
 		return string(b), nil
 	}
-	text, err := loadPackageAPI(out, importPath)
+	text, err := LoadPackageAPI(out, importPath)
 	if err != nil {
 		return "", err
 	}
@@ -191,9 +191,9 @@ func apiCacheName(importPath string) string {
 	return base + "-" + hex.EncodeToString(sum[:4]) + ".txt"
 }
 
-// loadPackageAPI type-checks a package and prints its exported
+// LoadPackageAPI type-checks a package and prints its exported
 // declarations, signatures only, within a token budget.
-func loadPackageAPI(dir, importPath string) (string, error) {
+func LoadPackageAPI(dir, importPath string) (string, error) {
 	cfg := &packages.Config{Mode: packages.NeedName | packages.NeedTypes | packages.NeedSyntax | packages.NeedTypesInfo, Dir: dir}
 	pkgs, err := packages.Load(cfg, importPath)
 	if err != nil || len(pkgs) == 0 || pkgs[0].Types == nil {
@@ -338,7 +338,7 @@ func docComments(p *packages.Package) map[string]string {
 
 // tilegen api [-out DIR] IMPORT-PATH... prints what a prompt would carry
 // for those packages.
-func apiCmd(args []string, stdout, log io.Writer) error {
+func APICmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen api", flag.ExitOnError)
 	out := fs.String("out", ".", "the module to resolve imports from")
 	noCache := fs.Bool("no-cache", false, "ignore the cache under .tilegen/api")
@@ -346,7 +346,7 @@ func apiCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen api [-out DIR] IMPORT-PATH...\n\nPrints the exported API surface a prompt would carry for those packages.\n\n")
 		fs.PrintDefaults()
 	}
-	paths := parseAnywhere(fs, args)
+	paths := compile.ParseAnywhere(fs, args)
 	if len(paths) == 0 {
 		fs.Usage()
 		return fmt.Errorf("no import paths given")
@@ -355,7 +355,7 @@ func apiCmd(args []string, stdout, log io.Writer) error {
 		var text string
 		var err error
 		if *noCache {
-			text, err = loadPackageAPI(*out, p)
+			text, err = LoadPackageAPI(*out, p)
 		} else {
 			text, err = packageAPI(*out, p)
 		}

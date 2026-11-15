@@ -1,4 +1,4 @@
-package main
+package fill
 
 import (
 	"flag"
@@ -20,7 +20,7 @@ import (
 // it is never stale, and it writes nothing. With no IDs it lists the open
 // tasks; -all prints every prompt.
 
-func promptCmd(args []string, stdout, log io.Writer) error {
+func PromptCmd(args []string, stdout, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen prompt", flag.ExitOnError)
 	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
@@ -31,7 +31,7 @@ func promptCmd(args []string, stdout, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen prompt [flags] [SPEC] [ID...]\n\nWith no IDs, lists the open tasks.\n\n")
 		fs.PrintDefaults()
 	}
-	ids := parseAnywhere(fs, args)
+	ids := compile.ParseAnywhere(fs, args)
 	o.Spec = "spec"
 	if len(ids) > 0 {
 		if _, err := os.Stat(ids[0]); err == nil {
@@ -182,7 +182,7 @@ func renderPrompt(t compile.Task, r *compile.Report, c *compile.Ctx) string {
 		}
 		fmt.Fprintf(&b, "\n### %s\n\n```%s\n%s\n```\n", f, lang, strings.TrimRight(string(data), "\n"))
 	}
-	b.WriteString(apiSurface(r.Out, files, r, c.Module, append([]string{t.Intent, t.Contract}, t.APIPackages...)...))
+	b.WriteString(APISurface(r.Out, files, r, c.Module, append([]string{t.Intent, t.Contract}, t.APIPackages...)...))
 	return b.String()
 }
 

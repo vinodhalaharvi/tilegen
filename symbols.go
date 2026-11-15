@@ -482,7 +482,7 @@ func symbolsCmd(args []string, stdout, stderr io.Writer) error {
 		fmt.Fprintln(stderr, "usage: tilegen symbols [-json] [-kind KINDS] MODULE[@VERSION]...\n\nWhat a Go module exports, read by the type checker: each interface with its whole\nmethod set and the types that satisfy it, each type with its methods and\nconstructors, and the sentinel errors. The module is fetched with the go tool if it\nis not on this machine; nothing from it is run.")
 		fs.PrintDefaults()
 	}
-	mods := parseAnywhere(fs, args)
+	mods := compile.ParseAnywhere(fs, args)
 	if len(mods) == 0 {
 		fs.Usage()
 		return errors.New("no module given")

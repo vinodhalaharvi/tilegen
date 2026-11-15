@@ -46,7 +46,7 @@ func serveCmd(args []string, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen serve [-addr :8080]\n\nA spec in, a project out. Executes nothing.\n\n")
 		fs.PrintDefaults()
 	}
-	parseAnywhere(fs, args)
+	compile.ParseAnywhere(fs, args)
 
 	srvMux := serveMux()
 	srv := &http.Server{

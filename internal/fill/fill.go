@@ -1,4 +1,4 @@
-package main
+package fill
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ import (
 // and re-ask with the errors. A hole it cannot fill stays a hole, so the
 // project never ends up broken.
 
-func fillCmd(args []string, log io.Writer) error {
+func Cmd(args []string, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen fill", flag.ExitOnError)
 	var o compile.Options
 	fs.StringVar(&o.Config, "config", "", "config .sexp file (default: a (config ...) form in the spec)")
@@ -47,7 +47,7 @@ func fillCmd(args []string, log io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen fill [flags] [SPEC] [ID or pattern...]\n\nPatterns use path.Match, e.g. 'billing.*'.\n\n")
 		fs.PrintDefaults()
 	}
-	pats := parseAnywhere(fs, args)
+	pats := compile.ParseAnywhere(fs, args)
 	o.Spec = "spec"
 	if len(pats) > 0 {
 		if _, err := os.Stat(pats[0]); err == nil {
@@ -78,7 +78,7 @@ func fillCmd(args []string, log io.Writer) error {
 	var todo []compile.Task
 	var skipped []string
 	for _, t := range rep.TaskList {
-		if !matchesAny(t.ID, pats) {
+		if !MatchesAny(t.ID, pats) {
 			continue
 		}
 		if t.File == "" {
@@ -115,7 +115,7 @@ func fillCmd(args []string, log io.Writer) error {
 		}
 	}
 	sort.SliceStable(todo, func(i, j int) bool { return todo[i].Status == "drift" && todo[j].Status != "drift" })
-	if msg, ok := runBuild(out, fc); !ok && !onlyDrift(msg, pending) {
+	if msg, ok := runBuild(out, fc); !ok && !OnlyDrift(msg, pending) {
 		return fmt.Errorf("the project does not build before filling, so errors could not be told apart; fix these first:\n%s", msg)
 	}
 
@@ -150,7 +150,7 @@ func fillCmd(args []string, log io.Writer) error {
 	return nil
 }
 
-func matchesAny(id string, pats []string) bool {
+func MatchesAny(id string, pats []string) bool {
 	if len(pats) == 0 {
 		return true
 	}
@@ -207,7 +207,7 @@ func fillOne(t compile.Task, out string, c *compile.Ctx, fc compile.FillConfig, 
 			return attempt, err
 		}
 		msg, ok := runBuild(out, fc)
-		if ok || onlyDrift(msg, pending) {
+		if ok || OnlyDrift(msg, pending) {
 			return attempt, nil
 		}
 		os.WriteFile(file, orig, 0o644) // put the hole back
@@ -236,7 +236,9 @@ func expectedMethod(t compile.Task) (recv, name, sig string, err error) {
 	return strings.TrimPrefix(recv, "*"), name, compile.FuncType(fset, af.Decls[0].(*ast.FuncDecl).Type), nil
 }
 
-var goFence = regexp.MustCompile("(?s)```(?:go|golang)?[ \t]*\n(.*?)```")
+// goFence is any fenced block, whatever language it names: a reply may
+// show a shell command in one block and the method in the next.
+var goFence = regexp.MustCompile("(?s)```[A-Za-z0-9_+-]*[ \t]*\n(.*?)```")
 
 // extractGo takes the Go code out of a reply: the first fenced block that
 // declares a func, else the whole reply.
@@ -355,9 +357,9 @@ func driftKey(t compile.Task) string {
 
 var driftErr = regexp.MustCompile(`\*?(\w+) does not implement \S+ \(wrong type for method (\w+)\)`)
 
-// onlyDrift reports whether every error in build output is a compile-time
+// OnlyDrift reports whether every error in build output is a compile-time
 // interface check failing for a method whose drift task is still pending.
-func onlyDrift(msg string, pending map[string]bool) bool {
+func OnlyDrift(msg string, pending map[string]bool) bool {
 	if len(pending) == 0 {
 		return false
 	}

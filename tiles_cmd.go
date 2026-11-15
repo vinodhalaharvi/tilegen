@@ -27,7 +27,7 @@ func tilesCmd(args []string, stdout io.Writer) error {
 		fmt.Fprintf(os.Stderr, "usage: tilegen tiles [-sexp] [-v] [FILTER]\n\n")
 		fs.PrintDefaults()
 	}
-	pos := parseAnywhere(fs, args)
+	pos := compile.ParseAnywhere(fs, args)
 	var rows []compile.TileInfo
 	for _, t := range compile.Registry() {
 		if len(pos) == 0 || strings.Contains(t.Name+" "+t.Pass+" "+t.Produces, pos[0]) {
