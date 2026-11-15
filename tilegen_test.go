@@ -3230,7 +3230,7 @@ func TestPreferenceValidation(t *testing.T) {
 }
 
 // TestCostProvenance: a number a tile declares says where it came from, and
-// explain and -json both report it, so an estimate is not mistaken for a
+// Explain and -json both report it, so an estimate is not mistaken for a
 // measurement.
 func TestCostProvenance(t *testing.T) {
 	got := policyExplain(t, "")

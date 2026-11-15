@@ -16,6 +16,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/mcpserver"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols/symbolstest"
@@ -221,7 +222,7 @@ func TestMCPSymbolTools(t *testing.T) {
 	}
 
 	// gomod
-	g, err := gomod()(ctx, GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.7.2\n\texample.com/kv v0.1.0\n\tgolang.org/x/text v0.3.0 // indirect\n)\n"})
+	g, err := mcpserver.GoMod()(ctx, mcpserver.GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire (\n\tgithub.com/jackc/pgx/v5 v5.7.2\n\texample.com/kv v0.1.0\n\tgolang.org/x/text v0.3.0 // indirect\n)\n"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,24 +230,24 @@ func TestMCPSymbolTools(t *testing.T) {
 		t.Errorf("gomod: known %+v, unknown %+v, running %+v", g.Known, g.Unknown, g.Running)
 	}
 	for _, bad := range []string{"", "   ", "this is not a go.mod {"} {
-		if _, err := gomod()(ctx, GoModIn{GoMod: bad}); err == nil {
+		if _, err := mcpserver.GoMod()(ctx, mcpserver.GoModIn{GoMod: bad}); err == nil {
 			t.Errorf("gomod accepted %q", bad)
 		}
 	}
-	if _, err := gomod()(ctx, GoModIn{GoMod: "this is not a go.mod {"}); err == nil || strings.Count(err.Error(), "not a go.mod") != 1 || !strings.HasPrefix(err.Error(), "that is not a go.mod: ") {
+	if _, err := mcpserver.GoMod()(ctx, mcpserver.GoModIn{GoMod: "this is not a go.mod {"}); err == nil || strings.Count(err.Error(), "not a go.mod") != 1 || !strings.HasPrefix(err.Error(), "that is not a go.mod: ") {
 		t.Errorf("the refusal should say it once: %v", err)
 	}
 
 	// symbols: the index, then the ones asked for
-	sym := symbolsTool(read)
-	out, err := sym(ctx, SymbolsIn{Module: "example.com/kv", Version: "v0.1.0"})
+	sym := mcpserver.SymbolsTool(read)
+	out, err := sym(ctx, mcpserver.SymbolsIn{Module: "example.com/kv", Version: "v0.1.0"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.Index == nil || out.Details != nil || out.Version != "v0.1.0" || !reflect.DeepEqual(*out.Index, m.Index()) {
 		t.Errorf("the index: %+v", out)
 	}
-	out, err = sym(ctx, SymbolsIn{Module: " example.com/kv ", Symbols: []string{"kv.Store", "kv.Open", "kv.Stor", "codec.JSON"}})
+	out, err = sym(ctx, mcpserver.SymbolsIn{Module: " example.com/kv ", Symbols: []string{"kv.Store", "kv.Open", "kv.Stor", "codec.JSON"}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,55 +255,55 @@ func TestMCPSymbolTools(t *testing.T) {
 		!reflect.DeepEqual(out.Missing, []string{"kv.Stor (did you mean kv.Store?)"}) {
 		t.Errorf("details: %+v", out)
 	}
-	if _, err := sym(ctx, SymbolsIn{}); err == nil || !strings.Contains(err.Error(), "no module") {
+	if _, err := sym(ctx, mcpserver.SymbolsIn{}); err == nil || !strings.Contains(err.Error(), "no module") {
 		t.Errorf("no module: %v", err)
 	}
-	if _, err := sym(ctx, SymbolsIn{Module: "example.com/gone"}); err == nil || !strings.Contains(err.Error(), "cannot fetch example.com/gone") {
+	if _, err := sym(ctx, mcpserver.SymbolsIn{Module: "example.com/gone"}); err == nil || !strings.Contains(err.Error(), "cannot fetch example.com/gone") {
 		t.Errorf("a module that is not there: %v", err)
 	}
-	if _, err := sym(ctx, SymbolsIn{Module: "example.com/kv", Symbols: make([]string, maxSymbolDetails+1)}); err == nil || !strings.Contains(err.Error(), "several calls") {
+	if _, err := sym(ctx, mcpserver.SymbolsIn{Module: "example.com/kv", Symbols: make([]string, mcpserver.MaxSymbolDetails+1)}); err == nil || !strings.Contains(err.Error(), "several calls") {
 		t.Errorf("too many symbols: %v", err)
 	}
 	gone, cancel := context.WithCancel(ctx)
 	cancel()
-	slow := symbolsTool(func(string, string) (*symbols.ModuleSymbols, error) { select {} })
-	if _, err := slow(gone, SymbolsIn{Module: "example.com/kv"}); !errors.Is(err, context.Canceled) {
+	slow := mcpserver.SymbolsTool(func(string, string) (*symbols.ModuleSymbols, error) { select {} })
+	if _, err := slow(gone, mcpserver.SymbolsIn{Module: "example.com/kv"}); !errors.Is(err, context.Canceled) {
 		t.Errorf("a cancelled call should stop waiting: %v", err)
 	}
 
 	// check_tile
-	check := checkTile(read)
+	check := mcpserver.CheckTile(read)
 	draft := func(cited string) string { return strings.Replace(kvDraft, "CITED", cited, 1) }
-	c, err := check(ctx, CheckTileIn{Tile: draft("kv.Store kv.File.Put")})
+	c, err := check(ctx, mcpserver.CheckTileIn{Tile: draft("kv.Store kv.File.Put")})
 	if err != nil || !c.OK || !c.Verified || c.Cited != 2 || c.Name != "kv-file" || c.Capability != "store" || c.Version != "v0.1.0" || c.Problems != nil {
 		t.Errorf("a draft that stands: %+v %v", c, err)
 	}
-	c, _ = check(ctx, CheckTileIn{Tile: draft("kv.Store kv.Transaction")})
+	c, _ = check(ctx, mcpserver.CheckTileIn{Tile: draft("kv.Store kv.Transaction")})
 	if c.OK || c.Verified || len(c.Problems) != 1 || !strings.Contains(c.Problems[0], "does not export kv.Transaction") {
 		t.Errorf("an invented symbol: %+v", c)
 	}
-	c, _ = check(ctx, CheckTileIn{Tile: strings.Replace(draft("kv.Store"), "(durable)", "(durabel)", 1)})
+	c, _ = check(ctx, mcpserver.CheckTileIn{Tile: strings.Replace(draft("kv.Store"), "(durable)", "(durabel)", 1)})
 	if c.OK || len(c.Problems) == 0 || !strings.Contains(strings.Join(c.Problems, "\n"), "did you mean durable?") {
 		t.Errorf("a draft with a bad form: %+v", c)
 	}
-	c, _ = check(ctx, CheckTileIn{Tile: strings.Replace(kvDraft, "(symbols CITED)\n", "", 1)})
+	c, _ = check(ctx, mcpserver.CheckTileIn{Tile: strings.Replace(kvDraft, "(symbols CITED)\n", "", 1)})
 	if !c.OK || c.Verified || c.Cited != 0 || !strings.Contains(c.Note, "cites no symbols") {
 		t.Errorf("a draft that cites nothing: %+v", c)
 	}
-	c, _ = check(ctx, CheckTileIn{Tile: strings.Replace(draft("gone.Thing"), "example.com/kv", "example.com/gone", 1)})
+	c, _ = check(ctx, mcpserver.CheckTileIn{Tile: strings.Replace(draft("gone.Thing"), "example.com/kv", "example.com/gone", 1)})
 	if c.OK || c.Verified || !strings.Contains(strings.Join(c.Problems, " "), "could not be read") {
 		t.Errorf("a draft whose module cannot be read: %+v", c)
 	}
 	for _, bad := range []string{"", draft("kv.Store") + "\n" + strings.Replace(draft("kv.Store"), "kv-file", "kv-two", 1)} {
-		if c, _ = check(ctx, CheckTileIn{Tile: bad}); c.OK || len(c.Problems) == 0 {
+		if c, _ = check(ctx, mcpserver.CheckTileIn{Tile: bad}); c.OK || len(c.Problems) == 0 {
 			t.Errorf("check accepted %q", bad)
 		}
 	}
 
-	// explain with a draft in the running: it can win, and is marked.
+	// Explain with a draft in the running: it can win, and is marked.
 	spec := "(project p (module example.com/p) (go 1.22)\n  (package notes\n    (entity Note (field ID string) (store get save (durable)))))"
 	cheap := strings.Replace(strings.Replace(draft("kv.Store"), "(llm-work 4)", "(llm-work 0)", 1), "(maintenance 2)", "(maintenance 0)", 1)
-	got, err := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: spec}, Tiles: cheap})
+	got, err := mcpserver.Explain()(ctx, mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: spec}, Tiles: cheap})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -310,11 +311,11 @@ func TestMCPSymbolTools(t *testing.T) {
 	if !bytes.Contains(raw, []byte(`"tile":"kv-file","draft":true`)) {
 		t.Errorf("the draft is not among the candidates:\n%s", raw)
 	}
-	without, _ := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: spec}})
+	without, _ := mcpserver.Explain()(ctx, mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: spec}})
 	if rawWithout, _ := json.Marshal(without); bytes.Contains(rawWithout, []byte("kv-file")) {
 		t.Error("a draft from one call is still there in the next")
 	}
-	if _, err := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: spec}, Tiles: "(tile x (offers store))"}); err == nil {
+	if _, err := mcpserver.Explain()(ctx, mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: spec}, Tiles: "(tile x (offers store))"}); err == nil {
 		t.Error("a bad draft was accepted by explain")
 	}
 }

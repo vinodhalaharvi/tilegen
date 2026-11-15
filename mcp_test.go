@@ -16,6 +16,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/mcpserver"
 	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
@@ -57,8 +58,8 @@ func mcpCases(t *testing.T) []mcpCase {
 	return out
 }
 
-func (c mcpCase) in() ProjectIn {
-	return ProjectIn{Name: c.name, SpecIn: SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}}
+func (c mcpCase) in() mcpserver.ProjectIn {
+	return mcpserver.ProjectIn{Name: c.name, SpecIn: mcpserver.SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}}
 }
 
 // viaCLI generates the case the way the command line does: files on disk,
@@ -88,7 +89,7 @@ func TestMCPGenerateIsTheCommandLine(t *testing.T) {
 	for _, c := range mcpCases(t) {
 		t.Run(c.name, func(t *testing.T) {
 			root := t.TempDir()
-			p, err := generate(root)(context.Background(), c.in())
+			p, err := mcpserver.Generate(root)(context.Background(), c.in())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -120,7 +121,7 @@ func TestMCPGenerateIsTheCommandLine(t *testing.T) {
 func TestMCPGenerateIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 	c := mcpCases(t)[0]
-	g := generate(root)
+	g := mcpserver.Generate(root)
 	first, err := g(context.Background(), c.in())
 	if err != nil {
 		t.Fatal(err)
@@ -152,7 +153,7 @@ func TestMCPGenerateIsIdempotent(t *testing.T) {
 func TestMCPGenerateKeepsYourCode(t *testing.T) {
 	root := t.TempDir()
 	c := mcpCases(t)[0]
-	g := generate(root)
+	g := mcpserver.Generate(root)
 	p, err := g(context.Background(), c.in())
 	if err != nil {
 		t.Fatal(err)
@@ -186,32 +187,32 @@ func TestMCPGenerateKeepsYourCode(t *testing.T) {
 // it, the project is the same.
 func TestMCPArrowLaws(t *testing.T) {
 	var (
-		rd weft.Arrow[placed, parsed]  = readText
-		dc weft.Arrow[parsed, decided] = decideTiles
-		ly weft.Arrow[decided, laid]   = layFiles
-		wr weft.Arrow[laid, laid]      = writeFiles
+		rd weft.Arrow[mcpserver.Placed, mcpserver.Parsed]  = mcpserver.ReadText
+		dc weft.Arrow[mcpserver.Parsed, mcpserver.Decided] = mcpserver.DecideTiles
+		ly weft.Arrow[mcpserver.Decided, mcpserver.Laid]   = mcpserver.LayFiles
+		wr weft.Arrow[mcpserver.Laid, mcpserver.Laid]      = mcpserver.WriteFiles
 	)
-	type build func(root string) weft.Arrow[ProjectIn, Project]
+	type build func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project]
 	shapes := map[string]build{
-		"left-nested": func(root string) weft.Arrow[ProjectIn, Project] {
-			return weft.Map(weft.Compose(weft.Compose(weft.Compose(weft.Compose(place(root), rd), dc), ly), wr), report)
+		"left-nested": func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project] {
+			return weft.Map(weft.Compose(weft.Compose(weft.Compose(weft.Compose(mcpserver.Place(root), rd), dc), ly), wr), mcpserver.Report)
 		},
-		"right-nested": func(root string) weft.Arrow[ProjectIn, Project] {
-			return weft.Map(weft.Compose(place(root), weft.Compose(rd, weft.Compose(dc, weft.Compose(ly, wr)))), report)
+		"right-nested": func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project] {
+			return weft.Map(weft.Compose(mcpserver.Place(root), weft.Compose(rd, weft.Compose(dc, weft.Compose(ly, wr)))), mcpserver.Report)
 		},
-		"split in the middle": func(root string) weft.Arrow[ProjectIn, Project] {
-			return weft.Map(weft.Compose(weft.Compose(place(root), rd), weft.Compose(dc, weft.Compose(ly, wr))), report)
+		"split in the middle": func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project] {
+			return weft.Map(weft.Compose(weft.Compose(mcpserver.Place(root), rd), weft.Compose(dc, weft.Compose(ly, wr))), mcpserver.Report)
 		},
-		"identities throughout": func(root string) weft.Arrow[ProjectIn, Project] {
-			return weft.Map(weft.Pipe6(weft.Id[ProjectIn](), place(root), weft.Compose(rd, weft.Id[parsed]()), weft.Compose(weft.Id[parsed](), dc), ly, weft.Compose(wr, weft.Id[laid]())), report)
+		"identities throughout": func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project] {
+			return weft.Map(weft.Pipe6(weft.Id[mcpserver.ProjectIn](), mcpserver.Place(root), weft.Compose(rd, weft.Id[mcpserver.Parsed]()), weft.Compose(weft.Id[mcpserver.Parsed](), dc), ly, weft.Compose(wr, weft.Id[mcpserver.Laid]())), mcpserver.Report)
 		},
-		"map fused": func(root string) weft.Arrow[ProjectIn, Project] {
-			return weft.Compose(weft.Pipe5(place(root), rd, dc, ly, wr), weft.Pure(report))
+		"map fused": func(root string) weft.Arrow[mcpserver.ProjectIn, mcpserver.Project] {
+			return weft.Compose(weft.Pipe5(mcpserver.Place(root), rd, dc, ly, wr), weft.Pure(mcpserver.Report))
 		},
 	}
 	for _, c := range mcpCases(t) {
 		ref := t.TempDir()
-		want, err := generate(ref)(context.Background(), c.in())
+		want, err := mcpserver.Generate(ref)(context.Background(), c.in())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -243,7 +244,7 @@ func TestMCPNothingIsWrittenUntilTheLastStage(t *testing.T) {
 		"is empty":         "   ",
 	} {
 		root := t.TempDir()
-		_, err := generate(root)(context.Background(), ProjectIn{Name: "p", SpecIn: SpecIn{Spec: spec}})
+		_, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: "p", SpecIn: mcpserver.SpecIn{Spec: spec}})
 		if err == nil {
 			t.Errorf("a spec that %s was accepted", name)
 			continue
@@ -254,13 +255,13 @@ func TestMCPNothingIsWrittenUntilTheLastStage(t *testing.T) {
 	}
 }
 
-// place is the only stage that says where files go, and it says no to
+// Place is the only stage that says where files go, and it says no to
 // anything outside the root or in someone else's folder.
 func TestMCPPlaceConfinesToRoot(t *testing.T) {
 	root := t.TempDir()
 	outside := filepath.Join(filepath.Dir(root), "escaped")
 	for _, name := range []string{"", ".", "..", "../escaped", "a/b", `a\b`, "/etc", "..hidden", "a..b", ".git", "-rf", "Orders", "with space", "a\x00b", strings.Repeat("a", 64)} {
-		_, err := generate(root)(context.Background(), ProjectIn{Name: name, SpecIn: SpecIn{Spec: mcpCases(t)[0].spec}})
+		_, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: name, SpecIn: mcpserver.SpecIn{Spec: mcpCases(t)[0].spec}})
 		if err == nil {
 			t.Errorf("the name %q was accepted", name)
 		}
@@ -280,7 +281,7 @@ func TestMCPPlaceConfinesToRoot(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(theirs, "main.go"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := generate(root)(context.Background(), ProjectIn{Name: "theirs", SpecIn: SpecIn{Spec: mcpCases(t)[0].spec}})
+	_, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: "theirs", SpecIn: mcpserver.SpecIn{Spec: mcpCases(t)[0].spec}})
 	if err == nil || !strings.Contains(err.Error(), "not a tilegen project") {
 		t.Errorf("an existing folder was not refused: %v", err)
 	}
@@ -292,7 +293,7 @@ func TestMCPPlaceConfinesToRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "empty"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := generate(root)(context.Background(), ProjectIn{Name: "empty", SpecIn: SpecIn{Spec: mcpCases(t)[0].spec}}); err != nil {
+	if _, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: "empty", SpecIn: mcpserver.SpecIn{Spec: mcpCases(t)[0].spec}}); err != nil {
 		t.Errorf("an empty folder was refused: %v", err)
 	}
 }
@@ -301,16 +302,16 @@ func TestMCPPlaceConfinesToRoot(t *testing.T) {
 // reports, in the order asked, with a bad spec costing only itself.
 func TestMCPManyIsEachOnItsOwn(t *testing.T) {
 	cases := mcpCases(t)
-	var in ManyIn
+	var in mcpserver.ManyIn
 	for i, c := range cases {
 		in.Projects = append(in.Projects, c.in())
 		if i == 2 {
-			in.Projects = append(in.Projects, ProjectIn{Name: "broken", SpecIn: SpecIn{Spec: "(project p (module"}})
-			in.Projects = append(in.Projects, ProjectIn{Name: "../out", SpecIn: SpecIn{Spec: c.spec}})
+			in.Projects = append(in.Projects, mcpserver.ProjectIn{Name: "broken", SpecIn: mcpserver.SpecIn{Spec: "(project p (module"}})
+			in.Projects = append(in.Projects, mcpserver.ProjectIn{Name: "../out", SpecIn: mcpserver.SpecIn{Spec: c.spec}})
 		}
 	}
 	root := t.TempDir()
-	out, err := many(root)(context.Background(), in)
+	out, err := mcpserver.Many(root)(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +324,7 @@ func TestMCPManyIsEachOnItsOwn(t *testing.T) {
 		if o.Name != in.Projects[i].Name {
 			t.Fatalf("result %d is %q; the batch asked for %q there", i, o.Name, in.Projects[i].Name)
 		}
-		want, wantErr := generate(alone)(context.Background(), in.Projects[i])
+		want, wantErr := mcpserver.Generate(alone)(context.Background(), in.Projects[i])
 		if wantErr != nil {
 			if o.OK || o.Error != wantErr.Error() || o.Project != nil {
 				t.Errorf("%s: alone it fails with %q; in the batch: ok=%v %q", o.Name, wantErr, o.OK, o.Error)
@@ -356,20 +357,20 @@ func TestMCPManyIsEachOnItsOwn(t *testing.T) {
 func TestMCPManyRefusesWhatItCannotDo(t *testing.T) {
 	root := t.TempDir()
 	spec := mcpCases(t)[0].spec
-	one := ProjectIn{Name: "a", SpecIn: SpecIn{Spec: spec}}
-	big := ManyIn{}
-	for i := 0; i <= maxBatch; i++ {
-		big.Projects = append(big.Projects, ProjectIn{Name: fmt.Sprintf("p%d", i), SpecIn: SpecIn{Spec: spec}})
+	one := mcpserver.ProjectIn{Name: "a", SpecIn: mcpserver.SpecIn{Spec: spec}}
+	big := mcpserver.ManyIn{}
+	for i := 0; i <= mcpserver.MaxBatch; i++ {
+		big.Projects = append(big.Projects, mcpserver.ProjectIn{Name: fmt.Sprintf("p%d", i), SpecIn: mcpserver.SpecIn{Spec: spec}})
 	}
 	for name, c := range map[string]struct {
-		in   ManyIn
+		in   mcpserver.ManyIn
 		want string
 	}{
-		"nothing":      {ManyIn{}, "no projects"},
-		"a name twice": {ManyIn{Projects: []ProjectIn{one, one}}, "appears twice"},
+		"nothing":      {mcpserver.ManyIn{}, "no projects"},
+		"a name twice": {mcpserver.ManyIn{Projects: []mcpserver.ProjectIn{one, one}}, "appears twice"},
 		"too many":     {big, "several calls"},
 	} {
-		if _, err := many(root)(context.Background(), c.in); err == nil || !strings.Contains(err.Error(), c.want) {
+		if _, err := mcpserver.Many(root)(context.Background(), c.in); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
@@ -381,7 +382,7 @@ func TestMCPManyRefusesWhatItCannotDo(t *testing.T) {
 // Many projects at once, many times over: the race detector watches this.
 func TestMCPManyAtOnce(t *testing.T) {
 	cases := mcpCases(t)
-	var in ManyIn
+	var in mcpserver.ManyIn
 	for i := 0; i < 60; i++ {
 		c := cases[i%len(cases)]
 		p := c.in()
@@ -389,7 +390,7 @@ func TestMCPManyAtOnce(t *testing.T) {
 		in.Projects = append(in.Projects, p)
 	}
 	root := t.TempDir()
-	out, err := many(root)(context.Background(), in)
+	out, err := mcpserver.Many(root)(context.Background(), in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -417,11 +418,11 @@ func TestMCPManyAtOnce(t *testing.T) {
 	}
 }
 
-// explain decides and touches nothing, and what it says is what
+// Explain decides and touches nothing, and what it says is what
 // `tilegen explain -json` says.
 func TestMCPExplainIsExplain(t *testing.T) {
 	for _, c := range mcpCases(t) {
-		got, err := explain()(context.Background(), ExplainIn{SpecIn: SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}})
+		got, err := mcpserver.Explain()(context.Background(), mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: c.spec, Config: c.config, Policy: c.policy}})
 		if err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
@@ -441,7 +442,7 @@ func TestMCPExplainIsExplain(t *testing.T) {
 }
 
 func TestMCPReferenceAndCatalogue(t *testing.T) {
-	ref, err := reference()(context.Background(), struct{}{})
+	ref, err := mcpserver.ReferenceTool()(context.Background(), struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -455,7 +456,7 @@ func TestMCPReferenceAndCatalogue(t *testing.T) {
 			t.Errorf("the reference carries %q, which is not about writing a spec", not)
 		}
 	}
-	cat, err := catalogue()(context.Background(), struct{}{})
+	cat, err := mcpserver.CatalogueTool()(context.Background(), struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,22 +468,6 @@ func TestMCPReferenceAndCatalogue(t *testing.T) {
 	}
 }
 
-// A panic in a stage is that call's error, and the next call is unharmed.
-func TestMCPRecovers(t *testing.T) {
-	boom := weft.Apply(weft.Arrow[int, int](func(_ context.Context, n int) (int, error) {
-		if n == 0 {
-			panic("boom")
-		}
-		return n, nil
-	}), recovering[int, int]())
-	if _, err := boom(context.Background(), 0); err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Errorf("a panic was not turned into an error: %v", err)
-	}
-	if n, err := boom(context.Background(), 7); err != nil || n != 7 {
-		t.Errorf("after a panic the arrow is broken: %d, %v", n, err)
-	}
-}
-
 var mcpToolNames = []string{"tilegen_catalogue", "tilegen_check_tile", "tilegen_explain", "tilegen_generate", "tilegen_generate_many", "tilegen_gomod", "tilegen_reference", "tilegen_symbols"}
 
 // Through the protocol and back is the arrow itself: a tool called over
@@ -490,7 +475,7 @@ var mcpToolNames = []string{"tilegen_catalogue", "tilegen_check_tile", "tilegen_
 func TestMCPRoundTripIsTheArrow(t *testing.T) {
 	ctx := context.Background()
 	served, direct := t.TempDir(), t.TempDir()
-	client, err := mcp.Connect(ctx, mcp.InMemory(mcpServer(served)))
+	client, err := mcp.Connect(ctx, mcp.InMemory(mcpserver.Server(served)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -585,13 +570,13 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 	cases := mcpCases(t)
 
 	// generate
-	remote := call[ProjectIn, Project](client, "tilegen_generate")
+	remote := call[mcpserver.ProjectIn, mcpserver.Project](client, "tilegen_generate")
 	for _, c := range cases[:4] {
 		got, err := remote(ctx, c.in())
 		if err != nil {
 			t.Fatalf("%s over MCP: %v", c.name, err)
 		}
-		want, err := generate(direct)(ctx, c.in())
+		want, err := mcpserver.Generate(direct)(ctx, c.in())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -604,8 +589,8 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 	}
 
 	// an error comes back as the same words
-	_, err := remote(ctx, ProjectIn{Name: "../x", SpecIn: SpecIn{Spec: cases[0].spec}})
-	_, wantErr := generate(direct)(ctx, ProjectIn{Name: "../x", SpecIn: SpecIn{Spec: cases[0].spec}})
+	_, err := remote(ctx, mcpserver.ProjectIn{Name: "../x", SpecIn: mcpserver.SpecIn{Spec: cases[0].spec}})
+	_, wantErr := mcpserver.Generate(direct)(ctx, mcpserver.ProjectIn{Name: "../x", SpecIn: mcpserver.SpecIn{Spec: cases[0].spec}})
 	if err == nil || wantErr == nil {
 		t.Fatalf("a name outside the root was accepted: %v, %v", err, wantErr)
 	}
@@ -613,22 +598,22 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 	if got := strings.ReplaceAll(err.Error(), served, direct); !strings.Contains(got, wantErr.Error()) && !strings.Contains(got, string(quoted)) {
 		t.Errorf("over MCP the refusal reads %q; directly it reads %q", err, wantErr)
 	}
-	_, err = remote(ctx, ProjectIn{Name: "bad", SpecIn: SpecIn{Spec: "(project p (module"}})
+	_, err = remote(ctx, mcpserver.ProjectIn{Name: "bad", SpecIn: mcpserver.SpecIn{Spec: "(project p (module"}})
 	if err == nil || !strings.Contains(err.Error(), "spec.sexp:") {
 		t.Errorf("a spec that does not parse should come back with its position: %v", err)
 	}
 
 	// many
-	var in ManyIn
+	var in mcpserver.ManyIn
 	for _, c := range cases[4:] {
 		in.Projects = append(in.Projects, c.in())
 	}
-	in.Projects = append(in.Projects, ProjectIn{Name: "broken", SpecIn: SpecIn{Spec: "(nothing)"}})
-	gotMany, err := call[ManyIn, ManyOut](client, "tilegen_generate_many")(ctx, in)
+	in.Projects = append(in.Projects, mcpserver.ProjectIn{Name: "broken", SpecIn: mcpserver.SpecIn{Spec: "(nothing)"}})
+	gotMany, err := call[mcpserver.ManyIn, mcpserver.ManyOut](client, "tilegen_generate_many")(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantMany, err := many(direct)(ctx, in)
+	wantMany, err := mcpserver.Many(direct)(ctx, in)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -645,47 +630,47 @@ func roundTrips(t *testing.T, ctx context.Context, client caller, served, direct
 	}
 
 	// a go.mod, read on the other side
-	mod := GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire github.com/nats-io/nats.go v1.55.0\n"}
-	gotMod, err := call[GoModIn, importer.GoModsJSON](client, "tilegen_gomod")(ctx, mod)
+	mod := mcpserver.GoModIn{GoMod: "module example.com/app\n\ngo 1.22\n\nrequire github.com/nats-io/nats.go v1.55.0\n"}
+	gotMod, err := call[mcpserver.GoModIn, importer.GoModsJSON](client, "tilegen_gomod")(ctx, mod)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantMod, _ := gomod()(ctx, mod); asJSON(gotMod) != asJSON(wantMod) || len(gotMod.Known) != 1 {
+	if wantMod, _ := mcpserver.GoMod()(ctx, mod); asJSON(gotMod) != asJSON(wantMod) || len(gotMod.Known) != 1 {
 		t.Errorf("over MCP the go.mod reads differently: %s", asJSON(gotMod))
 	}
 	// a draft's form, checked on the other side (no symbols cited: no module is fetched)
-	tile := CheckTileIn{Tile: "(tile x (offers store))"}
-	gotCheck, err := call[CheckTileIn, CheckTileOut](client, "tilegen_check_tile")(ctx, tile)
+	tile := mcpserver.CheckTileIn{Tile: "(tile x (offers store))"}
+	gotCheck, err := call[mcpserver.CheckTileIn, mcpserver.CheckTileOut](client, "tilegen_check_tile")(ctx, tile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantCheck, _ := checkTile(symbols.Read)(ctx, tile); asJSON(gotCheck) != asJSON(wantCheck) || gotCheck.OK || len(gotCheck.Problems) == 0 {
+	if wantCheck, _ := mcpserver.CheckTile(symbols.Read)(ctx, tile); asJSON(gotCheck) != asJSON(wantCheck) || gotCheck.OK || len(gotCheck.Problems) == 0 {
 		t.Errorf("over MCP the check differs: %s", asJSON(gotCheck))
 	}
 
 	// the read-only tools
 	c := cases[0]
-	gotEx, err := call[ExplainIn, json.RawMessage](client, "tilegen_explain")(ctx, ExplainIn{SpecIn: SpecIn{Spec: c.spec}})
+	gotEx, err := call[mcpserver.ExplainIn, json.RawMessage](client, "tilegen_explain")(ctx, mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: c.spec}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantEx, _ := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: c.spec}})
+	wantEx, _ := mcpserver.Explain()(ctx, mcpserver.ExplainIn{SpecIn: mcpserver.SpecIn{Spec: c.spec}})
 	if !sameJSON(t, gotEx, wantEx) {
 		t.Error("over MCP explain differs")
 	}
-	gotCat, err := call[struct{}, Catalogue](client, "tilegen_catalogue")(ctx, struct{}{})
+	gotCat, err := call[struct{}, mcpserver.Catalogue](client, "tilegen_catalogue")(ctx, struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantCat, _ := catalogue()(ctx, struct{}{})
+	wantCat, _ := mcpserver.CatalogueTool()(ctx, struct{}{})
 	if asJSON(gotCat) != asJSON(wantCat) {
 		t.Error("over MCP the catalogue differs")
 	}
-	gotRef, err := call[struct{}, Reference](client, "tilegen_reference")(ctx, struct{}{})
+	gotRef, err := call[struct{}, mcpserver.Reference](client, "tilegen_reference")(ctx, struct{}{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wantRef, _ := reference()(ctx, struct{}{}); gotRef != wantRef {
+	if wantRef, _ := mcpserver.ReferenceTool()(ctx, struct{}{}); gotRef != wantRef {
 		t.Error("over MCP the reference differs")
 	}
 }
@@ -703,33 +688,6 @@ func sameJSON(t *testing.T, raw json.RawMessage, v any) bool {
 	return reflect.DeepEqual(a, b)
 }
 
-// Every tool's input schema is JSON, an object, and closed.
-func TestMCPSchemas(t *testing.T) {
-	for name, s := range map[string]string{"none": noInput, "explain": explainSchema, "one": oneSchema, "many": manySchema, "gomod": gomodSchema, "symbols": symbolsSchema, "check": checkSchema} {
-		var v struct {
-			Type       string         `json:"type"`
-			Properties map[string]any `json:"properties"`
-			Additional *bool          `json:"additionalProperties"`
-		}
-		if err := json.Unmarshal([]byte(s), &v); err != nil {
-			t.Errorf("%s: not JSON: %v", name, err)
-			continue
-		}
-		if v.Type != "object" || v.Additional == nil || *v.Additional {
-			t.Errorf("%s: want a closed object", name)
-		}
-	}
-	if !projectNameOK.MatchString("orders-api") || !strings.Contains(oneSchema, projectNameOK.String()) {
-		t.Error("the schema's name pattern is not the one place checks")
-	}
-	if !strings.Contains(symbolsSchema, fmt.Sprintf(`"maxItems": %d`, maxSymbolDetails)) {
-		t.Error("the schema's limit on symbols is not the one the tool checks")
-	}
-	if !strings.Contains(manySchema, fmt.Sprintf(`"maxItems": %d`, maxBatch)) {
-		t.Error("the schema's batch limit is not the one many checks")
-	}
-}
-
 // A package's (dir ...) cannot leave the project: tilegen says so when it
 // reads the spec, on the command line as much as here.
 func TestDirStaysInTheProject(t *testing.T) {
@@ -739,7 +697,7 @@ func TestDirStaysInTheProject(t *testing.T) {
 	}
 	for _, dir := range []string{"../../escaped", "..", "/tmp/abs", "a/../../up", `..\\up`, "c:/up"} {
 		root := t.TempDir()
-		_, err := generate(root)(context.Background(), ProjectIn{Name: "p", SpecIn: SpecIn{Spec: with(dir)}})
+		_, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: "p", SpecIn: mcpserver.SpecIn{Spec: with(dir)}})
 		if err == nil || !strings.Contains(err.Error(), "leaves the project") {
 			t.Errorf("(dir %q) was not refused: %v", dir, err)
 		}
@@ -751,32 +709,9 @@ func TestDirStaysInTheProject(t *testing.T) {
 		}
 	}
 	for _, dir := range []string{".", "internal/orders", "pkg/orders/", "a/../orders"} {
-		if _, err := generate(t.TempDir())(context.Background(), ProjectIn{Name: "p", SpecIn: SpecIn{Spec: with(dir)}}); err != nil {
+		if _, err := mcpserver.Generate(t.TempDir())(context.Background(), mcpserver.ProjectIn{Name: "p", SpecIn: mcpserver.SpecIn{Spec: with(dir)}}); err != nil {
 			t.Errorf("(dir %q) was refused: %v", dir, err)
 		}
-	}
-}
-
-// confine holds even if a path gets past everything before it.
-func TestMCPConfineRefusesAnEscapingPlan(t *testing.T) {
-	root := t.TempDir()
-	dir := filepath.Join(root, "p")
-	for _, rel := range []string{"../x.go", "a/../../x.go", "/etc/x.go", ".."} {
-		l := laid{rep: &compile.Report{Staged: map[string][]byte{"ok.go": nil, rel: nil}}}
-		l.dir = dir
-		if _, err := confine(context.Background(), l); err == nil || !strings.Contains(err.Error(), "outside its project folder") {
-			t.Errorf("a plan with %q was let through: %v", rel, err)
-		}
-		l = laid{rep: &compile.Report{Unlinked: map[string]bool{rel: true}}}
-		l.dir = dir
-		if _, err := confine(context.Background(), l); err == nil {
-			t.Errorf("a plan deleting %q was let through", rel)
-		}
-	}
-	ok := laid{rep: &compile.Report{Staged: map[string][]byte{"a/b.go": nil, "go.mod": nil}, Unlinked: map[string]bool{"old/c.go": true}}}
-	ok.dir = dir
-	if _, err := confine(context.Background(), ok); err != nil {
-		t.Errorf("an ordinary plan was refused: %v", err)
 	}
 }
 
@@ -790,7 +725,7 @@ func TestMCPPlaceRefusesLinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"link", "file"} {
-		_, err := generate(root)(context.Background(), ProjectIn{Name: name, SpecIn: SpecIn{Spec: mcpCases(t)[0].spec}})
+		_, err := mcpserver.Generate(root)(context.Background(), mcpserver.ProjectIn{Name: name, SpecIn: mcpserver.SpecIn{Spec: mcpCases(t)[0].spec}})
 		if err == nil || !strings.Contains(err.Error(), "not a folder") {
 			t.Errorf("%s was not refused: %v", name, err)
 		}

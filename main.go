@@ -19,6 +19,7 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/mcpserver"
 	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
@@ -50,7 +51,7 @@ func main() {
 			}
 			return
 		case "mcp":
-			if err := mcpCmd(os.Args[2:], os.Stderr); err != nil {
+			if err := mcpserver.Cmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}
