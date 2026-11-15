@@ -393,7 +393,7 @@ func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
 		answered = strings.Replace(answered, old, new, 1)
 	}
 	read, err := tiles.LoadTiles(file, answered)
-	if err != nil || len(read) != 1 || read[0].Tile != "kv" || read[0].Imports["kv"] != "example.com/kv" {
+	if err != nil || len(read) != 1 || read[0].Tile != "kv" || read[0].Store.Imports["kv"] != "example.com/kv" {
 		t.Fatalf("an answered skeleton was refused: %v", err)
 	}
 }

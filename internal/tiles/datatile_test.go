@@ -53,7 +53,10 @@ func TestAWholeTileSpecIsATile(t *testing.T) {
 	if err != nil || len(got) != 1 {
 		t.Fatalf("%d tiles, %v", len(got), err)
 	}
-	b := got[0]
+	if got[0].Tile != "rocks" || got[0].Name != "rk" || got[0].Offers != "store" || got[0].Offer != nil {
+		t.Errorf("the tile: %+v", got[0])
+	}
+	b := got[0].Store
 	if b.Name != "rk" || b.Tile != "rocks" || b.Doc != "embedded key-value" || b.Engine != "none" ||
 		b.ErrorPackage != "rocks" || b.Imports["rocks"] != "example.com/rocks" ||
 		strings.Join(b.Topics, " ") != "rocks embedded" || strings.Join(b.Requires, " ") != "rockctl" {
@@ -132,8 +135,8 @@ func TestATileFileIsRefusedForWhatIsWrongWithIt(t *testing.T) {
 		"a lookup it ruled out": {change(`(satisfies (lookup-by-field) "an index per field")`, `(illegal-when (lookup-by-field) "keys only")`),
 			"rules out (lookup-by-field), so no store it serves has a get-by method: remove (hint get-by ...)"},
 		"a requirement unanswered":    {change(`(unverified (inbox) "not generated")`, ""), "says nothing about (inbox)"},
-		"offering what a file cannot": {change("(offers store)", "(offers api)"), `a tile written as a file cannot offer "api"; it can offer store`},
-		"offering nothing":            {change("(offers store)", ""), "(tile rocks ...) needs an (offers ...): one of store"},
+		"offering what a file cannot": {change("(offers store)", "(offers api)"), `a tile written as a file cannot offer "api"; it can offer auth, event-bus, store`},
+		"offering nothing":            {change("(offers store)", ""), "(tile rocks ...) needs an (offers ...): one of auth, event-bus, store"},
 		"a symbol that is a list":     {change("(alias rk)", "(alias rk) (symbols (x))"), "(symbols ...) lists names like pebble.DB.Get"},
 		"a name that is not a type":   {change("(alias rk)", "(alias r-k)"), "a store's short name becomes part of a Go type"},
 	} {
@@ -181,5 +184,63 @@ func TestATileFileIsAlsoADraft(t *testing.T) {
 		if got, err := compile.ParseDrafts(strings.Replace(string(src), "(tile ", "(tile my-", 1)); err != nil || len(got) != 1 {
 			t.Errorf("%s as a draft: %d, %v", f, len(got), err)
 		}
+	}
+}
+
+// A tile for a capability whose tiles declare the whole type: the same
+// form, with the type's name and its two doc comments.
+func TestATileOfAnotherCapability(t *testing.T) {
+	bus, err := os.ReadFile("bus_rabbitmq.sexp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	queue := strings.Replace(string(bus), "(tile rabbitmq", "(tile hare", 1)
+	got, err := LoadTiles("hare.sexp", queue)
+	if err != nil || len(got) != 1 {
+		t.Fatalf("%d tiles, %v", len(got), err)
+	}
+	h := got[0]
+	tr, ok := h.Offer.Impl.(*compile.BusTransport)
+	if h.Tile != "hare" || h.Offers != "event-bus" || h.Store != nil || !ok || tr.Suffix != "RabbitBus" || tr.Import[0] != "amqp" || h.Offer.Capability != "event-bus" {
+		t.Fatalf("the tile: %+v", h)
+	}
+	nodes, err := tr.Emit(compile.BusInput{Impl: "HareBus"})
+	if err != nil || len(nodes) != 2 || nodes[0].List[1].Atom != "HareBus" || nodes[1].List[1].Atom != "NewHareBus" ||
+		!strings.HasPrefix(nodes[0].Text("doc"), "HareBus is a Bus backed by RabbitMQ") || !strings.Contains(nodes[1].Text("body"), "&HareBus{") {
+		t.Errorf("what it declares: %v %v", nodes, err)
+	}
+	if pub, on := tr.Hint("Publish", "OrderPlaced"), tr.Hint("On", "OrderPlaced"); !strings.Contains(pub, "OrderPlaced") || !strings.Contains(on, "OrderPlaced") || pub == on || tr.Hint("Close", "X") != "" {
+		t.Errorf("its hints: %q %q", pub, on)
+	}
+
+	change := func(old, new string) string {
+		if !strings.Contains(queue, old) {
+			t.Fatalf("the tile has no %q to change", old)
+		}
+		return strings.Replace(queue, old, new, 1)
+	}
+	for name, c := range map[string]struct{ src, want string }{
+		"no type name":                        {change("(type-name RabbitBus)", ""), "(tile hare ...) needs a (type-name ...): the bus it generates is a type of its own"},
+		"a type name that is not one":         {change("(type-name RabbitBus)", "(type-name rabbit-bus)"), "(type-name ...) is a Go type's name, like KafkaBus"},
+		"no doc for the type":                 {change("(about\n", "(abouts\n"), "a tile contains"},
+		"a hint missing":                      {change("(hint on\n", "(hint publish\n"), "duplicate (hint publish ...)"},
+		"a store's hint":                      {change("(hint on\n", "(hint get\n"), "a hint is for one kind of method: publish, on; got get"},
+		"a store's name":                      {change("{event}", "{entity}"), "{entity} is not a name tilegen fills in; it knows {event}, {impl}, {ctx-type}"},
+		"two imports":                         {change("(import amqp ", "(import other example.com/other)\n  (import amqp "), "has 2 imports, and a bus takes one"},
+		"a requirement of another capability": {change("(satisfies (cross-process)", "(satisfies (lookup-by-field)"), "(lookup-by-field) is not something a spec asks of event-bus; that is "},
+	} {
+		if _, err := LoadTiles("hare.sexp", c.src); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", name, c.want, err)
+		}
+	}
+	// One hint of the two is not enough.
+	onAt := strings.Index(queue, "(hint on")
+	if _, err := LoadTiles("hare.sexp", queue[:onAt]+")"); err == nil || !strings.Contains(err.Error(), "(tile hare ...) needs a (hint on ...)") {
+		t.Errorf("a bus with no hint for On: %v", err)
+	}
+	// And a store is named and described from its entity, not by the tile.
+	if _, err := LoadTiles("rocks.sexp", strings.Replace(rocks, "(alias rk)", "(alias rk) (type-name RocksStore)", 1)); err == nil ||
+		!strings.Contains(err.Error(), "has a (type-name ...), and a store's type is named and described from the entity") {
+		t.Errorf("a store with a type name: %v", err)
 	}
 }

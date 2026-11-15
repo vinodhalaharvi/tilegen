@@ -68,7 +68,12 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		return
 	}
 
-	offers := ""
+	// What the tile offers decides what the rest of it may say.
+	offers := n.Text("offers")
+	sh := shapes[offers]
+	if sh == nil {
+		sh = shapes["store"]
+	}
 	seen := map[string]bool{}
 	claimed := map[string]string{} // requirement -> the heading it is under
 	hinted := map[string]bool{}    // op -> it has a hint
@@ -76,7 +81,6 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		switch it.Head() {
 		case "offers":
 			if kb := v.Shape(it, "(offers ?name)"); kb != nil {
-				offers = kb.Atom("name")
 				if shapes[offers] == nil {
 					v.Bad(it, "a tile written as a file cannot offer %q%s; it can offer %s", offers,
 						compile.DidYouMean(offers, Loadable()), strings.Join(Loadable(), ", "))
@@ -104,10 +108,26 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 			}
 		case "illegal-when", "satisfies", "unverified":
 			if req := validateClaim(v, it); req != "" {
+				if c := compile.Capabilities[offers]; c != nil && !compile.Contains(c.Requirements, req) {
+					v.Bad(it, "(%s) is not something a spec asks of %s; that is %s", req, offers, strings.Join(c.Requirements, ", "))
+					continue
+				}
 				if was := claimed[req]; was != "" {
 					v.Bad(it, "(%s) is already under (%s ...): a requirement is met, ruled out or unchecked, and only one of them", req, was)
 				}
 				claimed[req] = it.Head()
+			}
+		case "type-name":
+			if tb := v.Shape(it, "(type-name ?name)"); tb != nil && !typeName.MatchString(tb.Atom("name")) {
+				v.Bad(it, "(type-name ...) is a Go type's name, like KafkaBus, got %s", compile.Short(tb.One("name")))
+			}
+		case "about", "about-new":
+			if ab := v.Shape(it, "("+it.Head()+" ?text)"); ab != nil {
+				if text := ab.One("text"); text.IsList || !text.Quoted || strings.TrimSpace(text.Atom) == "" {
+					v.Bad(it, "(%s ...) is the doc comment as a string", it.Head())
+				} else {
+					checkNames(v, it, text.Atom, sh.fills)
+				}
 			}
 		case "module":
 			v.Shape(it, "(module ?path)")
@@ -122,18 +142,18 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		case "cost":
 			validateTileCost(v, it)
 		case "holds":
-			validateHolds(v, it)
+			validateHolds(v, it, sh)
 		case "new":
-			validateNew(v, it)
+			validateNew(v, it, sh)
 		case "hint":
-			if op := validateHint(v, it); op != "" {
+			if op := validateHint(v, it, sh); op != "" {
 				if hinted[op] {
 					v.Bad(it, "duplicate (hint %s ...) in tile %s", op, name.Atom)
 				}
 				hinted[op] = true
 			}
 		default:
-			known := []string{"offers", "doc", "module", "symbols", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost", "holds", "new", "hint"}
+			known := []string{"offers", "doc", "module", "symbols", "alias", "type-name", "about", "about-new", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost", "holds", "new", "hint"}
 			v.Bad(it, "a tile contains %s, got %s%s",
 				strings.Join(known, ", "), compile.Short(it), compile.DidYouMean(it.Head(), known))
 			continue
@@ -157,14 +177,35 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 	if offers == "" {
 		v.Bad(n, "(tile %s ...) needs an (offers ...): one of %s", name.Atom, strings.Join(Loadable(), ", "))
 	}
-	// What the store holds and how it is made: without them there is
-	// nothing to generate a store from.
+	// What it holds and how it is made: without them there is nothing to
+	// generate from.
 	if !seen["holds"] || !seen["new"] {
-		v.Bad(n, "(tile %s ...) needs (holds ...) and (new ...): what the generated store keeps, and the constructor that fills it", name.Atom)
+		v.Bad(n, "(tile %s ...) needs (holds ...) and (new ...): what the generated %s keeps, and the constructor that fills it", name.Atom, sh.what)
+	}
+	// A capability whose tiles declare the whole type needs its name and
+	// the two doc comments; a store's are made from the entity.
+	for _, need := range []string{"type-name", "about", "about-new"} {
+		switch {
+		case sh.typeName && !seen[need]:
+			v.Bad(n, "(tile %s ...) needs a (%s ...): the %s it generates is a type of its own", name.Atom, need, sh.what)
+		case !sh.typeName && seen[need]:
+			v.Bad(n, "(tile %s ...) has a (%s ...), and a %s's type is named and described from the entity", name.Atom, need, sh.what)
+		}
+	}
+	if sh.typeName && len(n.FindAll("import")) > 1 {
+		v.Bad(n, "(tile %s ...) has %d imports, and a %s takes one", name.Atom, len(n.FindAll("import")), sh.what)
+	}
+	// Every kind of method it leaves open has its hint.
+	if sh.typeName {
+		for _, op := range sh.ops {
+			if !hinted[op] && seen["new"] {
+				v.Bad(n, "(tile %s ...) needs a (hint %s ...): it is what the model is told to write", name.Atom, op)
+			}
+		}
 	}
 	// A hint for a lookup the tile has ruled out is the tile arguing with
 	// itself.
-	if claimed["lookup-by-field"] == "illegal-when" {
+	if offers == "store" && claimed["lookup-by-field"] == "illegal-when" {
 		for _, op := range fieldOps {
 			if hinted[op] {
 				v.Bad(n, "(tile %s ...) rules out (lookup-by-field), so no store it serves has a %s method: remove (hint %s ...)", name.Atom, op, op)
@@ -262,6 +303,9 @@ func validateTileCost(v *compile.Validator, it *sexp.Node) {
 // shortName is a store's short name: what a config says, and the front of
 // a Go type name.
 var shortName = regexp.MustCompile(`^[a-z][a-z0-9]*$`)
+
+// typeName is an exported Go type name.
+var typeName = regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`)
 
 // ValidTileName accepts the shape every tile in the registry already has:
 // lower-case letters, digits and hyphens, starting with a letter.

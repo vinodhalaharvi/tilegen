@@ -31,7 +31,7 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 	}
 	for capability, want := range map[string][]string{
 		// The stores written in Go, and one for each store_NAME.sexp.
-		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t)...),
+		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t, "store")...),
 		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
 		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
 		"api":       {"connect", "grpc", "http-json"},
@@ -221,7 +221,7 @@ func TestOneFilePerTile(t *testing.T) {
 			t.Errorf("%s holds %d tiles; one file holds one", file, len(tiles))
 			continue
 		}
-		if want := "store_" + strings.ReplaceAll(tiles[0].Tile, "-", "_") + ".sexp"; file != want {
+		if want := filePrefix[tiles[0].Offers] + "_" + strings.ReplaceAll(tiles[0].Tile, "-", "_") + ".sexp"; file != want {
 			t.Errorf("%s is in %s; a tile's file is named for it: %s", tiles[0].Tile, file, want)
 		}
 		if prev := found[tiles[0].Tile]; prev != "" {
@@ -237,13 +237,21 @@ func TestOneFilePerTile(t *testing.T) {
 			}
 		}
 	}
-	if want := 21 + len(dataTiles(t)); len(found) != want {
-		t.Errorf("%d tiles found in files, want %d", len(found), want)
+	// Nothing was found that the registry does not have.
+	registered := map[string]bool{}
+	for capability := range filePrefix {
+		for _, tile := range offered(capability) {
+			registered[tile] = true
+		}
+	}
+	if len(found) != len(registered) {
+		t.Errorf("%d tiles found in files, and %d are registered", len(found), len(registered))
 	}
 }
 
-// dataTiles are the tiles that are files of data, by name.
-func dataTiles(t *testing.T) []string {
+// dataTiles are the tiles that are files of data and offer a capability,
+// by name.
+func dataTiles(t *testing.T, capability string) []string {
 	t.Helper()
 	files, err := filepath.Glob("*.sexp")
 	if err != nil || len(files) < 7 {
@@ -260,7 +268,9 @@ func dataTiles(t *testing.T) []string {
 			t.Fatal(err)
 		}
 		for _, b := range tiles {
-			names = append(names, b.Tile)
+			if b.Offers == capability {
+				names = append(names, b.Tile)
+			}
 		}
 	}
 	return names

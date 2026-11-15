@@ -216,7 +216,7 @@ func parseDraft(f *sexp.Node) (*Offer, error) {
 				}
 				o.Cost = append(o.Cost, term)
 			}
-		case "alias", "import", "error-package", "topics", "requires", "form", "holds", "new", "hint":
+		case "alias", "type-name", "about", "about-new", "import", "error-package", "topics", "requires", "form", "holds", "new", "hint":
 			// What a tile kept in a file says about the code it generates. A
 			// draft takes part in decisions only, so these are not needed
 			// here and not refused: the same text is both.
