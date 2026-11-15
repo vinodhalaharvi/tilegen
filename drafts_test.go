@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"io"
 	"net/http"
@@ -27,9 +28,9 @@ const cockroach = `(tile cockroachdb
 const draftSpec = `(project n (module example.com/n) (go 1.22)
   (package n (entity Note (field ID string) (store get save (durable) (cross-process)))))`
 
-func compileWith(t *testing.T, spec, tiles string) everything {
+func compileWith(t *testing.T, spec, tiles string) serve.Everything {
 	t.Helper()
-	return compileAll(specRequest{Spec: spec, Tiles: tiles})
+	return serve.CompileAll(serve.SpecRequest{Spec: spec, Tiles: tiles})
 }
 
 func TestADraftTakesPartAndGeneratesNothing(t *testing.T) {
@@ -203,20 +204,20 @@ func TestAskingClaudeNeedsAKeyAndALocalServer(t *testing.T) {
 		b, _ := io.ReadAll(res.Body)
 		return res.StatusCode, string(b)
 	}
-	defer func(was bool) { serveLoopback = was }(serveLoopback)
+	defer func(was bool) { serve.Loopback = was }(serve.Loopback)
 
 	t.Setenv("ANTHROPIC_API_KEY", "")
-	serveLoopback = true
+	serve.Loopback = true
 	if code, text := ask(); code != 403 || !strings.Contains(text, "no Anthropic API key is set") {
 		t.Errorf("no key: %d %s", code, text)
 	}
 	// A key on a server other machines can reach is never spent for them.
 	t.Setenv("ANTHROPIC_API_KEY", "sk-ant-test")
-	serveLoopback = false
+	serve.Loopback = false
 	if code, text := ask(); code != 403 || !strings.Contains(text, "a key is never spent for them") {
 		t.Errorf("a public server: %d %s", code, text)
 	}
-	serveLoopback = true
+	serve.Loopback = true
 	code, text := ask()
 	if code != 200 || !strings.Contains(text, `"name": "cockroachdb"`) && !strings.Contains(text, `"name":"cockroachdb"`) {
 		t.Errorf("with a key, on this machine: %d %s", code, text)
@@ -234,7 +235,7 @@ func TestAskingClaudeNeedsAKeyAndALocalServer(t *testing.T) {
 		t.Errorf("no modules should be 400, got %d", res.StatusCode)
 	}
 	for addr, want := range map[string]bool{"127.0.0.1:8080": true, "localhost:8080": true, "[::1]:8080": true, ":8080": false, "0.0.0.0:8080": false, "192.168.1.5:8080": false} {
-		if isLoopback(addr) != want {
+		if serve.IsLoopback(addr) != want {
 			t.Errorf("isLoopback(%q) = %v", addr, !want)
 		}
 	}

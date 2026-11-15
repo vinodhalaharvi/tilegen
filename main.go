@@ -19,6 +19,7 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	_ "github.com/vinodhalaharvi/tilegen/internal/tiles" // the built-in tiles register themselves
@@ -31,13 +32,13 @@ func main() {
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
 		case "key":
-			if err := keyCmd(os.Args[2:], os.Stdin, os.Stdout); err != nil {
+			if err := serve.KeyCmd(os.Args[2:], os.Stdin, os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}
 			return
 		case "serve":
-			if err := serveCmd(os.Args[2:], os.Stderr); err != nil {
+			if err := serve.Cmd(os.Args[2:], os.Stderr); err != nil {
 				fmt.Fprintln(os.Stderr, "tilegen:", err)
 				os.Exit(1)
 			}

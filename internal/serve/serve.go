@@ -1,4 +1,4 @@
-package main
+package serve
 
 import (
 	"archive/zip"
@@ -35,11 +35,11 @@ import (
 const (
 	maxSpecBytes   = 256 << 10 // a spec is a page of text, not a payload
 	maxSpecTimeout = 20 * time.Second
-	maxPackages    = 50
+	MaxPackages    = 50
 	maxItems       = 500 // entities, structs, interfaces and the rest, in total
 )
 
-func serveCmd(args []string, log io.Writer) error {
+func Cmd(args []string, log io.Writer) error {
 	fs := flag.NewFlagSet("tilegen serve", flag.ExitOnError)
 	addr := fs.String("addr", defaultAddr(), "address to listen on (Cloud Run sets PORT)")
 	fs.Usage = func() {
@@ -48,7 +48,7 @@ func serveCmd(args []string, log io.Writer) error {
 	}
 	compile.ParseAnywhere(fs, args)
 
-	srvMux := serveMux()
+	srvMux := Mux()
 	srv := &http.Server{
 		Addr:              *addr,
 		Handler:           srvMux,
@@ -61,7 +61,7 @@ func serveCmd(args []string, log io.Writer) error {
 		*addr = "127.0.0.1:8080"
 		srv.Addr = *addr
 	}
-	serveLoopback = isLoopback(*addr)
+	Loopback = IsLoopback(*addr)
 	fmt.Fprintf(log, "tilegen %s serving on %s\n", compile.Version, *addr)
 	if st := llmStatus(); st.Enabled {
 		fmt.Fprintf(log, "asking Claude to draft tiles is on (%s)\n", st.Model)
@@ -71,16 +71,16 @@ func serveCmd(args []string, log io.Writer) error {
 	return srv.ListenAndServe()
 }
 
-// serveMux is every route the service answers, with its limits applied,
+// Mux is every route the service answers, with its limits applied,
 // so a test exercises exactly what a request meets.
-func serveMux() http.Handler {
+func Mux() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /", handleStudio)
 	mux.Handle("GET /assets/", studioAssets())
 	mux.HandleFunc("GET /docs", handleIndex)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { fmt.Fprintln(w, "ok") })
 	mux.HandleFunc("GET /tiles", handleTiles)
-	mux.HandleFunc("POST /explain", handleSpec(explainJSON))
+	mux.HandleFunc("POST /explain", handleSpec(ExplainJSON))
 	mux.HandleFunc("POST /plan", handleSpec(planJSONFor))
 	mux.HandleFunc("POST /generate", handleGenerate)
 	mux.HandleFunc("POST /compile", handleAll)
@@ -123,9 +123,9 @@ func withTimeout(h http.Handler, d time.Duration) http.Handler {
 	})
 }
 
-// specRequest is what every endpoint takes: the spec, and optionally a
+// SpecRequest is what every endpoint takes: the spec, and optionally a
 // config and policy, each as text.
-type specRequest struct {
+type SpecRequest struct {
 	Spec   string `json:"spec"`
 	Config string `json:"config,omitempty"`
 	Policy string `json:"policy,omitempty"`
@@ -135,41 +135,41 @@ type specRequest struct {
 
 // readSpec accepts either JSON or a raw S-expression body, so curl with a
 // file is as easy as a browser with JSON.
-func readSpec(r *http.Request) (specRequest, error) {
+func readSpec(r *http.Request) (SpecRequest, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
-		return specRequest{}, fmt.Errorf("reading the request: %w", err)
+		return SpecRequest{}, fmt.Errorf("reading the request: %w", err)
 	}
 	if len(bytes.TrimSpace(body)) == 0 {
-		return specRequest{}, errors.New("the request body is empty; send a spec")
+		return SpecRequest{}, errors.New("the request body is empty; send a spec")
 	}
-	var req specRequest
+	var req SpecRequest
 	if ct := r.Header.Get("Content-Type"); strings.Contains(ct, "json") {
 		if err := json.Unmarshal(body, &req); err != nil {
-			return specRequest{}, fmt.Errorf("the request is not valid JSON: %w", err)
+			return SpecRequest{}, fmt.Errorf("the request is not valid JSON: %w", err)
 		}
 	} else {
 		req.Spec = string(body)
 	}
 	if strings.TrimSpace(req.Spec) == "" {
-		return specRequest{}, errors.New(`no spec; send {"spec": "(project ...)"} or the S-expression as the body`)
+		return SpecRequest{}, errors.New(`no spec; send {"spec": "(project ...)"} or the S-expression as the body`)
 	}
 	return req, nil
 }
 
-// compileRequest turns a request into a compiled spec, without touching
+// CompileRequest turns a request into a compiled spec, without touching
 // the filesystem: the parser takes text, so the "files" are in memory.
-func compileRequest(req specRequest) (*compile.Compiled, error) {
-	forms, err := parseParts(req.Spec, req.Config, req.Policy)
+func CompileRequest(req SpecRequest) (*compile.Compiled, error) {
+	forms, err := ParseParts(req.Spec, req.Config, req.Policy)
 	if err != nil {
 		return nil, err
 	}
 	return compile.CompileForms(forms, compile.Options{Out: "project", Name: req.Name, Tiles: req.Tiles}, io.Discard)
 }
 
-// parseParts reads a spec sent as text, with the config and policy that
+// ParseParts reads a spec sent as text, with the config and policy that
 // may come beside it, into one list of forms.
-func parseParts(spec, config, policy string) ([]*sexp.Node, error) {
+func ParseParts(spec, config, policy string) ([]*sexp.Node, error) {
 	var forms []*sexp.Node
 	for _, part := range []struct{ name, text string }{
 		{"spec.sexp", spec}, {"config.sexp", config}, {"policy.sexp", policy},
@@ -203,8 +203,8 @@ func checkSpecSize(forms []*sexp.Node) error {
 		}
 	}
 	switch {
-	case pkgs > maxPackages:
-		return fmt.Errorf("this spec has %d packages; the service takes up to %d (the command line has no limit)", pkgs, maxPackages)
+	case pkgs > MaxPackages:
+		return fmt.Errorf("this spec has %d packages; the service takes up to %d (the command line has no limit)", pkgs, MaxPackages)
 	case items > maxItems:
 		return fmt.Errorf("this spec has %d items; the service takes up to %d (the command line has no limit)", items, maxItems)
 	}
@@ -219,7 +219,7 @@ func handleSpec(answer func(*compile.Compiled, *compile.Report) any) http.Handle
 			writeError(w, http.StatusBadRequest, err)
 			return
 		}
-		cp, err := compileRequest(req)
+		cp, err := CompileRequest(req)
 		if err != nil {
 			writeError(w, http.StatusUnprocessableEntity, err)
 			return
@@ -233,7 +233,7 @@ func handleSpec(answer func(*compile.Compiled, *compile.Report) any) http.Handle
 	}
 }
 
-func explainJSON(cp *compile.Compiled, _ *compile.Report) any {
+func ExplainJSON(cp *compile.Compiled, _ *compile.Report) any {
 	compile.JSONWeights = cp.Ctx.Policy.Weights
 	out := compile.ExplainJSON{Policy: compile.NewPolicyJSON(cp.Ctx.Policy)}
 	names := make([]string, 0, len(cp.Ctx.Cover))
@@ -276,7 +276,7 @@ func handleGenerate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	cp, err := compileRequest(req)
+	cp, err := CompileRequest(req)
 	if err != nil {
 		writeError(w, http.StatusUnprocessableEntity, err)
 		return
@@ -372,9 +372,9 @@ func writeError(w http.ResponseWriter, status int, err error) {
 	json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 }
 
-// everything is one spec compiled once: the choices and why, the plan, and
+// Everything is one spec compiled once: the choices and why, the plan, and
 // every file, as the page shows them together.
-type everything struct {
+type Everything struct {
 	Version string            `json:"version"`
 	Error   string            `json:"error,omitempty"`
 	Name    string            `json:"name,omitempty"`
@@ -389,17 +389,17 @@ type everything struct {
 	Drafted []string `json:"drafted,omitempty"`
 }
 
-func compileAll(req specRequest) (out everything) {
+func CompileAll(req SpecRequest) (out Everything) {
 	out.Version = compile.Version
 	defer func() { // a page must get an answer, even to a spec that finds a bug
 		if r := recover(); r != nil {
-			out = everything{Version: compile.Version, Error: fmt.Sprintf("tilegen stopped unexpectedly on this spec (a bug in tilegen): %v", r)}
+			out = Everything{Version: compile.Version, Error: fmt.Sprintf("tilegen stopped unexpectedly on this spec (a bug in tilegen): %v", r)}
 		}
 	}()
-	cp, err := compileRequest(req)
+	cp, err := CompileRequest(req)
 	var won *compile.DraftsChosen
 	if errors.As(err, &won) {
-		out.Name, out.Explain, out.Drafted = projectName(won.Compiled), explainJSON(won.Compiled, nil), won.Needs
+		out.Name, out.Explain, out.Drafted = projectName(won.Compiled), ExplainJSON(won.Compiled, nil), won.Needs
 		return out
 	}
 	if err != nil {
@@ -412,7 +412,7 @@ func compileAll(req specRequest) (out everything) {
 		return out
 	}
 	out.Name = projectName(cp)
-	out.Explain, out.Plan = explainJSON(cp, rep), planJSONFor(cp, rep)
+	out.Explain, out.Plan = ExplainJSON(cp, rep), planJSONFor(cp, rep)
 	out.Files = map[string]string{}
 	for rel, data := range rep.PlanFiles() {
 		out.Files[rel] = string(data)
@@ -432,7 +432,7 @@ func handleAll(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	respondJSON(w, compileAll(req))
+	respondJSON(w, CompileAll(req))
 }
 
 // flagGiven reports whether a flag was set on the command line.

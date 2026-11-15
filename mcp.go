@@ -19,6 +19,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"github.com/vinodhalaharvi/tilegen/internal/symbols"
 	"github.com/vinodhalaharvi/weft/mcp"
@@ -155,7 +156,7 @@ func readText(_ context.Context, p placed) (parsed, error) {
 	if strings.TrimSpace(p.in.Spec) == "" {
 		return parsed{}, errors.New(`the spec is empty; send the S-expression, starting "(project ..."`)
 	}
-	forms, err := parseParts(p.in.Spec, p.in.Config, p.in.Policy)
+	forms, err := serve.ParseParts(p.in.Spec, p.in.Config, p.in.Policy)
 	if err != nil {
 		return parsed{}, err
 	}
@@ -344,7 +345,7 @@ func explain() weft.Arrow[ExplainIn, any] {
 	describe := func(d decided) any {
 		explainMu.Lock()
 		defer explainMu.Unlock()
-		return explainJSON(d.cp, nil)
+		return serve.ExplainJSON(d.cp, nil)
 	}
 	decide := func(ctx context.Context, in ExplainIn) (decided, error) {
 		return weft.Pipe3(here, weft.Arrow[placed, parsed](readText), decideWith(in.Tiles))(ctx, in)

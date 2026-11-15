@@ -1,4 +1,4 @@
-package main
+package serve
 
 import (
 	"encoding/json"
@@ -25,23 +25,23 @@ type llmState struct {
 	Model   string `json:"model,omitempty"`
 }
 
-// serveLoopback is set by serveCmd: the listener is reachable from this machine only.
-var serveLoopback bool
+// Loopback is set by serveCmd: the listener is reachable from this machine only.
+var Loopback bool
 
 func llmStatus() llmState {
 	key, _ := anthropicKey()
 	switch {
 	case key == "":
 		return llmState{Why: "no Anthropic API key is set: run `tilegen key set`, or set ANTHROPIC_API_KEY, and start serve again"}
-	case !serveLoopback:
+	case !Loopback:
 		return llmState{Why: "this server can be reached from other machines, and a key is never spent for them: start it with -addr localhost:8080"}
 	}
 	return llmState{Enabled: true, Model: importer.Model()}
 }
 
-// isLoopback reports whether a listen address accepts connections from
+// IsLoopback reports whether a listen address accepts connections from
 // this machine only.
-func isLoopback(addr string) bool {
+func IsLoopback(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil || host == "" {
 		return false // ":8080" is every interface

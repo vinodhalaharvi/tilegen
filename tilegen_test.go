@@ -24,6 +24,7 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/fill"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
@@ -3848,7 +3849,7 @@ func serveRequest(t *testing.T, method, path, body, contentType string) *http.Re
 		req.Header.Set("Content-Type", contentType)
 	}
 	rec := httptest.NewRecorder()
-	serveMux().ServeHTTP(rec, req)
+	serve.Mux().ServeHTTP(rec, req)
 	return rec.Result()
 }
 
@@ -3958,7 +3959,7 @@ func TestServeRejectsBadInput(t *testing.T) {
 	// A spec too large for a shared service is refused before any work.
 	var big strings.Builder
 	big.WriteString("(project p (module example.com/p) (go 1.22))\n")
-	for i := 0; i < maxPackages+5; i++ {
+	for i := 0; i < serve.MaxPackages+5; i++ {
 		fmt.Fprintf(&big, "(package p%d)\n", i)
 	}
 	res := serveRequest(t, "POST", "/generate", big.String(), "")
@@ -4052,7 +4053,7 @@ func TestWorksWithoutTheGoToolchain(t *testing.T) {
 // in the editor must actually generate, or the docs teach a spec that does
 // not work.
 func TestDocsExamplesGenerate(t *testing.T) {
-	blocks := strings.Split(docsHTML, `<button class="try">`)
+	blocks := strings.Split(serve.DocsHTML, `<button class="try">`)
 	if len(blocks) < 4 {
 		t.Fatalf("expected the walkthrough specs to be runnable, found %d", len(blocks)-1)
 	}
@@ -4085,7 +4086,7 @@ func TestDocsExamplesGenerate(t *testing.T) {
 // TestDocsStayUserFacing: the documentation is for people writing specs,
 // so it should not explain how tilegen works inside.
 func TestDocsStayUserFacing(t *testing.T) {
-	page := strings.ToLower(indexHTML + docsHTML)
+	page := strings.ToLower(serve.IndexHTML + serve.DocsHTML)
 	for _, jargon := range []string{
 		"compiler", "tiling", "maximal munch", "dynamic programming",
 		"cost model", "capability", "row-mapper", "dijkstra", "lowering pass",
@@ -4098,8 +4099,8 @@ func TestDocsStayUserFacing(t *testing.T) {
 	for _, form := range []string{"project", "package", "entity", "store", "durable", "enum",
 		"http", "events", "interface", "implement", "struct", "config", "policy",
 		"list-by", "get-by", "count-by", "exists-by", "delete-by", "constraint", "llm"} {
-		if !strings.Contains(docsHTML, "("+form+" ") && !strings.Contains(docsHTML, "<code>("+form+")</code>") &&
-			!strings.Contains(docsHTML, "("+form+")") {
+		if !strings.Contains(serve.DocsHTML, "("+form+" ") && !strings.Contains(serve.DocsHTML, "<code>("+form+")</code>") &&
+			!strings.Contains(serve.DocsHTML, "("+form+")") {
 			t.Errorf("the docs do not cover (%s ...)", form)
 		}
 	}
@@ -4111,7 +4112,7 @@ func TestDocsStayUserFacing(t *testing.T) {
 // fragment teaches the reader that the thing tilegen is for is an
 // afterthought.
 func TestEveryWalkthroughIsComplete(t *testing.T) {
-	sections := strings.Split(docsHTML, `<h2 id=`)
+	sections := strings.Split(serve.DocsHTML, `<h2 id=`)
 	var walks []string
 	for _, sec := range sections {
 		for _, id := range []string{`"one"`, `"two"`, `"three"`} {
@@ -4481,17 +4482,17 @@ func TestServeStudio(t *testing.T) {
 			t.Errorf("the page refers to %s, which the server does not have (%d)", m[1], res.StatusCode)
 		}
 	}
-	if len(studioLibs) == 0 || !strings.Contains(page, `src="assets/`+studioLibs[0]+`"`) {
+	if len(serve.StudioLibs) == 0 || !strings.Contains(page, `src="assets/`+serve.StudioLibs[0]+`"`) {
 		t.Error("the page should load its libraries from the binary")
 	}
 	if res := serveRequest(t, "GET", "/assets/", "", ""); res.StatusCode != 404 {
 		t.Errorf("assets are files, not a listing: got %d", res.StatusCode)
 	}
 	// The diagram library is fetched on demand, from the binary too.
-	if !strings.Contains(page, `window.TILEGEN_MERMAID = "assets/`+studioDiagrams+`"`) {
+	if !strings.Contains(page, `window.TILEGEN_MERMAID = "assets/`+serve.StudioDiagrams+`"`) {
 		t.Error("the page should be told where the diagram library is")
 	}
-	res = serveRequest(t, "GET", "/assets/"+studioDiagrams, "", "")
+	res = serveRequest(t, "GET", "/assets/"+serve.StudioDiagrams, "", "")
 	if n, _ := io.Copy(io.Discard, res.Body); res.StatusCode != 200 || n < 1<<20 {
 		t.Errorf("the diagram library is not served whole: %d, %d bytes", res.StatusCode, n)
 	}

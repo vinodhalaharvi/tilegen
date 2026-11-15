@@ -1,4 +1,4 @@
-package main
+package serve
 
 // The documentation the service serves: three walkthroughs.
 // Every spec shown is complete and carries a policy, and every one is
@@ -6,7 +6,7 @@ package main
 // output of both. Nothing here is a fragment, and nothing is invented:
 // each sample was generated and pasted.
 
-const docsHTML = `
+const DocsHTML = `
 <div class="lede">
   <h1>Describe what your service is made of.<br>Get the project.</h1>
   <p>You write a spec: your types, what is stored, what is served, what must survive

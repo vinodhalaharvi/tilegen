@@ -1,7 +1,6 @@
-package main
+package serve
 
 import (
-	"embed"
 	"io/fs"
 	"net/http"
 	"strings"
@@ -17,17 +16,19 @@ import (
 // libraries, and its typefaces. A machine with no network serves the
 // whole page.
 
-//go:embed web/src web/vendor
-var studioFiles embed.FS
+// StudioFiles is the page's source and libraries, under web/src and
+// web/vendor. The program that embeds them hands them over before it
+// serves: a package cannot embed files above its own directory.
+var StudioFiles fs.FS
 
-// studioLibs are the scripts the page loads before its own, in order.
-var studioLibs = []string{
+// StudioLibs are the scripts the page loads before its own, in order.
+var StudioLibs = []string{
 	"react.production.min.js", "react-dom.production.min.js", "htm.js",
 	"highlight.min.js", "hljs-protobuf.min.js", "hljs-lisp.min.js", "jszip.min.js",
 }
 
-// studioDiagrams draws the Architecture view.
-const studioDiagrams = "mermaid.min.js"
+// StudioDiagrams draws the Architecture view.
+const StudioDiagrams = "mermaid.min.js"
 
 // studioFonts are the faces the stylesheet names, with the weights each
 // file carries.
@@ -43,7 +44,7 @@ var studioFonts = []struct{ family, file, weight string }{
 
 var studio = sync.OnceValue(func() []byte {
 	src := func(name string) string {
-		b, err := studioFiles.ReadFile("web/src/" + name)
+		b, err := fs.ReadFile(StudioFiles, "web/src/"+name)
 		if err != nil {
 			panic(err) // the file is embedded: its absence is a build mistake
 		}
@@ -53,12 +54,12 @@ var studio = sync.OnceValue(func() []byte {
 	for _, f := range studioFonts {
 		fonts.WriteString(`@font-face{font-family:"` + f.family + `";src:url("assets/fonts/` + f.file + `") format("woff2");font-weight:` + f.weight + ";font-display:swap}\n")
 	}
-	for _, l := range studioLibs {
+	for _, l := range StudioLibs {
 		libs.WriteString(`<script src="assets/` + l + `"></script>` + "\n")
 	}
 	// The diagram library is large, so the page fetches it only when the
 	// Architecture view is opened; this says where it is.
-	libs.WriteString(`<script>window.TILEGEN_MERMAID = "assets/` + studioDiagrams + `";</script>` + "\n")
+	libs.WriteString(`<script>window.TILEGEN_MERMAID = "assets/` + StudioDiagrams + `";</script>` + "\n")
 	// The served page has nothing recorded to open on: the server answers
 	// before a reader could notice.
 	page := src("page.html")
@@ -82,7 +83,7 @@ func handleStudio(w http.ResponseWriter, r *http.Request) {
 
 // studioAssets serves the libraries and typefaces under /assets/.
 func studioAssets() http.Handler {
-	vendor, err := fs.Sub(studioFiles, "web/vendor")
+	vendor, err := fs.Sub(StudioFiles, "web/vendor")
 	if err != nil {
 		panic(err)
 	}

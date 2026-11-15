@@ -8,6 +8,7 @@ import (
 
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/importer"
+	"github.com/vinodhalaharvi/tilegen/internal/serve"
 )
 
 // In a browser there is no command line: tilegen is one function, taking
@@ -16,13 +17,13 @@ import (
 // already works on text and the emitter on a plan.
 func wasmMain() bool {
 	js.Global().Set("tilegenCompile", js.FuncOf(func(_ js.Value, args []js.Value) any {
-		req := specRequest{}
+		req := serve.SpecRequest{}
 		for i, dst := range []*string{&req.Spec, &req.Config, &req.Policy, &req.Tiles} {
 			if i < len(args) && args[i].Type() == js.TypeString {
 				*dst = args[i].String()
 			}
 		}
-		b, _ := json.Marshal(compileAll(req))
+		b, _ := json.Marshal(serve.CompileAll(req))
 		return string(b)
 	}))
 	js.Global().Set("tilegenTiles", js.FuncOf(func(js.Value, []js.Value) any {
