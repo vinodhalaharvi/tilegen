@@ -1,5 +1,5 @@
-(tile-spec redis-rueidis
-  (kind store-backend)
+(tile redis-rueidis
+  (offers store)
   (doc "Redis through rueidis: one string key per entity under a prefix, values as JSON")
   (alias rueidis)
   (engine redis)

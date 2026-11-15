@@ -1,5 +1,5 @@
-(tile-spec pogreb
-  (kind store-backend)
+(tile pogreb
+  (offers store)
   (doc "embedded key-value: Pogreb, a hash table on disk, one database per entity, values as JSON")
   (import pogreb github.com/akrylysov/pogreb)
   (error-package pogreb)

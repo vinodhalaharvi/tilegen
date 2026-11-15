@@ -1,5 +1,5 @@
-(tile-spec buntdb
-  (kind store-backend)
+(tile buntdb
+  (offers store)
   (doc "embedded key-value: BuntDB, in memory with an append-only file, values as JSON")
   (import buntdb github.com/tidwall/buntdb)
   (error-package buntdb)

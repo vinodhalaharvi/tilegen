@@ -18,7 +18,7 @@ import (
 // reads DIR/go.mod and asks one question of each direct requirement: does a
 // tile already cover it? The ones that do are the parts of this project
 // tilegen can already compile. The ones that do not are the tiles this
-// project would need, and it writes a tile-spec skeleton for each.
+// project would need, and it writes a tile skeleton for each.
 //
 // It reads go.mod and nothing else, unless -symbols asks for more: no
 // scanning of implementations, no guessing what a dependency is for. A direct
@@ -172,7 +172,7 @@ func Tiles(dir, outDir string, force, withSymbols bool, stdout io.Writer) error 
 		}
 		fmt.Fprintf(stdout, "  wrote  %s\n", path.Join(outDir, name+".sexp"))
 	}
-	fmt.Fprintf(stdout, "\nEach skeleton asks what only you know: what kind of tile it is, one line\n"+
+	fmt.Fprintf(stdout, "\nEach skeleton asks what only you know: what the tile offers, one line\n"+
 		"of doc, what each requirement means for it, what it costs, what a store\n"+
 		"on it holds, and what each method has to do. They are marked TODO, and a\n"+
 		"tile with one left is refused.\n"+
@@ -224,13 +224,13 @@ func writeWrapped(b *strings.Builder, first, rest string, items []string) {
 // KindComparison is the range of llm-work among the tiles tilegen already
 // Has of a kind, with the tile at each end: something to set a number
 // against.
-func KindComparison(kind string) string {
+func KindComparison(capability string) string {
 	costs := map[string]compile.Cost{}
 	for _, row := range compile.Registry() {
 		costs[row.Name] = row.Cost
 	}
 	lo, hi, loTile, hiTile := 0, 0, "", ""
-	for _, o := range compile.OffersOf(tiles.TileKindCapability[kind]) {
+	for _, o := range compile.OffersOf(capability) {
 		for _, term := range costs[o.Tile] {
 			if term.Dim != "llm-work" {
 				continue
@@ -291,23 +291,23 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString(";   tilegen -tiles DIR tiles           lists it beside the others\n")
 	b.WriteString(";   tilegen -tiles DIR explain SPEC    shows where it wins and why\n\n")
 
-	fmt.Fprintf(&b, "(tile-spec %s\n", name)
-	fmt.Fprintf(&b, "  ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tiles.TileKinds, ", "))
+	fmt.Fprintf(&b, "(tile %s\n", name)
+	fmt.Fprintf(&b, "  ; TODO: what does this tile offer? One of: %s.\n", strings.Join(tiles.Loadable(), ", "))
 	b.WriteString("  ; If it is none of them, this module is not a tile: delete this file.\n")
-	b.WriteString("  (kind TODO)\n\n")
+	b.WriteString("  (offers TODO)\n\n")
 	b.WriteString("  ; TODO: the one line `tilegen tiles` prints.\n")
 	b.WriteString("  (doc \"TODO\")\n\n")
 	fmt.Fprintf(&b, "  (import %s %s)\n", qual, importPathFor(c.Module))
 	fmt.Fprintf(&b, "  (error-package %s)\n", qual)
 	fmt.Fprintf(&b, "  (topics %s)\n\n", name)
 
-	b.WriteString("  ; TODO: answer each requirement a spec can state for this kind of\n")
-	b.WriteString("  ; tile, with the reason a person will read in explain. It is met\n")
+	b.WriteString("  ; TODO: answer each requirement a spec can state for what it\n")
+	b.WriteString("  ; offers, with the reason a person will read in explain. It is met\n")
 	b.WriteString("  ; (satisfies), it rules this tile out (illegal-when), or nobody has\n")
 	b.WriteString("  ; checked (unverified). Saying nothing about one is refused.\n")
-	for _, kind := range tiles.TileKinds {
-		if c := compile.Capabilities[tiles.TileKindCapability[kind]]; c != nil {
-			writeWrapped(&b, "  ; "+kind+": ", "  ;   ", c.Requirements)
+	for _, capability := range tiles.Loadable() {
+		if c := compile.Capabilities[capability]; c != nil {
+			writeWrapped(&b, "  ; "+capability+": ", "  ;   ", c.Requirements)
 		}
 	}
 	b.WriteString("  (satisfies (TODO) \"TODO\")\n")
@@ -315,9 +315,9 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("  (unverified (TODO) \"TODO\")\n\n")
 
 	b.WriteString("  ; TODO: what it costs, each a whole number. For comparison:\n")
-	for _, kind := range tiles.TileKinds {
-		if cmp := KindComparison(kind); cmp != "" {
-			fmt.Fprintf(&b, "  ;   %s: %s\n", kind, cmp)
+	for _, capability := range tiles.Loadable() {
+		if cmp := KindComparison(capability); cmp != "" {
+			fmt.Fprintf(&b, "  ;   %s: %s\n", capability, cmp)
 		}
 	}
 	b.WriteString("  (cost\n")

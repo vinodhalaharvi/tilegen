@@ -805,7 +805,7 @@ Two things use it. A drafted tile may cite what its claims rest on:
 ```
 
 and each cited symbol is checked against the module. And
-`tilegen import -tiles -symbols` writes the listing into each tile-spec
+`tilegen import -tiles -symbols` writes the listing into each tile
 skeleton, so the TODOs are filled in beside the facts.
 
 ### Tiles of your own
@@ -880,7 +880,9 @@ It says what the tool is for and what it costs, which is all selection
 needs, so it takes part in every decision and explanation: "would the
 thing we already use win here, and what would it rule out?" It cannot
 generate code. When a draft wins a need, tilegen reports the decision and
-stops; the project comes when that tile is built into tilegen.
+stops. The same text becomes a tile that generates when it also says what
+a store on it holds and what each method has to do: see
+[Tiles of your own](#tiles-of-your-own).
 
 A draft is held to a stricter rule than a built-in tile, because nothing
 has run it. It wins only what it claims (a requirement it does not
@@ -1251,7 +1253,7 @@ config, the lock or a preference decided keeps it.
 What counts as one engine is something each tile declares. `postgres-sqlc`
 and `postgres-pgx` both say `postgres`, so they share a server; the two
 NATS tiles share `nats`; a tile that says nothing is its own engine, and
-`memory` and `local-bus` have none. A tile written as a `(tile-spec ...)`
+`memory` and `local-bus` have none. A tile kept in a file
 says it with `(engine NAME)`.
 
 Costs say what a tile is worth technically. Preferences say what people

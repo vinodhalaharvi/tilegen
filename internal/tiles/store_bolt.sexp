@@ -1,5 +1,5 @@
-(tile-spec bolt
-  (kind store-backend)
+(tile bolt
+  (offers store)
   (doc "embedded key-value: one file, a bucket per entity, values as JSON")
   (import bbolt go.etcd.io/bbolt)
   (error-package bbolt)

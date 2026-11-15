@@ -1,5 +1,5 @@
-(tile-spec valkey
-  (kind store-backend)
+(tile valkey
+  (offers store)
   (doc "Valkey: one string key per entity under a prefix, values as JSON")
   (engine valkey)
   (import valkey github.com/valkey-io/valkey-go)

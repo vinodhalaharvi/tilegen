@@ -1,5 +1,5 @@
-(tile-spec dynamodb
-  (kind store-backend)
+(tile dynamodb
+  (offers store)
   (doc "DynamoDB: one table per entity keyed by id, items marshalled attribute by attribute")
   (engine dynamodb)
   (import dynamodb github.com/aws/aws-sdk-go-v2/service/dynamodb)

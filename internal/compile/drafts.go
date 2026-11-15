@@ -128,7 +128,7 @@ func parseDraft(f *sexp.Node) (*Offer, error) {
 	}
 	counted := map[string]bool{}
 	for _, it := range f.List[2:] {
-		if h := it.Head(); h != "satisfies" && h != "illegal-when" && h != "unverified" {
+		if h := it.Head(); h != "satisfies" && h != "illegal-when" && h != "unverified" && h != "hint" && h != "import" {
 			if counted[h] {
 				bad(it, "duplicate (%s ...) in tile %s", h, o.Tile)
 				continue
@@ -179,7 +179,17 @@ func parseDraft(f *sexp.Node) (*Offer, error) {
 			claim(it, o.Unverified)
 		case "cost":
 			for _, t := range it.Args() {
-				if !t.IsList || len(t.List) < 2 || len(t.List) > 3 || t.List[1].IsList || (len(t.List) == 3 && (t.List[2].IsList || !t.List[2].Quoted)) {
+				// The why is a string, or (source KIND "why") as a tile kept in a file writes it.
+				why, sourced := "", false
+				if len(t.List) == 3 && t.List[2].Head() == "source" {
+					if src := t.List[2].Args(); len(src) >= 1 && len(src) <= 2 && !src[0].IsList && (len(src) == 1 || (!src[1].IsList && src[1].Quoted)) {
+						sourced = true
+						if len(src) == 2 {
+							why = src[1].Atom
+						}
+					}
+				}
+				if !t.IsList || len(t.List) < 2 || len(t.List) > 3 || t.List[1].IsList || (len(t.List) == 3 && !sourced && (t.List[2].IsList || !t.List[2].Quoted)) {
 					bad(t, `expected (DIMENSION N) or (DIMENSION N "why"), got %s`, Short(t))
 					continue
 				}
@@ -194,7 +204,9 @@ func parseDraft(f *sexp.Node) (*Offer, error) {
 					continue
 				}
 				term := CostTerm{Dim: dim, Value: v}
-				if len(t.List) == 3 {
+				if sourced && why != "" {
+					term.Source, term.Note = "draft", why
+				} else if len(t.List) == 3 && !sourced {
 					term.Source, term.Note = "draft", t.List[2].Atom
 				}
 				for _, have := range o.Cost {
@@ -204,6 +216,10 @@ func parseDraft(f *sexp.Node) (*Offer, error) {
 				}
 				o.Cost = append(o.Cost, term)
 			}
+		case "alias", "import", "error-package", "topics", "requires", "form", "holds", "new", "hint":
+			// What a tile kept in a file says about the code it generates. A
+			// draft takes part in decisions only, so these are not needed
+			// here and not refused: the same text is both.
 		default:
 			known := []string{"offers", "doc", "module", "engine", "symbols", "satisfies", "illegal-when", "unverified", "cost"}
 			bad(it, "a tile contains %s; got %s%s", strings.Join(known, ", "), Short(it), DidYouMean(it.Head(), known))

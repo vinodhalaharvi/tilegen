@@ -1,5 +1,5 @@
-(tile-spec minio
-  (kind store-backend)
+(tile minio
+  (offers store)
   (doc "MinIO or any S3-compatible server: one JSON object per entity under a prefix in a bucket")
   (engine minio)
   (import minio github.com/minio/minio-go/v7)

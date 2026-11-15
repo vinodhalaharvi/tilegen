@@ -10,20 +10,18 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
-// A tile is written as a (tile-spec NAME ...): what it is, what each
+// A tile is written as a (tile NAME (offers CAPABILITY) ...): what it is, what each
 // requirement means for it, what it costs, what the generated store holds
 // and a hint for each method. This file is the form and its checks;
 // datatile.go turns a checked one into a registered tile.
 
-// TileKinds are the shapes a tile-spec can describe.
-var TileKinds = []string{"store-backend"}
-
 func init() {
-	compile.Elsewhere["tile-spec"] = "a tile is a file of its own, in a folder tilegen is given with -tiles DIR"
+	compile.Elsewhere["tile"] = "a tile is a file of its own, in a folder tilegen is given with -tiles DIR"
 }
 
-// TileKindCapability is the capability each kind of tile offers.
-var TileKindCapability = map[string]string{"store-backend": "store"}
+// Loadable are the capabilities a tile written as a file can offer, in
+// order.
+func Loadable() []string { return compile.SortedKeys(shapes) }
 
 // Unanswered reports whether a form still carries a TODO: the atom, or a
 // string that starts with it. A skeleton is full of them, and none may
@@ -47,7 +45,7 @@ var costDims = []string{"llm-work", "maintenance", "dependency", "runtime", "ope
 var costSources = []string{"default", "measured", "derived", "user"}
 
 func validateTileSpec(v *compile.Validator, n *sexp.Node) {
-	b := v.Shape(n, "(tile-spec ?name ?items...)")
+	b := v.Shape(n, "(tile ?name ?items...)")
 	if b == nil {
 		return
 	}
@@ -62,7 +60,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 	open := false
 	for _, it := range b.Rest("items") {
 		if Unanswered(it) {
-			v.Bad(it, "(tile-spec %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, compile.Short(it))
+			v.Bad(it, "(tile %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, compile.Short(it))
 			open = true
 		}
 	}
@@ -70,18 +68,18 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		return
 	}
 
-	kind := ""
+	offers := ""
 	seen := map[string]bool{}
 	claimed := map[string]string{} // requirement -> the heading it is under
 	hinted := map[string]bool{}    // op -> it has a hint
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
-		case "kind":
-			if kb := v.Shape(it, "(kind ?name)"); kb != nil {
-				kind = kb.Atom("name")
-				if !compile.Contains(TileKinds, kind) {
-					v.Bad(it, "unknown tile kind %q%s; tilegen knows %s", kind,
-						compile.DidYouMean(kind, TileKinds), strings.Join(TileKinds, ", "))
+		case "offers":
+			if kb := v.Shape(it, "(offers ?name)"); kb != nil {
+				offers = kb.Atom("name")
+				if shapes[offers] == nil {
+					v.Bad(it, "a tile written as a file cannot offer %q%s; it can offer %s", offers,
+						compile.DidYouMean(offers, Loadable()), strings.Join(Loadable(), ", "))
 				}
 			}
 		case "doc":
@@ -111,6 +109,16 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 				}
 				claimed[req] = it.Head()
 			}
+		case "module":
+			v.Shape(it, "(module ?path)")
+		case "symbols":
+			// What the tile's text relies on in its module, as a draft cites
+			// it: checked against the module by tilegen's check_tile tool.
+			for _, sym := range it.Args() {
+				if sym.IsList || sym.Atom == "" {
+					v.Bad(it, "(symbols ...) lists names like pebble.DB.Get, got %s", compile.Short(sym))
+				}
+			}
 		case "cost":
 			validateTileCost(v, it)
 		case "holds":
@@ -120,58 +128,58 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		case "hint":
 			if op := validateHint(v, it); op != "" {
 				if hinted[op] {
-					v.Bad(it, "duplicate (hint %s ...) in tile-spec %s", op, name.Atom)
+					v.Bad(it, "duplicate (hint %s ...) in tile %s", op, name.Atom)
 				}
 				hinted[op] = true
 			}
 		default:
-			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost", "holds", "new", "hint"}
-			v.Bad(it, "a tile-spec contains %s, got %s%s",
+			known := []string{"offers", "doc", "module", "symbols", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost", "holds", "new", "hint"}
+			v.Bad(it, "a tile contains %s, got %s%s",
 				strings.Join(known, ", "), compile.Short(it), compile.DidYouMean(it.Head(), known))
 			continue
 		}
 		if it.Head() != "illegal-when" && it.Head() != "satisfies" && it.Head() != "unverified" && it.Head() != "import" && it.Head() != "hint" && seen[it.Head()] {
-			v.Bad(it, "duplicate (%s ...) in tile-spec %s", it.Head(), name.Atom)
+			v.Bad(it, "duplicate (%s ...) in tile %s", it.Head(), name.Atom)
 		}
 		seen[it.Head()] = true
 	}
 	// A store's short name is what a config says after (storage ...), and
 	// the front of every type the tile generates: PostgresOrderStore.
-	if kind == "store-backend" {
+	if offers == "store" {
 		short := n.Text("alias")
 		if short == "" {
 			short = name.Atom
 		}
 		if !shortName.MatchString(short) {
-			v.Bad(n, "(tile-spec %s ...): a store's short name becomes part of a Go type, so it is lower-case letters and digits only; %q is not. Add (alias NAME), as postgres-pgx has (alias pgx)", name.Atom, short)
+			v.Bad(n, "(tile %s ...): a store's short name becomes part of a Go type, so it is lower-case letters and digits only; %q is not. Add (alias NAME), as postgres-pgx has (alias pgx)", name.Atom, short)
 		}
 	}
-	if kind == "" {
-		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(TileKinds, ", "))
+	if offers == "" {
+		v.Bad(n, "(tile %s ...) needs an (offers ...): one of %s", name.Atom, strings.Join(Loadable(), ", "))
 	}
 	// What the store holds and how it is made: without them there is
 	// nothing to generate a store from.
 	if !seen["holds"] || !seen["new"] {
-		v.Bad(n, "(tile-spec %s ...) needs (holds ...) and (new ...): what the generated store keeps, and the constructor that fills it", name.Atom)
+		v.Bad(n, "(tile %s ...) needs (holds ...) and (new ...): what the generated store keeps, and the constructor that fills it", name.Atom)
 	}
 	// A hint for a lookup the tile has ruled out is the tile arguing with
 	// itself.
 	if claimed["lookup-by-field"] == "illegal-when" {
 		for _, op := range fieldOps {
 			if hinted[op] {
-				v.Bad(n, "(tile-spec %s ...) rules out (lookup-by-field), so no store it serves has a %s method: remove (hint %s ...)", name.Atom, op, op)
+				v.Bad(n, "(tile %s ...) rules out (lookup-by-field), so no store it serves has a %s method: remove (hint %s ...)", name.Atom, op, op)
 			}
 		}
 	}
 	if n.Text("doc") == "" {
-		v.Bad(n, "(tile-spec %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
+		v.Bad(n, "(tile %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
 	}
 	if n.Find("cost") == nil {
-		v.Bad(n, "(tile-spec %s ...) needs a (cost ...): a tile that declares no cost can never be compared with one that does", name.Atom)
+		v.Bad(n, "(tile %s ...) needs a (cost ...): a tile that declares no cost can never be compared with one that does", name.Atom)
 	}
 	// Silence is not a yes. Each thing a spec can ask of this kind of tile
 	// is answered: met, ruled out, or said to be unchecked.
-	if c := compile.Capabilities[TileKindCapability[kind]]; c != nil {
+	if c := compile.Capabilities[offers]; c != nil && shapes[offers] != nil {
 		var open []string
 		for _, req := range c.Requirements {
 			if claimed[req] == "" {
@@ -179,7 +187,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 			}
 		}
 		if len(open) > 0 {
-			v.Bad(n, "(tile-spec %s ...) says nothing about %s: put each under (satisfies ...), (illegal-when ...) or (unverified ...), with the reason",
+			v.Bad(n, "(tile %s ...) says nothing about %s: put each under (satisfies ...), (illegal-when ...) or (unverified ...), with the reason",
 				name.Atom, strings.Join(open, ", "))
 		}
 	}
@@ -236,6 +244,9 @@ func validateTileCost(v *compile.Validator, it *sexp.Node) {
 			v.Bad(term, "cost %s must be a whole number, got %q", dim, term.List[1].Atom)
 		}
 		for _, extra := range term.List[2:] {
+			if !extra.IsList && extra.Quoted {
+				continue // (DIMENSION N "why"), as a draft writes it
+			}
 			sb := v.Shape(extra, "(source ?kind ?note...)")
 			if sb == nil {
 				continue

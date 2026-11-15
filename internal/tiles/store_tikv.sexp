@@ -1,5 +1,5 @@
-(tile-spec tikv
-  (kind store-backend)
+(tile tikv
+  (offers store)
   (doc "TiKV: one key per entity under a prefix in the raw key-value API, values as JSON")
   (engine tikv)
   (import rawkv github.com/tikv/client-go/v2/rawkv)

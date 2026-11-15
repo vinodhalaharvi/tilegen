@@ -1,5 +1,5 @@
-(tile-spec etcd
-  (kind store-backend)
+(tile etcd
+  (offers store)
   (doc "etcd: a replicated key-value store, one key per entity under a prefix, values as JSON")
   (engine etcd)
   (import clientv3 go.etcd.io/etcd/client/v3)

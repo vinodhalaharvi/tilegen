@@ -115,7 +115,7 @@
 - Each tile declares the engine it runs on, and tiles that name the same
   one share its server in the whole-project view: both postgres tiles,
   both NATS tiles, and Kafka as a bus and as an inbound edge. A
-  `(tile-spec ...)` says it with `(engine NAME)`.
+  a tile kept in a file says it with `(engine NAME)`.
 - `tilegen explain -project` compares the choice made need by need with
   the cheapest for the project as a whole, where a server is paid once per
   engine, a library once per tile, and each extra engine in a capability

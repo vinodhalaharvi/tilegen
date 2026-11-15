@@ -1,5 +1,5 @@
-(tile-spec s3
-  (kind store-backend)
+(tile s3
+  (offers store)
   (doc "S3: one JSON object per entity under a prefix in a bucket")
   (engine s3)
   (import s3 github.com/aws/aws-sdk-go-v2/service/s3)
