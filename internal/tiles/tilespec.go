@@ -2,12 +2,13 @@ package tiles
 
 import (
 	"fmt"
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
-	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 	"path"
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
+	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
 // tilegen, applied to itself.
@@ -23,7 +24,7 @@ import (
 //	    (cost (llm-work 4 (source derived "id-keyed get, save and delete over a bucket"))
 //	          (maintenance 3) (dependency 1) (runtime 1))))
 //
-// generates tile_bolt.go: the whole registration, which is bookkeeping, and
+// generates store_bolt.go: the whole registration, which is bookkeeping, and
 // two holes, which are not.
 //
 //	func (s *boltTile) Implement(in StoreInput) (StoreParts, error)  // what the impl struct holds
@@ -282,12 +283,12 @@ func selectTileSpec(m *compile.Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.No
 	}
 
 	impl := tileStructName(name)
-	file := path.Join(pkg.Dir, "tile_"+strings.ReplaceAll(name, "-", "_")+".go")
+	file := path.Join(pkg.Dir, TileKindCapability[kind]+"_"+strings.ReplaceAll(name, "-", "_")+".go")
 
 	methods := storeBackendHoles()
 	stubs, tasks := compile.StubsAndTasks(pkg, impl, "the "+name+" tile", file, methods,
 		func(meth *sexp.Node) string { return storeBackendIntent(meth.List[1].Atom, name, n) },
-		[]string{"internal/tiles/backend_memory.go", "internal/compile/registry.go", "internal/sexp/sexp.go"},
+		[]string{"internal/tiles/store_memory.go", "internal/compile/registry.go", "internal/sexp/sexp.go"},
 		[]string{
 			"Return only the method asked for, with the signature given.",
 			"Emit target forms with sexp.L, sexp.Sym and sexp.Str; never write files.",
@@ -334,7 +335,7 @@ func storeBackendIntent(method, tile string, n *sexp.Node) string {
 			"implementation struct's fields as (field name Type) nodes, Params is the constructor's "+
 			"(params ...), Body is the constructor's body as a single return statement building "+
 			"&in.Impl{...}, and Hint is this tile's Hint method. Build every node with sexp.L, sexp.Sym and sexp.Str. "+
-			"internal/tiles/backend_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
+			"internal/tiles/store_memory.go is the same method for the memory tile and is the shape to follow.%s", tile, using)
 	case "Hint":
 		return fmt.Sprintf("Describe what each store method must do in the %s tile's own terms, for the LLM "+
 			"that will write the body. Switch on compile.MethodOp(meth), which returns the op kind and field: "+

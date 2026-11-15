@@ -25,7 +25,7 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 	if err := run(compile.Options{Spec: "examples/tilespec", Out: gen}, io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	tile, err := os.ReadFile(filepath.Join(gen, "internal", "tiles", "tile_badger.go"))
+	tile, err := os.ReadFile(filepath.Join(gen, "internal", "tiles", "store_badger.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestGeneratedTileBuildsInsideTilegen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(copyOf, "internal", "tiles", "tile_badger.go"), tile, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(copyOf, "internal", "tiles", "store_badger.go"), tile, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	for _, args := range [][]string{{"build", "./..."}, {"vet", "./internal/tiles"}} {

@@ -2,9 +2,10 @@ package tiles
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
-	"strings"
 )
 
 // The sqlite backend: the same shape as postgres-sqlc, with a different

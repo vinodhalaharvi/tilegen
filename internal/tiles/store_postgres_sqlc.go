@@ -2,9 +2,10 @@ package tiles
 
 import (
 	"fmt"
+	"strings"
+
 	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
-	"strings"
 )
 
 // The postgres backend: tilegen writes the schema and named queries, sqlc
