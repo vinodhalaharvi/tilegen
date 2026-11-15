@@ -180,3 +180,19 @@ func TestPlanGraphLevels(t *testing.T) {
 		t.Errorf("an empty plan: %v %v", lv, err)
 	}
 }
+
+// The compiler declares what can be asked for and holds no answers of its
+// own: every tile comes from the package that imports this one.
+func TestTheCompilerHoldsNoTiles(t *testing.T) {
+	if len(Capabilities) < 6 {
+		t.Fatalf("%d capabilities declared", len(Capabilities))
+	}
+	for name := range Capabilities {
+		for _, o := range OffersOf(name) {
+			t.Errorf("%s is registered for %s inside the compiler; a tile is a file in internal/tiles", o.Tile, name)
+		}
+	}
+	if len(Backends) != 0 {
+		t.Errorf("%d store backends are registered inside the compiler", len(Backends))
+	}
+}

@@ -24,7 +24,7 @@ import (
 // PlanNode is one thing the plan makes or does.
 type PlanNode struct {
 	ID   string   // "file:orders/orders_gen.go", "tool:sqlc generate", "task:orders.Get"
-	Kind string   // file | tool | task | tile
+	Kind string   // File | tool | task | tile
 	Name string   // the part a person reads
 	By   string   // the tile or command responsible
 	Deps []string // node IDs this one needs first

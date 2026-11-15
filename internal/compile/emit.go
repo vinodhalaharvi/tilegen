@@ -34,7 +34,7 @@ type Report struct {
 	// The plan (see plan.go).
 	Out        string
 	by         string            // the tile currently staging files
-	producedBy map[string]string // file -> the tile responsible for it
+	producedBy map[string]string // File -> the tile responsible for it
 	inPlan     map[string]bool
 	planned    []string // every file in the plan, staged or kept
 	Staged     map[string][]byte

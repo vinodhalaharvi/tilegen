@@ -31,7 +31,7 @@ func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "http",
 		Pass: Select,
-		Rule: Rule{Name: "http", Pattern: sexp.Pat("(http ?items...)"), Then: selectHTTP,
+		Rule: Rule{Name: "http", Pattern: sexp.Pat("(http ?items...)"), Then: SelectHTTP,
 			Produces: "go/file", Doc: "a Handler and ServeMux over the package's stores",
 			Cost: Cost{{Dim: "llm-work", Value: 2, Source: "derived", Note: "only validation and error mapping are left open"},
 				{Dim: "maintenance", Value: 1}, {Dim: "dependency", Value: 0, Source: "derived", Note: "net/http only; Go 1.22 routes methods and wildcards"}}},
@@ -107,7 +107,7 @@ type httpRoute struct {
 	Node                       *sexp.Node
 }
 
-func selectHTTP(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
+func SelectHTTP(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 	c, pkg := m.C, m.C.Pkg
 	var routes []httpRoute
 	resources := map[string]bool{} // entities this handler serves
@@ -184,7 +184,7 @@ func selectHTTP(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error) {
 		intents["statusFor"+e] = fmt.Sprintf("Map an error from %sStore to an HTTP status: ErrNotFound to 404, a conflict to 409, anything else to 500. Do not leak internal detail to the client.", e)
 	}
 	context := []string{genFile, path.Join(pkg.Dir, "http_gen.go")}
-	stubs, tasks := stubsAndTasksAs("h", pkg, "Handler", "the HTTP API", file, methods,
+	stubs, tasks := StubsAndTasksAs("h", pkg, "Handler", "the HTTP API", file, methods,
 		func(meth *sexp.Node) string { return intents[meth.List[1].Atom] }, context, nil)
 	// A statusFor hole decides which errors mean 409, which is a question
 	// about the store's driver, so name its error package: the prompt then

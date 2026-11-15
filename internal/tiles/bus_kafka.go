@@ -63,3 +63,35 @@ func kafkaHint(method, event string) string {
 	}
 	return ""
 }
+
+// Kafka registers a second time, as an inbound edge. Compare the numbers
+// with the event-bus offer above: same cluster, different work.
+func init() {
+	compile.RegisterOffer(&compile.Offer{
+		Tile:       "kafka",
+		Capability: "transport",
+		Doc:        "Kafka as an inbound edge: consume a topic, at your own offset",
+		IllegalFor: map[string]string{
+			"no-broker": "a cluster to run, partitions to size, and retention and consumer lag to watch",
+		},
+		Satisfies: map[string]string{
+			"cross-process": "the producers are other systems entirely; that is what an inbound edge is",
+			"durable":       "a record is on the partition's replicas before it is acknowledged",
+			"replay":        "a consumer can start at any offset still inside retention",
+			"ordered":       "a partition is an ordered log, and one key goes to one partition",
+			"at-least-once": "an uncommitted offset is redelivered after a rebalance or a restart",
+		},
+		Cost: compile.Cost{
+			{Dim: "llm-work", Value: 7, Source: "derived", Note: "a consumer group, offset commits after the handler, and a rebalance callback: more than the publish side"},
+			{Dim: "maintenance", Value: 5},
+			{Dim: "dependency", Value: 4, Source: "derived", Note: "a client library with a large transitive graph"},
+			{Dim: "runtime", Value: 4},
+			{Dim: "operations", Value: 9, Source: "derived", Note: "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"},
+		},
+		Impl: &compile.Transport{
+			Suffix: "KafkaSource",
+			Topics: []string{"kafka"},
+			Import: [2]string{"kgo", "github.com/twmb/franz-go/pkg/kgo"},
+		},
+	})
+}

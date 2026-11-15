@@ -147,7 +147,7 @@ type PlanJSON struct {
 
 type PlanNodeJSON struct {
 	ID    string   `json:"id"`
-	Kind  string   `json:"kind"` // file | tool | task | need | tile
+	Kind  string   `json:"kind"` // File | tool | task | need | tile
 	Name  string   `json:"name"`
 	By    string   `json:"by,omitempty"`
 	Note  string   `json:"note,omitempty"`

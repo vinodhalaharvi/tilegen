@@ -29,7 +29,7 @@ func expandEntity(m *Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.Node, error)
 	name := b.Atom("name")
 	st := sexp.L(sexp.Sym("struct"), sexp.Sym(name))
 	var store *sexp.Node
-	fields := map[string]string{} // field name -> type
+	fields := map[string]string{} // Field name -> type
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
 		case "store":

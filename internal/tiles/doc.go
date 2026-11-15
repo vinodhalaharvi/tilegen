@@ -1,7 +1,7 @@
 // Package tiles holds tilegen's built-in tiles. Importing it registers them.
 //
 // A tile is one file, named for what it offers and what it is:
-// store_bolt.go, bus_kafka.go, auth_oidc.go. The file registers the tile
+// store_bolt.go, bus_kafka.go, api_grpc.go, auth_oidc.go, secrets_vault.go. The file registers the tile
 // (what it guarantees, what rules it out, what it costs) and holds the
 // code that emits its Go. Adding a tile is adding a file; removing one is
 // deleting it.
@@ -26,6 +26,20 @@
 // from the hole rather than asserted beside it: nats-core gets a
 // *nats.Conn, nats-jetstream gets a jetstream.JetStream. A durability
 // claim next to a bare *nats.Conn is one a reviewer can object to.
+//
+// A bus that is also a way in from outside registers twice in its one
+// file, once for each job: bus_kafka.go and bus_nats_core.go do.
+//
+// # APIs
+//
+// http-json writes handlers by hand; connect and grpc share a .proto and
+// the code in api_proto.go that builds it. Each leaves two things open:
+// what makes a value acceptable, and which code an error deserves.
+//
+// # Secrets
+//
+// Three places a secret can come from. Nothing in them is judgment, so
+// they leave no holes.
 //
 // # Auth
 //

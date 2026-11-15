@@ -369,12 +369,12 @@ func foreignGenFiles(c *Ctx, ts []*sexp.Node) []string {
 // for any tile that implements an interface.
 func StubsAndTasks(pkg *PkgScope, impl, iface, file string, methods []*sexp.Node, hint func(*sexp.Node) string,
 	contextFiles, constraints []string) (stubs, tasks []*sexp.Node) {
-	return stubsAndTasksAs("s", pkg, impl, iface, file, methods, hint, contextFiles, constraints)
+	return StubsAndTasksAs("s", pkg, impl, iface, file, methods, hint, contextFiles, constraints)
 }
 
-// stubsAndTasksAs is stubsAndTasks with the receiver name a tile wants, so
+// StubsAndTasksAs is stubsAndTasks with the receiver name a tile wants, so
 // a handler's methods read the same as the generated ones beside them.
-func stubsAndTasksAs(recv string, pkg *PkgScope, impl, iface, file string, methods []*sexp.Node, hint func(*sexp.Node) string,
+func StubsAndTasksAs(recv string, pkg *PkgScope, impl, iface, file string, methods []*sexp.Node, hint func(*sexp.Node) string,
 	contextFiles, constraints []string) (stubs, tasks []*sexp.Node) {
 	ptr := "*" + impl
 	for _, meth := range methods {
