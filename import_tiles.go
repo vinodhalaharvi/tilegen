@@ -198,6 +198,53 @@ func symbolsComment(c tileCoverage) string {
 	return b.String()
 }
 
+// writeWrapped writes a comma-separated list as comment lines no wider
+// than a page.
+func writeWrapped(b *strings.Builder, first, rest string, items []string) {
+	line := first
+	for i, it := range items {
+		if i < len(items)-1 {
+			it += ","
+		} else {
+			it += "."
+		}
+		if len(line)+len(it) > 76 && line != first && line != rest {
+			b.WriteString(strings.TrimRight(line, " ") + "\n")
+			line = rest
+		}
+		line += it + " "
+	}
+	b.WriteString(strings.TrimRight(line, " ") + "\n")
+}
+
+// kindComparison is the range of llm-work among the tiles tilegen already
+// has of a kind, with the tile at each end: something to set a number
+// against.
+func kindComparison(kind string) string {
+	costs := map[string]Cost{}
+	for _, row := range Registry() {
+		costs[row.Name] = row.Cost
+	}
+	lo, hi, loTile, hiTile := 0, 0, "", ""
+	for _, o := range offersOf(tileKindCapability[kind]) {
+		for _, term := range costs[o.Tile] {
+			if term.Dim != "llm-work" {
+				continue
+			}
+			if loTile == "" || term.Value < lo || (term.Value == lo && o.Tile < loTile) {
+				lo, loTile = term.Value, o.Tile
+			}
+			if hiTile == "" || term.Value > hi || (term.Value == hi && o.Tile < hiTile) {
+				hi, hiTile = term.Value, o.Tile
+			}
+		}
+	}
+	if loTile == "" {
+		return ""
+	}
+	return fmt.Sprintf("llm-work runs from %d (%s) to %d (%s)", lo, loTile, hi, hiTile)
+}
+
 // tileNameFor turns a module path into a tile name: the last path element,
 // with a major-version suffix dropped, lower-cased, and anything outside
 // the registry's alphabet replaced.
@@ -246,26 +293,32 @@ func tileSpecSkeleton(name string, c tileCoverage) string {
 	b.WriteString("  (package main\n    (dir \".\")\n\n")
 
 	fmt.Fprintf(&b, "    (tile-spec %s\n", name)
-	b.WriteString("      ; TODO: which kind? store-backend is the only one so far.\n")
-	b.WriteString("      (kind store-backend)\n\n")
+	fmt.Fprintf(&b, "      ; TODO: which kind of tile is this? One of: %s.\n", strings.Join(tileKinds, ", "))
+	b.WriteString("      ; If it is none of them, this module is not a tile: delete this file.\n")
+	b.WriteString("      (kind TODO)\n\n")
 	b.WriteString("      ; TODO: the one line `tilegen tiles` prints.\n")
 	b.WriteString("      (doc \"TODO\")\n\n")
 	fmt.Fprintf(&b, "      (import %s %s)\n", qual, importPathFor(c.Module))
 	fmt.Fprintf(&b, "      (error-package %s)\n", qual)
 	fmt.Fprintf(&b, "      (topics %s)\n\n", name)
 
-	b.WriteString("      ; TODO: what must be true of a store for this to be the wrong\n")
-	b.WriteString("      ; answer? One clause per case. The reason is what a user reads\n")
-	b.WriteString("      ; when this tile is ruled out, so write it for a person.\n")
-	b.WriteString("      ; Requirements: durable, cross-process, lookup-by-field.\n")
-	b.WriteString("      ; (illegal-when (durable) \"...\")\n\n")
+	b.WriteString("      ; TODO: which requirements make this the wrong answer? One clause\n")
+	b.WriteString("      ; per case, or none if it can meet them all. The reason is what a\n")
+	b.WriteString("      ; user reads when this tile is ruled out, so write it for a person.\n")
+	writeWrapped(&b, "      ; Requirements: ", "      ;   ", knownRequirements())
+	b.WriteString("      ; (illegal-when (REQUIREMENT) \"...\")\n\n")
 
-	b.WriteString("      ; TODO: for comparison, memory is llm 2 and postgres-pgx is llm 7.\n")
+	b.WriteString("      ; TODO: what it costs, each a whole number. For comparison:\n")
+	for _, kind := range tileKinds {
+		if cmp := kindComparison(kind); cmp != "" {
+			fmt.Fprintf(&b, "      ;   %s: %s\n", kind, cmp)
+		}
+	}
 	b.WriteString("      (cost\n")
-	b.WriteString("        (llm-work 5 (source user \"TODO: how much must be written by hand?\"))\n")
-	b.WriteString("        (maintenance 3 (source user \"TODO: what goes wrong over months?\"))\n")
-	b.WriteString("        (dependency 2 (source user \"TODO\"))\n")
-	b.WriteString("        (runtime 1)))))\n")
+	b.WriteString("        (llm-work TODO (source user \"TODO: how much must be written by hand?\"))\n")
+	b.WriteString("        (maintenance TODO (source user \"TODO: what goes wrong over months?\"))\n")
+	b.WriteString("        (dependency TODO (source user \"TODO: what does it pull in, and what must be installed?\"))\n")
+	b.WriteString("        (runtime TODO (source user \"TODO: what has to be running?\"))))))\n")
 	return b.String()
 }
 

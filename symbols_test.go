@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -743,5 +744,95 @@ func TestMCPSymbolTools(t *testing.T) {
 	}
 	if _, err := explain()(ctx, ExplainIn{SpecIn: SpecIn{Spec: spec}, Tiles: "(tile x (offers store))"}); err == nil {
 		t.Error("a bad draft was accepted by explain")
+	}
+}
+
+// A skeleton assumes nothing about the module, and cannot be used until
+// every question in it is answered.
+func TestSkeletonIsQuestionsUntilAnswered(t *testing.T) {
+	dir := writeModule(t, map[string]string{"go.mod": "module example.com/app\n\ngo 1.22\n\nrequire example.com/kv v0.1.0\n"})
+	var out bytes.Buffer
+	if err := importTiles(dir, "tilespecs", false, false, &out); err != nil {
+		t.Fatal(err)
+	}
+	file := filepath.Join(dir, "tilespecs", "kv.sexp")
+	raw, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	skel := string(raw)
+
+	// Nothing is guessed: no kind, and no number that could pass for one.
+	for _, want := range []string{"(kind TODO)", `(doc "TODO")`, "(llm-work TODO ", "(maintenance TODO ", "(dependency TODO ", "(runtime TODO ",
+		"One of: " + strings.Join(tileKinds, ", ") + ".", "this module is not a tile: delete this file", "store-backend: " + kindComparison("store-backend")} {
+		if !strings.Contains(skel, want) {
+			t.Errorf("the skeleton has no %q:\n%s", want, skel)
+		}
+	}
+	for _, req := range knownRequirements() {
+		if !strings.Contains(skel, " "+req) {
+			t.Errorf("the skeleton does not offer the requirement %s", req)
+		}
+	}
+	for _, line := range strings.Split(skel, "\n") {
+		if len(line) > 100 || strings.HasSuffix(line, " ") {
+			t.Errorf("a line too long or with trailing space: %q", line)
+		}
+	}
+	if cmp := kindComparison("store-backend"); !strings.Contains(cmp, "llm-work runs from ") || kindComparison("no-such-kind") != "" {
+		t.Errorf("the comparison: %q", cmp)
+	}
+
+	// As written it is refused, one line per open question, and writes nothing.
+	target := t.TempDir()
+	err = run(Options{Spec: file, Out: target}, io.Discard)
+	if err == nil {
+		t.Fatal("a skeleton with its TODOs open was generated from")
+	}
+	for _, want := range []string{"(kind TODO) is still a TODO", `(doc "TODO") is still a TODO`, "(cost (llm-work TODO", "answer it before this tile can be used"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal should say %q:\n%v", want, err)
+		}
+	}
+	if strings.Count(err.Error(), "is still a TODO") != 3 || strings.Contains(err.Error(), "unknown tile kind") || strings.Contains(err.Error(), "whole number") {
+		t.Errorf("each open question should be reported once, and nothing else:\n%v", err)
+	}
+	if left, _ := os.ReadDir(target); len(left) != 0 {
+		t.Errorf("the refused skeleton wrote %d entries", len(left))
+	}
+
+	// Answered, it is a tile-spec like any other.
+	answered := skel
+	for old, new := range map[string]string{
+		"(kind TODO)": "(kind store-backend)", `(doc "TODO")`: `(doc "a key-value store in one file")`,
+		"(llm-work TODO": "(llm-work 4", "(maintenance TODO": "(maintenance 2", "(dependency TODO": "(dependency 1", "(runtime TODO": "(runtime 1",
+		`"TODO: how much must be written by hand?"`: `"get, put and delete by key"`, `"TODO: what goes wrong over months?"`: `"no schema to migrate"`,
+		`"TODO: what does it pull in, and what must be installed?"`: `"one module, nothing to install"`, `"TODO: what has to be running?"`: `"nothing"`,
+	} {
+		if !strings.Contains(answered, old) {
+			t.Fatalf("the skeleton has no %s to answer", old)
+		}
+		answered = strings.Replace(answered, old, new, 1)
+	}
+	if err := os.WriteFile(file, []byte(answered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(Options{Spec: file, Out: target}, io.Discard); err != nil {
+		t.Fatalf("an answered skeleton was refused: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(target, "tile_kv.go")); err != nil {
+		t.Errorf("an answered skeleton generated no tile: %v", err)
+	}
+	// A TODO left in one place is still caught, and words that merely
+	// contain it are not.
+	for _, n := range []*Node{{Atom: "TODO"}, {Atom: "TODO: later"}, {Atom: "TODO later"}, {IsList: true, List: []*Node{{Atom: "doc"}, {IsList: true, List: []*Node{{Atom: "TODO"}}}}}} {
+		if !unanswered(n) {
+			t.Errorf("%s should count as unanswered", short(n))
+		}
+	}
+	for _, n := range []*Node{{Atom: "TODOS"}, {Atom: "no TODO here"}, {Atom: "todo"}, {IsList: true, List: []*Node{{Atom: "doc"}, {Atom: "done"}}}} {
+		if unanswered(n) {
+			t.Errorf("%s should not count as unanswered", short(n))
+		}
 	}
 }
