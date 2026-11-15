@@ -41,6 +41,24 @@ import (
 // registration and a different pair of holes.
 var tileKinds = []string{"store-backend"}
 
+// tileKindCapability is the capability each kind of tile offers.
+var tileKindCapability = map[string]string{"store-backend": "store"}
+
+// unanswered reports whether a form still carries a TODO: the atom, or a
+// string that starts with it. A skeleton is full of them, and none may
+// reach a decision.
+func unanswered(n *Node) bool {
+	if !n.IsList {
+		return n.Atom == "TODO" || strings.HasPrefix(n.Atom, "TODO:") || strings.HasPrefix(n.Atom, "TODO ")
+	}
+	for _, k := range n.List {
+		if unanswered(k) {
+			return true
+		}
+	}
+	return false
+}
+
 func init() {
 	RegisterPackageTile(&PackageTile{
 		Form: "tile-spec",
@@ -81,6 +99,19 @@ func validateTileSpec(v *validator, n *Node, types map[string]bool) {
 		v.bad(n, "(tile-spec %s ...) generates %s, but the package already declares it", name.Atom, decl)
 	} else {
 		types[decl] = true
+	}
+
+	// A skeleton's TODOs are questions. Until each is answered there is
+	// nothing here to check, and nothing that may be generated from.
+	open := false
+	for _, it := range b.Rest("items") {
+		if unanswered(it) {
+			v.bad(it, "(tile-spec %s ...): %s is still a TODO; answer it before this tile can be used", name.Atom, short(it))
+			open = true
+		}
+	}
+	if open {
+		return
 	}
 
 	kind := ""
