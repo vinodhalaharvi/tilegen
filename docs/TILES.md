@@ -571,30 +571,63 @@ Write the `IllegalWhen` strings for the person who will read them in
 `explain`. They are the whole explanation of a rejection, and they end up in
 architecture discussions.
 
-Most storage tiles are not written from an empty file. Each has a spec in
-`internal/tiles/specs/`, and tilegen generates the registration from it:
+A storage tile that only has to say how a library is used needs no Go.
+It is a file in `internal/tiles/specs/`, read when tilegen starts:
 
 ```lisp
 (tile-spec pebble
   (kind store-backend)
   (doc "embedded key-value store: an LSM tree in a directory")
-  (engine none)
   (import pebble github.com/cockroachdb/pebble)
+  (error-package pebble)
+
   (satisfies (durable) "a write is synced to the log before it returns")
   (satisfies (no-broker) "a library in the program: nothing else to run")
   (illegal-when (cross-process) "one process holds the directory's lock")
   (illegal-when (lookup-by-field) "it finds a value by its key, and nothing else")
   (unverified (outbox) "no outbox is generated for it")
   (unverified (inbox) "no inbox is generated for it")
-  (cost (llm-work 5) (maintenance 3) (dependency 3) (runtime 2)))
+
+  (cost (llm-work 5) (maintenance 3) (dependency 3) (runtime 2))
+
+  (holds (db *pebble.DB) (prefix string))
+  (new (params (db *pebble.DB))
+    "return &{impl}{db: db, prefix: \"{names}/\"}")
+
+  (hint get "Call s.db.Get(key), and Close the closer that comes back with the value.")
+  (hint save "JSON-marshal the value and call s.db.Set(key, bytes, pebble.Sync)."))
 ```
 
 Every requirement a store can be asked for goes under one of the three
 headings, with its reason: `satisfies` when the tile meets it,
 `illegal-when` when it cannot, `unverified` when nobody has checked. A
-spec that leaves one out is refused, so a tile never wins a requirement
-by saying nothing about it. `tilegen tiles` lists the tiles there are,
-with what each claims.
+tile that leaves one out is refused, so it never wins a requirement by
+saying nothing about it.
+
+`holds` is the fields of the generated store, `new` is its constructor's
+parameters and body, and each `hint` says what one kind of method has to
+do in the library's own terms: `get`, `list`, `save`, `delete`, `count`,
+the by-field ones (`list-by`, `get-by`, `count-by`, `exists-by`,
+`delete-by`) and `custom`. A method with no hint is told to do what its
+own `(doc ...)` says.
+
+In that text tilegen fills in a few names, for an entity `LineItem` kept
+by this tile:
+
+| Name | Becomes |
+|---|---|
+| `{impl}` | the store's type, `PebbleLineItemStore` |
+| `{entity}` | `LineItem` |
+| `{name}`, `{names}` | `lineItem`, `lineItems` |
+| `{id}` | the type of its ID |
+| `{field}`, `{param}` | in a by-field hint, the field looked up and the parameter that carries the value |
+
+Any other `{word}` is refused as a misspelling; Go's own braces, as in
+`pebble.IterOptions{...}`, are left alone. There is nothing else to the
+language: no conditions and no loops. A tile that needs to compute
+something from the entity is asking for Go.
+
+`tilegen tiles` lists the tiles there are, with what each claims.
 
 ### A SQL backend
 

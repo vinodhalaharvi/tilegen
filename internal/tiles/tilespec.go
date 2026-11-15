@@ -128,6 +128,7 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 	kind := ""
 	seen := map[string]bool{}
 	claimed := map[string]string{} // requirement -> the heading it is under
+	hinted := map[string]bool{}    // op -> it has a hint
 	for _, it := range b.Rest("items") {
 		switch it.Head() {
 		case "kind":
@@ -167,13 +168,24 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 			}
 		case "cost":
 			validateTileCost(v, it)
+		case "holds":
+			validateHolds(v, it)
+		case "new":
+			validateNew(v, it)
+		case "hint":
+			if op := validateHint(v, it); op != "" {
+				if hinted[op] {
+					v.Bad(it, "duplicate (hint %s ...) in tile-spec %s", op, name.Atom)
+				}
+				hinted[op] = true
+			}
 		default:
-			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost"}
+			known := []string{"kind", "doc", "alias", "import", "error-package", "topics", "form", "engine", "requires", "satisfies", "illegal-when", "unverified", "cost", "holds", "new", "hint"}
 			v.Bad(it, "a tile-spec contains %s, got %s%s",
 				strings.Join(known, ", "), compile.Short(it), compile.DidYouMean(it.Head(), known))
 			continue
 		}
-		if it.Head() != "illegal-when" && it.Head() != "satisfies" && it.Head() != "unverified" && it.Head() != "import" && seen[it.Head()] {
+		if it.Head() != "illegal-when" && it.Head() != "satisfies" && it.Head() != "unverified" && it.Head() != "import" && it.Head() != "hint" && seen[it.Head()] {
 			v.Bad(it, "duplicate (%s ...) in tile-spec %s", it.Head(), name.Atom)
 		}
 		seen[it.Head()] = true
@@ -191,6 +203,20 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node, types map[string]bool)
 	}
 	if kind == "" {
 		v.Bad(n, "(tile-spec %s ...) needs a (kind ...): one of %s", name.Atom, strings.Join(TileKinds, ", "))
+	}
+	// What the store holds and how it is made go together: one without
+	// the other is half a tile.
+	if seen["holds"] != seen["new"] || (len(hinted) > 0 && !seen["new"]) {
+		v.Bad(n, "(tile-spec %s ...) is whole when it has both (holds ...) and (new ...): what the generated store keeps, and the constructor that fills it", name.Atom)
+	}
+	// A hint for a lookup the tile has ruled out is the tile arguing with
+	// itself.
+	if claimed["lookup-by-field"] == "illegal-when" {
+		for _, op := range fieldOps {
+			if hinted[op] {
+				v.Bad(n, "(tile-spec %s ...) rules out (lookup-by-field), so no store it serves has a %s method: remove (hint %s ...)", name.Atom, op, op)
+			}
+		}
 	}
 	if n.Text("doc") == "" {
 		v.Bad(n, "(tile-spec %s ...) needs a (doc \"...\"): it is the one line `tilegen tiles` prints", name.Atom)
@@ -313,6 +339,14 @@ func selectTileSpec(m *compile.Munch, b sexp.Bindings, n *sexp.Node) ([]*sexp.No
 	if kind != "store-backend" {
 		return nil, fmt.Errorf("tile-spec %s: kind %q is not implemented yet; tilegen knows %s",
 			name, kind, strings.Join(TileKinds, ", "))
+	}
+
+	// A whole tile has nothing left to write, so there is no Go file to
+	// scaffold for it: it is used as the file it is.
+	if Whole(n) {
+		return nil, fmt.Errorf("%s: (tile-spec %s ...) is whole: it says what the store holds and how it is made, "+
+			"so there is nothing to scaffold. Keep it as a file of its own, as the tiles in internal/tiles/specs are; "+
+			"or remove (holds ...), (new ...) and the hints to have them left open in Go", n.Pos, name)
 	}
 
 	// A tile is a file of tilegen's own, so it may name tilegen's packages.

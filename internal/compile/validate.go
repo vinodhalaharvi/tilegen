@@ -87,6 +87,15 @@ func Validate(forms []*sexp.Node, c *Ctx) error {
 	return errors.Join(v.errs...)
 }
 
+// Check runs fn with a validator of its own and returns what it found.
+// It is for forms validated outside a project, such as a tile read from a
+// file of its own.
+func Check(fn func(v *Validator)) error {
+	v := &Validator{}
+	fn(v)
+	return errors.Join(v.errs...)
+}
+
 type Validator struct {
 	c         *Ctx
 	errs      []error

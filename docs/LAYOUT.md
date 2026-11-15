@@ -34,30 +34,28 @@ context.
 ## Adding a tile
 
 A tile is one file in `internal/tiles`, named for what it offers and what
-it is: `store_bolt.go`, `bus_kafka.go`, `api_grpc.go`, `auth_oidc.go`,
+it is: `store_mongo.go`, `bus_kafka.go`, `api_grpc.go`, `auth_oidc.go`,
 `secrets_vault.go`. The file registers
 the tile and holds the code that emits its Go, and a test refuses a file
 that holds two tiles or is named for another.
 
-A storage tile starts as a spec in `internal/tiles/specs/NAME.sexp`:
-what the tile is, what each requirement means for it (met, ruled out, or
-unchecked, each with its reason), and what it costs. `tilegen import
--tiles` writes a skeleton for one from a go.mod, and `tilegen symbols`
-says what the library really exports. Then:
+A storage tile that only has to say how a library is used is a file of
+data, `internal/tiles/specs/NAME.sexp`: what the tile is, what each
+requirement means for it (met, ruled out, or unchecked, each with its
+reason), what it costs, what the generated store holds, and a hint for
+each method. tilegen reads these when it starts; nothing in one runs, and
+adding one changes no Go. `tilegen import -tiles` writes a skeleton from
+a go.mod, and `tilegen symbols` says what the library really exports.
+[TILES.md](TILES.md) has the form.
 
-```sh
-tilegen -out /tmp/tile internal/tiles/specs/NAME.sexp   # the registration, and two holes
-cp /tmp/tile/internal/tiles/store_NAME.go internal/tiles/
-```
-
-and the two holes are written: what the generated store holds, and what
-each method has to do in the library's terms. [TILES.md](TILES.md) has
-the rest.
+A tile that has to work something out from the entity, such as a schema
+and its queries, is Go: `store_postgres_sqlc.go` is one.
 
 A new tile is held to three things before it merges:
 
-- its spec and its Go file agree: generating from the spec gives the
-  registration that is checked in;
+- it loads: every requirement is answered, every name it uses in its
+  text is one tilegen fills in, and no hint is for a method the tile has
+  ruled out;
 - it compiles for real: pinned in a small spec, it generates a project
   that builds and vets against the library it names;
 - it changes no decision it was not meant to: the golden decisions show
