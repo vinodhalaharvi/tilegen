@@ -30,13 +30,15 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		t.Fatalf("the registry is inconsistent: %v", err)
 	}
 	for capability, want := range map[string][]string{
-		"store":     {"badger", "bolt", "dynamodb", "etcd", "leveldb", "memory", "mongo", "pebble", "postgres-pgx", "postgres-sqlc", "redis-kv", "sqlite-sqlc"},
+		// The stores written in Go, and one for each file in specs/.
+		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t)...),
 		"event-bus": {"kafka", "local-bus", "nats-core", "nats-jetstream", "rabbitmq", "redis-streams"},
 		"auth":      {"api-key", "jwt-local", "oidc", "session-store"},
 		"api":       {"connect", "grpc", "http-json"},
 		"secrets":   {"env-secrets", "file-secrets", "vault"},
 		"transport": {"kafka", "nats-core"},
 	} {
+		sort.Strings(want)
 		if got := offered(capability); !reflect.DeepEqual(got, want) {
 			t.Errorf("%s is offered by %v, want %v", capability, got, want)
 		}
@@ -238,7 +240,21 @@ func TestOneFilePerTile(t *testing.T) {
 			}
 		}
 	}
-	if len(found) != 28 {
-		t.Errorf("%d tiles found in files", len(found))
+	if want := 21 + len(dataTiles(t)); len(found) != want {
+		t.Errorf("%d tiles found in files, want %d", len(found), want)
 	}
+}
+
+// dataTiles are the tiles that are files of data: specs/NAME.sexp.
+func dataTiles(t *testing.T) []string {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("specs", "*.sexp"))
+	if err != nil || len(files) < 7 {
+		t.Fatalf("the data tiles: %d files, %v", len(files), err)
+	}
+	var names []string
+	for _, f := range files {
+		names = append(names, strings.TrimSuffix(filepath.Base(f), ".sexp"))
+	}
+	return names
 }

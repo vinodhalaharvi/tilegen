@@ -507,6 +507,92 @@
           ]
         },
         {
+          "tile": "buntdb",
+          "score": 37,
+          "own": 37,
+          "terms": "llm 4·4 + maint 3·3 + dep 1·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "View and Update closures over string keys and values, with the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations, and every value is held in memory"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "buntdb and a few small modules, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a map and a B-tree in memory"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "pogreb",
+          "score": 40,
+          "own": 40,
+          "terms": "llm 4·4 + maint 4·3 + dep 1·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, put, delete and an iterator, with the JSON and a sort by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, no ordering and no range scan: every list reads the whole database and sorts it"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pogreb only, and no build-time tool"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a hash lookup on disk"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "redis-kv",
           "score": 43,
           "own": 43,
@@ -630,6 +716,56 @@
           ]
         },
         {
+          "tile": "nats-kv",
+          "score": 53,
+          "own": 53,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "get, put, delete and a key listing, with the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, a key may hold only letters, digits and - _ = . /, and a list or a count walks every key"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "nats.go and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a NATS server with JetStream storage to run, size and back up"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "mongo",
           "score": 56,
           "own": 49,
@@ -672,6 +808,106 @@
               "rule": "doc-mapper",
               "score": 7,
               "detail": "1 entity"
+            }
+          ]
+        },
+        {
+          "tile": "redis-rueidis",
+          "score": 56,
+          "own": 56,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "commands built one by one, a cursor scan, nil replies to tell from errors, and JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and a list or a count walks the keyspace with SCAN"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "rueidis only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call, pipelined automatically"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "valkey",
+          "score": 56,
+          "own": 56,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "commands built one by one, a cursor scan, nil replies to tell from errors, and JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and a list or a count walks the keyspace with SCAN"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "valkey-go only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call, pipelined automatically"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -760,6 +996,56 @@
           ]
         },
         {
+          "tile": "s3",
+          "score": 63,
+          "own": 63,
+          "terms": "llm 6·4 + maint 5·3 + dep 4·1 + run 4·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 6,
+              "weight": 4,
+              "source": "derived",
+              "note": "paged listing, a GET per object behind every list, and typed errors, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no query: a list or a count reads every key under the prefix, and tests need an emulator or a live bucket"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per object, and a list is one per page of keys plus one per object"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch or back up by hand; a bucket policy, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "etcd",
           "score": 68,
           "own": 68,
@@ -799,6 +1085,156 @@
               "weight": 3,
               "source": "derived",
               "note": "a quorum to keep healthy: members, backups, compaction and defragmentation"
+            }
+          ]
+        },
+        {
+          "tile": "minio",
+          "score": 72,
+          "own": 72,
+          "terms": "llm 6·4 + maint 5·3 + dep 2·1 + run 3·1 + ops 6·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 6,
+              "weight": 4,
+              "source": "derived",
+              "note": "a GetObject whose error only appears on the first read, a channel of listed objects, and a GET per object behind every list"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no query: a list or a count walks every key under the prefix"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "minio-go and a few small modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per object, and a list is one per page of keys plus one per object"
+            },
+            {
+              "dimension": "operations",
+              "value": 6,
+              "weight": 3,
+              "source": "derived",
+              "note": "an object server to run: disks, healing, upgrades and backups"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "tikv",
+          "score": 74,
+          "own": 74,
+          "terms": "llm 5·4 + maint 4·3 + dep 6·1 + run 2·1 + ops 8·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "key encoding, a scan in bounded pages and JSON, all by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema and no migrations: a field added to the struct changes stored values silently"
+            },
+            {
+              "dimension": "dependency",
+              "value": 6,
+              "weight": 1,
+              "source": "derived",
+              "note": "the TiKV client brings gRPC, protobuf, the placement-driver client and their trees"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round of consensus for every write"
+            },
+            {
+              "dimension": "operations",
+              "value": 8,
+              "weight": 3,
+              "source": "derived",
+              "note": "at least three TiKV nodes and three placement drivers to run, balance, back up and upgrade"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "zookeeper",
+          "score": 75,
+          "own": 75,
+          "terms": "llm 5·4 + maint 7·3 + dep 1·1 + run 2·1 + ops 7·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "paths, versions, a create-or-set for every save and a read per child for every list"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and it is built for a little data that matters a great deal: a znode holds under 1 MiB, the whole tree lives in each server's memory, and listing reads children one by one"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "the zk client only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a quorum write, and a list is one call per znode"
+            },
+            {
+              "dimension": "operations",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "an ensemble of three or five to keep in quorum, with snapshots and logs to purge"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         }
