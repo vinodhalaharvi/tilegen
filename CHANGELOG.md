@@ -2,6 +2,40 @@
 
 ## Unreleased
 
+## v0.3.6 - 2026-11-16
+
+- `tilegen mcp -root DIR` serves tilegen to an assistant over MCP:
+  generate one project or many in a call, explain a spec, read the
+  reference and the catalogue, read a go.mod, list what a library
+  exports, and check a tile. It writes only under `-root`.
+- `tilegen symbols MODULE` lists what a Go module exports, read with
+  go/types.
+- A tile that only says how a library is used is a file of data,
+  `(tile NAME (offers CAPABILITY) ...)`: what it claims, what it costs,
+  what the generated type holds, and a hint for each method left open.
+  Stores, event buses, auth schemes and inbound edges can be files. A
+  tile is Go only when it works something out from the spec.
+- `-tiles DIR`, before any command, adds the tiles in a folder of your
+  own beside the built-in ones.
+- `tilegen import -tiles` writes a skeleton tile for each library in a
+  go.mod that no tile covers. Every judgment in it is a question, and a
+  tile with a question left open is refused.
+- A tile answers every requirement of what it offers, as met, ruled out
+  or unchecked, each with its reason.
+- Fifty more tiles. Stores: etcd, redis-kv, redis-hash, redis-redigo,
+  redis-rueidis, valkey, dynamodb, s3, minio, cassandra, tikv, pebble,
+  leveldb, buntdb, pogreb, diskv, zookeeper, nats-kv, nats-object-store,
+  gorm, cockroach-json, mysql-json, postgres-pq-json, sqlite-json,
+  sqlite-cgo-json, mssql-json. Buses: sqs, sqs-fifo, sns-sqs,
+  azure-service-bus, azure-queue, nsq, mqtt, redis-pubsub,
+  postgres-notify, postgres-queue, asynq, watermill. Auth: basic-auth,
+  mtls, spiffe, jwt-jwks, jwt-jwx, ldap-bind, cookie-session,
+  scs-session, hmac-signature, token-introspection, trusted-header.
+  Secrets: aws-secrets-manager.
+- A custom method on a mongo store is told to do what it documents.
+- The source is in packages under `internal/`; `docs/LAYOUT.md` says
+  where each thing is.
+
 ## v0.3.5 - 2026-11-13
 
 - Studio: search with Cmd+K or Ctrl+K across tiles, requirements, briefs,

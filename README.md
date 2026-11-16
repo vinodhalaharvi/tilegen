@@ -1483,7 +1483,7 @@ Issues and pull requests: <https://github.com/vinodhalaharvi/tilegen/issues>
 
 ## Status
 
-v0.3.5. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
+v0.3.6. Next up is v0.4, *Measured*: running `tilegen fill` for real, logging
 every attempt, and replacing declared LLM costs with measured ones. See
 [ROADMAP.md](ROADMAP.md).
 
