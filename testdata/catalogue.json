@@ -1865,7 +1865,7 @@
       "produces": "store",
       "cost": {
         "dependency": 1,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "operations": 7,
         "runtime": 2,
@@ -1889,7 +1889,7 @@
       },
       "cost_notes": {
         "dependency": "pgx only",
-        "llm-work": "six statements by hand, rows to scan, and the JSON",
+        "llm-work": "SQL by hand in CockroachDB's dialect: an upsert, lookups that reach inside the document, rows to scan, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code",
         "operations": "a cluster of at least three nodes to run, or a managed one to pay for",
         "runtime": "a round of consensus for every write",
@@ -2174,7 +2174,7 @@
       "produces": "store",
       "cost": {
         "dependency": 2,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "operations": 6,
         "runtime": 1,
@@ -2198,7 +2198,7 @@
       },
       "cost_notes": {
         "dependency": "the driver and its few modules",
-        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
         "operations": "a server to run, with backups, connections and upgrades",
         "runtime": "a statement per call",
@@ -2212,7 +2212,7 @@
       "produces": "store",
       "cost": {
         "dependency": 1,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "operations": 5,
         "runtime": 1,
@@ -2236,7 +2236,7 @@
       },
       "cost_notes": {
         "dependency": "the driver only",
-        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
         "operations": "a server to run, with backups, connections and upgrades",
         "runtime": "a statement per call",
@@ -2429,7 +2429,7 @@
       "produces": "store",
       "cost": {
         "dependency": 1,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "operations": 5,
         "runtime": 1,
@@ -2453,7 +2453,7 @@
       },
       "cost_notes": {
         "dependency": "the driver only",
-        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
         "operations": "a server to run, with backups, connections and upgrades",
         "runtime": "a statement per call",
@@ -2691,7 +2691,7 @@
       "produces": "store",
       "cost": {
         "dependency": 3,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "runtime": 1,
         "uncertainty": 2
@@ -2713,7 +2713,7 @@
       },
       "cost_notes": {
         "dependency": "the driver compiles SQLite's C source: a C compiler in every build, and cgo in the binary",
-        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
         "runtime": "a statement per call",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
@@ -2726,7 +2726,7 @@
       "produces": "store",
       "cost": {
         "dependency": 3,
-        "llm-work": 5,
+        "llm-work": 6,
         "maintenance": 5,
         "runtime": 1,
         "uncertainty": 2
@@ -2748,7 +2748,7 @@
       },
       "cost_notes": {
         "dependency": "a SQLite translated to Go: a large module, and no C compiler needed",
-        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
         "runtime": "a statement per call",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"

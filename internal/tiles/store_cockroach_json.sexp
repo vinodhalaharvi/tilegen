@@ -21,7 +21,7 @@
     "an inbox is one transaction over a handler's writes and the record that it ran; a transaction can hold both, and this tile does not generate it")
 
   (cost
-    (llm-work 5 (source derived "six statements by hand, rows to scan, and the JSON"))
+    (llm-work 6 (source derived "SQL by hand in CockroachDB's dialect: an upsert, lookups that reach inside the document, rows to scan, and the JSON"))
     (maintenance 5 (source derived "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code"))
     (dependency 1 (source derived "pgx only"))
     (runtime 2 (source derived "a round of consensus for every write"))

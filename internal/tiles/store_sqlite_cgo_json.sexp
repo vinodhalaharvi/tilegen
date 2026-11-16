@@ -20,7 +20,7 @@
     "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it")
 
   (cost
-    (llm-work 5 (source derived "six statements by hand, rows to scan and close, and the JSON"))
+    (llm-work 6 (source derived "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON"))
     (maintenance 5 (source derived "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"))
     (dependency 3 (source derived "the driver compiles SQLite's C source: a C compiler in every build, and cgo in the binary"))
     (runtime 1 (source derived "a statement per call"))
