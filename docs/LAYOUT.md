@@ -49,9 +49,10 @@ runs, and adding one changes no Go. `tilegen import -tiles` writes a
 skeleton from a go.mod, and `tilegen symbols` says what the library
 really exports. [TILES.md](TILES.md) has the form.
 
-A tile that has to do more is Go: one that writes finished code, works
-out a schema from the entity, or checks the spec for something it needs.
-`store_postgres_sqlc.go` is one.
+A tile is Go only when it has to work something out from the spec: it
+writes finished code, works out a schema from the entity, or checks the
+spec for something it needs. `store_postgres_sqlc.go` is one. Every
+other tile is a file.
 
 A new tile is held to three things before it merges:
 

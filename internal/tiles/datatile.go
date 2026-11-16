@@ -369,6 +369,7 @@ type shape struct {
 	fills    []string            // the names filled in everywhere
 	opFills  map[string][]string // and the ones only some hints have
 	typeName bool                // the tile names the generated type's suffix, with (type-name ...)
+	declares bool                // the tile says what the type holds, how it is made, and a hint per method
 	build    func(t *Tile, n *sexp.Node)
 }
 
@@ -379,17 +380,20 @@ var shapes = map[string]*shape{
 		what: "store", ops: hintOps, fills: storeNames,
 		opFills: map[string][]string{"get": {"param"}, "list": {"param"}, "save": {"param"}, "delete": {"param"}, "count": {"param"},
 			"list-by": {"field", "param"}, "get-by": {"field", "param"}, "count-by": {"field", "param"}, "exists-by": {"field", "param"}, "delete-by": {"field", "param"}},
-		build: storeBackend,
+		declares: true, build: storeBackend,
 	},
 	"event-bus": {
 		what: "bus", ops: []string{"publish", "on"}, fills: declaredNames,
 		opFills:  map[string][]string{"publish": {"event"}, "on": {"event"}},
-		typeName: true, build: busOffer,
+		typeName: true, declares: true, build: busOffer,
 	},
 	"auth": {
 		what: "authenticator", ops: []string{"authenticate"}, fills: declaredNames,
-		typeName: true, build: authOffer,
+		typeName: true, declares: true, build: authOffer,
 	},
+	// An inbound edge's code is tilegen's own: the tile names the type and
+	// its library, and says what the edge can promise.
+	"transport": {what: "source", typeName: true, build: transportOffer},
 }
 
 // declaredNames are the names filled in for a capability whose tiles
@@ -464,6 +468,13 @@ func busOffer(t *Tile, n *sexp.Node) {
 			return strings.NewReplacer("{event}", event).Replace(hints[strings.ToLower(method)])
 		},
 	}
+}
+
+// transportOffer builds an inbound edge's registration: a name and a
+// library. What is generated around them is the compiler's.
+func transportOffer(t *Tile, n *sexp.Node) {
+	t.Offer = offerOf(t, n)
+	t.Offer.Impl = &compile.Transport{Suffix: n.Text("type-name"), Topics: topicsOf(n), Import: firstImport(n)}
 }
 
 // authOffer builds an auth scheme's registration: the type and

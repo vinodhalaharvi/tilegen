@@ -178,22 +178,31 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 		v.Bad(n, "(tile %s ...) needs an (offers ...): one of %s", name.Atom, strings.Join(Loadable(), ", "))
 	}
 	// What it holds and how it is made: without them there is nothing to
-	// generate from.
-	if !seen["holds"] || !seen["new"] {
+	// generate from. A capability whose code is tilegen's own takes none.
+	switch {
+	case sh.declares && (!seen["holds"] || !seen["new"]):
 		v.Bad(n, "(tile %s ...) needs (holds ...) and (new ...): what the generated %s keeps, and the constructor that fills it", name.Atom, sh.what)
+	case !sh.declares:
+		for _, has := range []string{"holds", "new", "hint", "about", "about-new"} {
+			if seen[has] {
+				v.Bad(n, "(tile %s ...) has a (%s ...), and a %s's code is written by tilegen: the tile gives its name, its library, what it claims and what it costs", name.Atom, has, sh.what)
+			}
+		}
 	}
-	// A capability whose tiles declare the whole type needs its name and
-	// the two doc comments; a store's are made from the entity.
+	// A capability whose tiles are a type of their own needs the type's
+	// name, and the two doc comments when the tile declares it; a store's
+	// are made from the entity.
 	for _, need := range []string{"type-name", "about", "about-new"} {
+		wanted := sh.typeName && (need == "type-name" || sh.declares)
 		switch {
-		case sh.typeName && !seen[need]:
+		case wanted && !seen[need]:
 			v.Bad(n, "(tile %s ...) needs a (%s ...): the %s it generates is a type of its own", name.Atom, need, sh.what)
 		case !sh.typeName && seen[need]:
 			v.Bad(n, "(tile %s ...) has a (%s ...), and a %s's type is named and described from the entity", name.Atom, need, sh.what)
 		}
 	}
 	// Every kind of method it leaves open has its hint.
-	if sh.typeName {
+	if sh.typeName && sh.declares {
 		for _, op := range sh.ops {
 			if !hinted[op] && seen["new"] {
 				v.Bad(n, "(tile %s ...) needs a (hint %s ...): it is what the model is told to write", name.Atom, op)
