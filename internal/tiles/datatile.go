@@ -437,12 +437,19 @@ func hintsOf(n *sexp.Node) map[string]string {
 	return hints
 }
 
-// oneImport is the import of a tile whose capability takes one.
-func oneImport(n *sexp.Node) [2]string {
+// firstImport is a tile's first import, and restImports the others.
+func firstImport(n *sexp.Node) [2]string {
 	if im := importPairs(n); len(im) > 0 {
 		return im[0]
 	}
 	return [2]string{}
+}
+
+func restImports(n *sexp.Node) [][2]string {
+	if im := importPairs(n); len(im) > 1 {
+		return im[1:]
+	}
+	return nil
 }
 
 // busOffer builds an event bus's registration: the type and constructor
@@ -451,7 +458,7 @@ func busOffer(t *Tile, n *sexp.Node) {
 	hints := hintsOf(n)
 	t.Offer = offerOf(t, n)
 	t.Offer.Impl = &compile.BusTransport{
-		Suffix: n.Text("type-name"), Topics: topicsOf(n), Import: oneImport(n),
+		Suffix: n.Text("type-name"), Topics: topicsOf(n), Import: firstImport(n), More: restImports(n),
 		Emit: func(in compile.BusInput) ([]*sexp.Node, error) { return declared(n, in.Impl, in.CtxType), nil },
 		Hint: func(method, event string) string {
 			return strings.NewReplacer("{event}", event).Replace(hints[strings.ToLower(method)])
@@ -465,7 +472,7 @@ func authOffer(t *Tile, n *sexp.Node) {
 	hints := hintsOf(n)
 	t.Offer = offerOf(t, n)
 	t.Offer.Impl = &compile.AuthScheme{
-		Suffix: n.Text("type-name"), Topics: topicsOf(n), Import: oneImport(n),
+		Suffix: n.Text("type-name"), Topics: topicsOf(n), Import: firstImport(n), More: restImports(n),
 		Emit: func(in compile.AuthInput) ([]*sexp.Node, error) { return declared(n, in.Impl, in.CtxType), nil },
 		Hint: func(in compile.AuthInput) string {
 			return strings.NewReplacer("{impl}", in.Impl, "{ctx-type}", in.CtxType).Replace(hints["authenticate"])

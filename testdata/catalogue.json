@@ -61,6 +61,7 @@
         "rabbitmq",
         "redis-pubsub",
         "redis-streams",
+        "sns-sqs",
         "sqs"
       ]
     },
@@ -72,6 +73,7 @@
         "audited"
       ],
       "offered_by": [
+        "aws-secrets-manager",
         "env-secrets",
         "file-secrets",
         "vault"
@@ -1127,6 +1129,44 @@
       }
     },
     {
+      "name": "sns-sqs",
+      "pass": "select",
+      "doc": "Amazon SNS and SQS: a topic per event type, fanned out to a queue per subscriber",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 2,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "cloud services the program cannot start without: an account, the topics, queues and subscriptions, credentials and a network path to them",
+        "ordered": "a standard topic and queue deliver in no promised order; FIFO topics and queues order within a message group, and this tile sets none",
+        "replay": "a message is gone from a queue once it is deleted; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias snssqs)"
+      ],
+      "engine": "sns-sqs",
+      "satisfies": {
+        "at-least-once": "a message not deleted from its queue before the visibility timeout is delivered again",
+        "consumer-groups": "consumers polling one queue share its messages",
+        "cross-process": "regional services every process reaches over HTTPS",
+        "durable": "a Publish that returns has stored the message redundantly, and each subscribed queue stores its copy the same way",
+        "fan-out": "every queue subscribed to a topic gets its own copy of each message"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "a publish, a polling loop with a clean stop, and delete-on-success, by hand",
+        "maintenance": "a topic per event type, a queue per subscriber, and the subscriptions and queue policies that join them, to create and keep in step",
+        "operations": "nothing to patch; topics, queues, IAM and cost to watch",
+        "runtime": "an HTTPS round trip per publish, and a long poll per batch",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "sqs",
       "pass": "select",
       "doc": "Amazon SQS: a queue per event type, long-polled by competing consumers",
@@ -1162,6 +1202,35 @@
         "operations": "nothing to patch; queues, IAM and cost to watch",
         "runtime": "an HTTPS round trip per send, and a long poll per batch",
         "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "aws-secrets-manager",
+      "pass": "select",
+      "doc": "one AWS Secrets Manager secret holding a JSON object, read through a short cache",
+      "produces": "secrets",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 0,
+        "maintenance": 2,
+        "operations": 2,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias aws)"
+      ],
+      "engine": "aws-secrets-manager",
+      "satisfies": {
+        "audited": "CloudTrail records every GetSecretValue with the identity that made it",
+        "rotating": "a read is kept for a ttl you choose, so a rotated secret is seen within it"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "maintenance": "an IAM policy to keep in step with the secret, and its JSON keys with the spec",
+        "operations": "nothing to run; a secret, its rotation and its IAM policy to look after",
+        "runtime": "a network read when the cache expires",
+        "uncertainty": "the code it writes builds against the SDK and has not been run against AWS"
       }
     },
     {

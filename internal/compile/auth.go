@@ -72,9 +72,10 @@ func validateAuth(v *Validator, n *sexp.Node, types map[string]bool) {
 // and the middleware are the same whichever scheme wins, so the tile
 // makes those.
 type AuthScheme struct {
-	Suffix string    // the implementation type: JWTAuthenticator
-	Topics []string  // GitHub topics a project using it gets
-	Import [2]string // qualifier and import path its code needs, if any
+	Suffix string      // the implementation type: JWTAuthenticator
+	Topics []string    // GitHub topics a project using it gets
+	Import [2]string   // qualifier and import path its code needs, if any
+	More   [][2]string // and any further ones
 	Emit   func(in AuthInput) ([]*sexp.Node, error)
 
 	// Hint is the intent for Authenticate. Empty means the scheme emits

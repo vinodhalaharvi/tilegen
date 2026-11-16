@@ -35,7 +35,7 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 		"event-bus": append([]string{"kafka", "local-bus", "nats-core"}, dataTiles(t, "event-bus")...),
 		"auth":      append([]string{"session-store"}, dataTiles(t, "auth")...),
 		"api":       {"connect", "grpc", "http-json"},
-		"secrets":   {"env-secrets", "file-secrets", "vault"},
+		"secrets":   {"aws-secrets-manager", "env-secrets", "file-secrets", "vault"},
 		"transport": {"kafka", "nats-core"},
 	} {
 		sort.Strings(want)
