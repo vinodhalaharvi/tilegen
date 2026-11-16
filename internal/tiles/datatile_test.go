@@ -226,12 +226,19 @@ func TestATileOfAnotherCapability(t *testing.T) {
 		"a hint missing":                      {change("(hint on\n", "(hint publish\n"), "duplicate (hint publish ...)"},
 		"a store's hint":                      {change("(hint on\n", "(hint get\n"), "a hint is for one kind of method: publish, on; got get"},
 		"a store's name":                      {change("{event}", "{entity}"), "{entity} is not a name tilegen fills in; it knows {event}, {impl}, {ctx-type}"},
-		"two imports":                         {change("(import amqp ", "(import other example.com/other)\n  (import amqp "), "has 2 imports, and a bus takes one"},
 		"a requirement of another capability": {change("(satisfies (cross-process)", "(satisfies (lookup-by-field)"), "(lookup-by-field) is not something a spec asks of event-bus; that is "},
 	} {
 		if _, err := LoadTiles("hare.sexp", c.src); err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: want %q, got %v", name, c.want, err)
 		}
+	}
+	// More than one import is carried: one as the tile's own, the rest beside it.
+	two, err := LoadTiles("hare.sexp", change("(import amqp ", "(import other example.com/other)\n  (import amqp "))
+	if err != nil {
+		t.Fatalf("a bus with two imports: %v", err)
+	}
+	if tr := two[0].Offer.Impl.(*compile.BusTransport); tr.Import[0] != "amqp" || len(tr.More) != 1 || tr.More[0][1] != "example.com/other" {
+		t.Errorf("a bus with two imports: %v and %v", tr.Import, tr.More)
 	}
 	// One hint of the two is not enough.
 	onAt := strings.Index(queue, "(hint on")

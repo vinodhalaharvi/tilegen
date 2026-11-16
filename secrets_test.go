@@ -1,12 +1,15 @@
 package main
 
 import (
-	"github.com/vinodhalaharvi/tilegen/internal/compile"
 	"go/parser"
 	"go/token"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/vinodhalaharvi/tilegen/internal/compile"
 )
 
 func secretsSpec(items string) string {
@@ -155,11 +158,59 @@ func TestVaultIsAnEngineOfItsOwn(t *testing.T) {
 	// The whole-project view counts a Vault as a server to operate.
 	for _, o := range compile.OffersOf("secrets") {
 		want := "" // the environment and a directory are nothing to run
-		if o.Tile == "vault" {
+		switch o.Tile {
+		case "vault":
 			want = "vault"
+		case "aws-secrets-manager": // nothing to run, and still a service the project depends on
+			want = "aws-secrets-manager"
 		}
 		if got := compile.EngineOf(o); got != want {
 			t.Errorf("%s runs on %q, want %q", o.Tile, got, want)
 		}
+	}
+}
+
+// AWS Secrets Manager is a secret source like Vault: finished code, no
+// holes, chosen when a team says so or when running a server costs it more.
+func TestAWSSecretsManager(t *testing.T) {
+	spec := secretsSpec("(secret OAuthClientID (key oauth_client_id)) (rotating) (audited)")
+	// Vault stays the choice by default: this tile pays for not having been run against AWS.
+	if _, got := genSecrets(t, spec, ""); got != "vault" {
+		t.Errorf("by default: chose %s, want vault", got)
+	}
+	out, got := genSecrets(t, spec, "(config (secrets aws))")
+	if got != "aws-secrets-manager" {
+		t.Fatalf("the config should choose aws-secrets-manager, got %s", got)
+	}
+	src := read(t, out, "orders/secrets_gen.go")
+	for _, want := range []string{
+		`"github.com/aws/aws-sdk-go-v2/service/secretsmanager"`,
+		"func NewAWSSecrets(ctx context.Context, client *secretsmanager.Client, id string, ttl time.Duration) (*AWSSecrets, error) {",
+		`for _, key := range []string{"database_url", "signing_key", "oauth_client_id"} {`,
+		"out, err := s.client.GetSecretValue(ctx, &secretsmanager.GetSecretValueInput{SecretId: &s.id})",
+		"if s.data == nil || time.Since(s.fetched) >= s.ttl {",
+		`func (s *AWSSecrets) OAuthClientID(ctx context.Context) (string, error) {`,
+		`return s.read(ctx, "oauth_client_id")`,
+		"var _ Secrets = (*AWSSecrets)(nil)",
+	} {
+		if !strings.Contains(src, want) {
+			t.Errorf("secrets_gen.go missing %q:\n%s", want, src)
+		}
+	}
+	if strings.Contains(src, "tilegen:llm") || strings.Contains(src, "hashicorp") {
+		t.Errorf("it should be finished code, and AWS's alone:\n%s", src)
+	}
+	// A policy that makes a server expensive to run chooses it over Vault.
+	dir := t.TempDir()
+	sp, _ := writeSpec(t, dir, spec, "")
+	policy := filepath.Join(dir, "policy.sexp")
+	if err := os.WriteFile(policy, []byte("(policy (weights (operations 12)))"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := run(compile.Options{Spec: sp, Out: filepath.Join(dir, "out"), PolicyFile: policy}, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if lock := read(t, filepath.Join(dir, "out"), "tilegen.lock"); !strings.Contains(lock, "(tile orders.Secrets aws-secrets-manager)") {
+		t.Errorf("with operations weighted 12:\n%s", lock)
 	}
 }

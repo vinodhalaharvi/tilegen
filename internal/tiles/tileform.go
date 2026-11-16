@@ -192,9 +192,6 @@ func validateTileSpec(v *compile.Validator, n *sexp.Node) {
 			v.Bad(n, "(tile %s ...) has a (%s ...), and a %s's type is named and described from the entity", name.Atom, need, sh.what)
 		}
 	}
-	if sh.typeName && len(n.FindAll("import")) > 1 {
-		v.Bad(n, "(tile %s ...) has %d imports, and a %s takes one", name.Atom, len(n.FindAll("import")), sh.what)
-	}
 	// Every kind of method it leaves open has its hint.
 	if sh.typeName {
 		for _, op := range sh.ops {
