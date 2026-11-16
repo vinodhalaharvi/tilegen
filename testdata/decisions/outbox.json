@@ -85,12 +85,24 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one"
         },
         {
+          "tile": "cockroach-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a transaction can hold both, and this tile does not generate it"
+        },
+        {
+          "tile": "diskv",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; there are no transactions over two files"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; TransactWriteItems can write both, and this tile does not generate one"
         },
         {
           "tile": "etcd",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Txn can put both, and this tile does not generate one"
+        },
+        {
+          "tile": "gorm",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; db.Transaction can hold both, and this tile does not generate it"
         },
         {
           "tile": "leveldb",
@@ -109,8 +121,20 @@
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "mssql-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
+        },
+        {
+          "tile": "mysql-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
+        },
+        {
           "tile": "nats-kv",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two keys"
+        },
+        {
+          "tile": "nats-object-store",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two objects"
         },
         {
           "tile": "pebble",
@@ -125,6 +149,10 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
         },
         {
+          "tile": "postgres-pq-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
+        },
+        {
           "tile": "redis-hash",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
@@ -133,12 +161,24 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
+          "tile": "redis-redigo",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
           "tile": "redis-rueidis",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
           "tile": "s3",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; S3 has no transaction over two objects"
+        },
+        {
+          "tile": "sqlite-cgo-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
+        },
+        {
+          "tile": "sqlite-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
         },
         {
           "tile": "sqlite-sqlc",
@@ -228,6 +268,49 @@
               "weight": 3,
               "source": "derived",
               "note": "one binary, no storage, nothing to size"
+            }
+          ]
+        },
+        {
+          "tile": "watermill",
+          "score": 36,
+          "own": 36,
+          "terms": "llm 3·4 + maint 3·3 + dep 3·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "wrap and unwrap a message, and acknowledge by the handler's result"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "what the bus promises is decided where the Pub/Sub is built, away from this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "Watermill, and the Pub/Sub module the caller chooses"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a layer over the broker's own client"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -439,6 +522,56 @@
           ]
         },
         {
+          "tile": "asynq",
+          "score": 51,
+          "own": 51,
+          "terms": "llm 3·4 + maint 4·3 + dep 3·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "enqueue a task, and register a handler"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "handlers are registered before the server starts and cannot be removed, and retries, timeouts and the dead set need watching"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "asynq and the Redis client under it"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per task, and workers polling"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a Redis to run, and an asynq server process for the workers"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nsq",
           "score": 53,
           "own": 53,
@@ -478,6 +611,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nsqd on each producing host and nsqlookupd to run and watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "azure-queue",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 5·4 + maint 4·3 + dep 3·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a pause and a clean stop, and delete-on-success, by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a queue to create per event type, visibility timeouts to tune, and poison messages to move aside by hand"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Azure SDK's core and storage modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per message, and polling with no long poll"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; access policy and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -639,6 +822,56 @@
           ]
         },
         {
+          "tile": "postgres-queue",
+          "score": 58,
+          "own": 58,
+          "terms": "llm 5·4 + maint 3·3 + dep 1·1 + run 3·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a clean stop, and a transaction around every event"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "the events table is created outside this code, a slow handler holds a transaction open, and the poll interval is a trade between lag and load"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a query per poll, whether or not there is anything to take"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "sns-sqs",
           "score": 58,
           "own": 58,
@@ -678,6 +911,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nothing to patch; topics, queues, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "sqs-fifo",
+          "score": 58,
+          "own": 58,
+          "terms": "llm 5·4 + maint 5·3 + dep 4·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a clean stop, delete-on-success, and a group and a deduplication id for every message"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a .fifo queue to create per event type, and a message that keeps failing holds back the rest of its group until it reaches the dead-letter queue"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per send, a long poll per batch, and a lower throughput ceiling than a standard queue"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; queues, IAM and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -804,12 +1087,24 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; a logged batch applies all of its statements eventually, without isolation, and this tile does not generate one"
         },
         {
+          "tile": "cockroach-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a transaction can hold both, and this tile does not generate it"
+        },
+        {
+          "tile": "diskv",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; there are no transactions over two files"
+        },
+        {
           "tile": "dynamodb",
           "reason": "unverified: an outbox is one transaction over the entity and the event; TransactWriteItems can write both, and this tile does not generate one"
         },
         {
           "tile": "etcd",
           "reason": "unverified: an outbox is one transaction over the entity and the event; a Txn can put both, and this tile does not generate one"
+        },
+        {
+          "tile": "gorm",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; db.Transaction can hold both, and this tile does not generate it"
         },
         {
           "tile": "leveldb",
@@ -828,8 +1123,20 @@
           "reason": "unverified: a multi-document transaction needs a replica set, and this tile does not generate one"
         },
         {
+          "tile": "mssql-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+        },
+        {
+          "tile": "mysql-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+        },
+        {
           "tile": "nats-kv",
           "reason": "unverified: an outbox is one transaction over the entity and the event; JetStream has no transaction over two keys"
+        },
+        {
+          "tile": "nats-object-store",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; JetStream has no transaction over two objects"
         },
         {
           "tile": "pebble",
@@ -844,6 +1151,10 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
         },
         {
+          "tile": "postgres-pq-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+        },
+        {
           "tile": "redis-hash",
           "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
@@ -852,12 +1163,24 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI and EXEC can queue both, and this tile does not generate one"
         },
         {
+          "tile": "redis-redigo",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+        },
+        {
           "tile": "redis-rueidis",
           "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
           "tile": "s3",
           "reason": "unverified: an outbox is one transaction over the entity and the event; S3 has no transaction over two objects"
+        },
+        {
+          "tile": "sqlite-cgo-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+        },
+        {
+          "tile": "sqlite-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
         },
         {
           "tile": "sqlite-sqlc",

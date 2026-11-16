@@ -161,6 +161,49 @@
           ]
         },
         {
+          "tile": "watermill",
+          "score": 36,
+          "own": 36,
+          "terms": "llm 3·4 + maint 3·3 + dep 3·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "wrap and unwrap a message, and acknowledge by the handler's result"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "what the bus promises is decided where the Pub/Sub is built, away from this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "Watermill, and the Pub/Sub module the caller chooses"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a layer over the broker's own client"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "redis-streams",
           "score": 38,
           "own": 38,
@@ -368,6 +411,56 @@
           ]
         },
         {
+          "tile": "asynq",
+          "score": 51,
+          "own": 51,
+          "terms": "llm 3·4 + maint 4·3 + dep 3·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "enqueue a task, and register a handler"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "handlers are registered before the server starts and cannot be removed, and retries, timeouts and the dead set need watching"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "asynq and the Redis client under it"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per task, and workers polling"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a Redis to run, and an asynq server process for the workers"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nsq",
           "score": 53,
           "own": 53,
@@ -407,6 +500,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nsqd on each producing host and nsqlookupd to run and watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "azure-queue",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 5·4 + maint 4·3 + dep 3·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a pause and a clean stop, and delete-on-success, by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a queue to create per event type, visibility timeouts to tune, and poison messages to move aside by hand"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Azure SDK's core and storage modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per message, and polling with no long poll"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; access policy and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -568,6 +711,56 @@
           ]
         },
         {
+          "tile": "postgres-queue",
+          "score": 58,
+          "own": 58,
+          "terms": "llm 5·4 + maint 3·3 + dep 1·1 + run 3·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a clean stop, and a transaction around every event"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "the events table is created outside this code, a slow handler holds a transaction open, and the poll interval is a trade between lag and load"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a query per poll, whether or not there is anything to take"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "sns-sqs",
           "score": 58,
           "own": 58,
@@ -607,6 +800,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nothing to patch; topics, queues, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "sqs-fifo",
+          "score": 58,
+          "own": 58,
+          "terms": "llm 5·4 + maint 5·3 + dep 4·1 + run 3·1 + ops 2·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a polling loop with a clean stop, delete-on-success, and a group and a deduplication id for every message"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a .fifo queue to create per event type, and a message that keeps failing holds back the rest of its group until it reaches the dead-letter queue"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per send, a long poll per batch, and a lower throughput ceiling than a standard queue"
+            },
+            {
+              "dimension": "operations",
+              "value": 2,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; queues, IAM and cost to watch"
             },
             {
               "dimension": "uncertainty",
@@ -844,6 +1087,49 @@
           ]
         },
         {
+          "tile": "gorm",
+          "score": 39,
+          "own": 39,
+          "terms": "llm 3·4 + maint 4·3 + dep 3·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "one call per method, and the errors to map"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "the table follows the struct by convention: a renamed field is a renamed column that AutoMigrate adds beside the old one, and what a query does is decided at run time"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "GORM, and the driver the caller chooses"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "reflection on every call, over the driver"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "pogreb",
           "score": 40,
           "own": 40,
@@ -876,6 +1162,49 @@
               "weight": 1,
               "source": "derived",
               "note": "a hash lookup on disk"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "diskv",
+          "score": 41,
+          "own": 41,
+          "terms": "llm 4·4 + maint 4·3 + dep 1·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "read, write, erase and a channel of keys, with the JSON and a sort by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a file per value in one directory unless a transform spreads them, a key must be a legal file name, and a list reads every file"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "diskv and a small B-tree module"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a file opened and synced on every write"
             },
             {
               "dimension": "uncertainty",
@@ -1014,6 +1343,92 @@
           ]
         },
         {
+          "tile": "sqlite-cgo-json",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 5·4 + maint 5·3 + dep 3·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver compiles SQLite's C source: a C compiler in every build, and cgo in the binary"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "sqlite-json",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 5·4 + maint 5·3 + dep 3·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a SQLite translated to Go: a large module, and no C compiler needed"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-kv",
           "score": 53,
           "own": 53,
@@ -1099,6 +1514,106 @@
               "rule": "row-mapper",
               "score": 33,
               "detail": "1 entity, 2 parsed fields, 3 nullable fields"
+            }
+          ]
+        },
+        {
+          "tile": "nats-object-store",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "put, get, delete and a listing, with the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, an object store is built for large values and is heavy for small ones, and a list reads every object"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "nats.go and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an object is chunked into messages on the way in and out"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a NATS server with JetStream storage to run, size and back up"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "redis-redigo",
+          "score": 56,
+          "own": 56,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a connection to take and return on every call, replies to convert by hand, a cursor scan, and JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and a list or a count walks the keyspace with SCAN"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "redigo only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -1287,6 +1802,106 @@
           ]
         },
         {
+          "tile": "mysql-json",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-pq-json",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "s3",
           "score": 63,
           "own": 63,
@@ -1326,6 +1941,56 @@
               "weight": 3,
               "source": "derived",
               "note": "nothing to patch or back up by hand; a bucket policy, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "mssql-json",
+          "score": 66,
+          "own": 66,
+          "terms": "llm 5·4 + maint 5·3 + dep 2·1 + run 1·1 + ops 6·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 6,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
             },
             {
               "dimension": "uncertainty",
@@ -1422,6 +2087,56 @@
               "weight": 3,
               "source": "derived",
               "note": "a quorum to keep healthy: members, backups, compaction and defragmentation"
+            }
+          ]
+        },
+        {
+          "tile": "cockroach-json",
+          "score": 69,
+          "own": 69,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 2·1 + ops 7·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round of consensus for every write"
+            },
+            {
+              "dimension": "operations",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "a cluster of at least three nodes to run, or a managed one to pay for"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         },
@@ -1861,6 +2576,49 @@
           ]
         },
         {
+          "tile": "gorm",
+          "score": 39,
+          "own": 39,
+          "terms": "llm 3·4 + maint 4·3 + dep 3·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 3,
+              "weight": 4,
+              "source": "derived",
+              "note": "one call per method, and the errors to map"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "the table follows the struct by convention: a renamed field is a renamed column that AutoMigrate adds beside the old one, and what a query does is decided at run time"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "GORM, and the driver the caller chooses"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "reflection on every call, over the driver"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "pogreb",
           "score": 40,
           "own": 40,
@@ -1893,6 +2651,49 @@
               "weight": 1,
               "source": "derived",
               "note": "a hash lookup on disk"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "diskv",
+          "score": 41,
+          "own": 41,
+          "terms": "llm 4·4 + maint 4·3 + dep 1·1 + run 2·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "read, write, erase and a channel of keys, with the JSON and a sort by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a file per value in one directory unless a transform spreads them, a key must be a legal file name, and a list reads every file"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "diskv and a small B-tree module"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a file opened and synced on every write"
             },
             {
               "dimension": "uncertainty",
@@ -2031,6 +2832,92 @@
           ]
         },
         {
+          "tile": "sqlite-cgo-json",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 5·4 + maint 5·3 + dep 3·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver compiles SQLite's C source: a C compiler in every build, and cgo in the binary"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "sqlite-json",
+          "score": 49,
+          "own": 49,
+          "terms": "llm 5·4 + maint 5·3 + dep 3·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a SQLite translated to Go: a large module, and no C compiler needed"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-kv",
           "score": 53,
           "own": 53,
@@ -2070,6 +2957,106 @@
               "weight": 3,
               "source": "derived",
               "note": "a NATS server with JetStream storage to run, size and back up"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "nats-object-store",
+          "score": 54,
+          "own": 54,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "put, get, delete and a listing, with the JSON by hand"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, an object store is built for large values and is heavy for small ones, and a list reads every object"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "nats.go and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an object is chunked into messages on the way in and out"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a NATS server with JetStream storage to run, size and back up"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "redis-redigo",
+          "score": 56,
+          "own": 56,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 1·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a connection to take and return on every call, replies to convert by hand, a cursor scan, and JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "no schema, and a list or a count walks the keyspace with SCAN"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "redigo only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with memory to size and persistence to configure"
             },
             {
               "dimension": "uncertainty",
@@ -2350,6 +3337,106 @@
           ]
         },
         {
+          "tile": "mysql-json",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "postgres-pq-json",
+          "score": 62,
+          "own": 62,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 1·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "s3",
           "score": 63,
           "own": 63,
@@ -2400,6 +3487,56 @@
           ]
         },
         {
+          "tile": "mssql-json",
+          "score": 66,
+          "own": 66,
+          "terms": "llm 5·4 + maint 5·3 + dep 2·1 + run 1·1 + ops 6·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan and close, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "the driver and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a statement per call"
+            },
+            {
+              "dimension": "operations",
+              "value": 6,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "etcd",
           "score": 68,
           "own": 68,
@@ -2439,6 +3576,56 @@
               "weight": 3,
               "source": "derived",
               "note": "a quorum to keep healthy: members, backups, compaction and defragmentation"
+            }
+          ]
+        },
+        {
+          "tile": "cockroach-json",
+          "score": 69,
+          "own": 69,
+          "terms": "llm 5·4 + maint 5·3 + dep 1·1 + run 2·1 + ops 7·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "six statements by hand, rows to scan, and the JSON"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "pgx only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round of consensus for every write"
+            },
+            {
+              "dimension": "operations",
+              "value": 7,
+              "weight": 3,
+              "source": "derived",
+              "note": "a cluster of at least three nodes to run, or a managed one to pay for"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no store generated from this tile has been run against the real thing"
             }
           ]
         },

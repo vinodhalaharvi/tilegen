@@ -28,12 +28,18 @@
         "api-key",
         "basic-auth",
         "cookie-session",
+        "hmac-signature",
         "jwt-jwks",
+        "jwt-jwx",
         "jwt-local",
         "ldap-bind",
         "mtls",
         "oidc",
-        "session-store"
+        "scs-session",
+        "session-store",
+        "spiffe",
+        "token-introspection",
+        "trusted-header"
       ]
     },
     {
@@ -50,6 +56,8 @@
         "no-broker"
       ],
       "offered_by": [
+        "asynq",
+        "azure-queue",
         "azure-service-bus",
         "kafka",
         "local-bus",
@@ -58,11 +66,14 @@
         "nats-jetstream",
         "nsq",
         "postgres-notify",
+        "postgres-queue",
         "rabbitmq",
         "redis-pubsub",
         "redis-streams",
         "sns-sqs",
-        "sqs"
+        "sqs",
+        "sqs-fifo",
+        "watermill"
       ]
     },
     {
@@ -95,21 +106,31 @@
         "bolt",
         "buntdb",
         "cassandra",
+        "cockroach-json",
+        "diskv",
         "dynamodb",
         "etcd",
+        "gorm",
         "leveldb",
         "memory",
         "minio",
         "mongo",
+        "mssql-json",
+        "mysql-json",
         "nats-kv",
+        "nats-object-store",
         "pebble",
         "pogreb",
         "postgres-pgx",
+        "postgres-pq-json",
         "postgres-sqlc",
         "redis-hash",
         "redis-kv",
+        "redis-redigo",
         "redis-rueidis",
         "s3",
+        "sqlite-cgo-json",
+        "sqlite-json",
         "sqlite-sqlc",
         "tikv",
         "valkey",
@@ -550,6 +571,41 @@
       }
     },
     {
+      "name": "hmac-signature",
+      "pass": "select",
+      "doc": "signed requests: an HMAC over a timestamp and the body, with a key per caller",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 4,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "expiring": "a key works until someone removes it; only a single signed request ages out, after five minutes",
+        "third-party-idp": "the keys are yours to issue and keep, not an identity provider's"
+      },
+      "covers": [
+        "(alias hmac)"
+      ],
+      "satisfies": {
+        "revocable": "the caller's key is looked up on every request, so removing it takes effect on the next one"
+      },
+      "unverified": {
+        "offline-verify": "the check is arithmetic on the request, and where the key comes from is the caller's lookup, which may be a call"
+      },
+      "cost_notes": {
+        "dependency": "the standard library",
+        "llm-work": "read the body without consuming it, sign the right bytes, compare in constant time, and bound the clock",
+        "maintenance": "a key per caller to issue and rotate, and clients that must sign exactly the same bytes",
+        "operations": "nothing to run",
+        "runtime": "one hash per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "jwt-jwks",
       "pass": "select",
       "doc": "bearer tokens signed by someone else, verified against the keys they publish",
@@ -578,6 +634,39 @@
         "llm-work": "parse with the right options, then map claims to a principal",
         "maintenance": "the issuer, audience and accepted algorithms to keep right",
         "operations": "an identity provider to run or pay for, with its clients and keys to keep right: the same one an OIDC verifier depends on",
+        "runtime": "a signature check per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "jwt-jwx",
+      "pass": "select",
+      "doc": "bearer tokens signed by someone else, verified against their key set through lestrrat-go/jwx",
+      "produces": "auth",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "revocable": "a token is trusted until it expires: nothing is asked of the issuer on a request"
+      },
+      "covers": [
+        "(alias jwx)"
+      ],
+      "satisfies": {
+        "expiring": "a token with no exp claim, or one that has passed, is refused",
+        "offline-verify": "verification uses a key set the caller has fetched and keeps fresh, with no call per request",
+        "third-party-idp": "tokens are issued elsewhere and verified here against the issuer's published keys"
+      },
+      "cost_notes": {
+        "dependency": "jwx and its cryptography and JSON modules",
+        "llm-work": "one parse with the right options, then map claims to a principal",
+        "maintenance": "the issuer and audience to keep right",
+        "operations": "an identity provider to run or pay for, with its clients and keys to keep right",
         "runtime": "a signature check per request",
         "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
       }
@@ -709,6 +798,39 @@
       }
     },
     {
+      "name": "scs-session",
+      "pass": "select",
+      "doc": "a server-side session through alexedwards/scs, found by the cookie it sets",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 2,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "offline-verify": "the session is read from the manager's store on every request",
+        "third-party-idp": "the session is one this service started, after a login of its own"
+      },
+      "covers": [
+        "(alias scs)"
+      ],
+      "satisfies": {
+        "expiring": "the manager's Lifetime and IdleTimeout end a session by themselves",
+        "revocable": "the session's data lives in the manager's store, and destroying it ends the session on the next request"
+      },
+      "cost_notes": {
+        "dependency": "scs only; a store other than memory is one more module",
+        "llm-work": "read the subject the session carries",
+        "maintenance": "a middleware that must wrap every route, cookie settings to get right, and a login that puts the subject there",
+        "operations": "nothing to run with the in-memory store, which also forgets every session on restart",
+        "runtime": "a store read on every request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "session-store",
       "pass": "select",
       "doc": "an opaque session id in a cookie, looked up in a store on every request",
@@ -737,6 +859,186 @@
         "maintenance": "expired sessions have to be swept, or the store grows forever",
         "operations": "nothing new to run: the sessions live in a store already chosen",
         "runtime": "one store read per request"
+      }
+    },
+    {
+      "name": "spiffe",
+      "pass": "select",
+      "doc": "workload identity: the caller is the SPIFFE ID in its certificate, verified in the handshake",
+      "produces": "auth",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 2,
+        "maintenance": 3,
+        "operations": 6,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "third-party-idp": "the identities are workloads', issued by your own SPIRE server, not people's from an identity provider's login"
+      },
+      "covers": [
+        "(alias spiffe)"
+      ],
+      "engine": "spire",
+      "satisfies": {
+        "expiring": "an SVID past its expiry fails the handshake, and they are issued for hours, not years",
+        "offline-verify": "the certificate is verified against the trust bundle during the handshake, with no call per request"
+      },
+      "unverified": {
+        "revocable": "an SVID is not checked against a revocation list: a workload taken out of the registry keeps working until its certificate expires"
+      },
+      "cost_notes": {
+        "dependency": "go-spiffe and its gRPC tree",
+        "llm-work": "read the verified certificate and take the identity from it",
+        "maintenance": "registration entries to keep in step with what is deployed",
+        "operations": "a SPIRE server and an agent on every node to run",
+        "runtime": "nothing per request: the handshake did the work",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "token-introspection",
+      "pass": "select",
+      "doc": "bearer tokens the issuer is asked about on every request (OAuth 2.0 token introspection)",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 4,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "offline-verify": "every request is a call to the issuer"
+      },
+      "covers": [
+        "(alias introspect)"
+      ],
+      "satisfies": {
+        "expiring": "the issuer answers that a token past its expiry is not active",
+        "revocable": "the issuer is asked on every request, so a token it has revoked stops working on the next one",
+        "third-party-idp": "tokens are issued elsewhere, and the issuer says who each belongs to"
+      },
+      "cost_notes": {
+        "dependency": "the standard library",
+        "llm-work": "a form post with client credentials, and the reply to decode",
+        "maintenance": "the endpoint and this service's client credentials to keep right",
+        "operations": "an identity provider to run or pay for, with its clients and keys to keep right",
+        "runtime": "a call to the issuer on every request, and nothing works while it is down",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "trusted-header",
+      "pass": "select",
+      "doc": "a reverse proxy signs people in and names them in a header this service trusts only from it",
+      "produces": "auth",
+      "cost": {
+        "dependency": 0,
+        "llm-work": 2,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias header)"
+      ],
+      "satisfies": {
+        "offline-verify": "nothing is called: the proxy already did the asking",
+        "third-party-idp": "the proxy in front signs people in, with whatever identity provider it is given"
+      },
+      "unverified": {
+        "expiring": "how long a sign-in lasts is the proxy's session lifetime, not anything here",
+        "revocable": "the proxy decides on every request, and how soon it stops vouching for someone is its configuration, not anything here"
+      },
+      "cost_notes": {
+        "dependency": "the standard library",
+        "llm-work": "check where the request came from, then read a header",
+        "maintenance": "the network must make the proxy the only way in, and the list of its addresses must follow it",
+        "operations": "an authenticating proxy to run in front of every instance",
+        "runtime": "nothing to compute",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "asynq",
+      "pass": "select",
+      "doc": "asynq: each event a task on a Redis queue, handled by one worker and retried when it fails",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a task goes to one worker, and a task type has one handler",
+        "no-broker": "a Redis to run",
+        "ordered": "tasks are taken by whichever worker is free, and a retry runs later than the tasks behind it",
+        "replay": "a task that succeeded is gone once its retention passes; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias asynq)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "at-least-once": "a task whose handler returns an error, or whose worker dies, is retried",
+        "consumer-groups": "the workers of a queue share its tasks",
+        "cross-process": "workers in other processes take tasks from the same Redis"
+      },
+      "unverified": {
+        "durable": "a task is a Redis entry: what survives a restart depends on the server's persistence, which this tile does not configure"
+      },
+      "cost_notes": {
+        "dependency": "asynq and the Redis client under it",
+        "llm-work": "enqueue a task, and register a handler",
+        "maintenance": "handlers are registered before the server starts and cannot be removed, and retries, timeouts and the dead set need watching",
+        "operations": "a Redis to run, and an asynq server process for the workers",
+        "runtime": "a round trip per task, and workers polling",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "azure-queue",
+      "pass": "select",
+      "doc": "Azure Queue Storage: a queue per event type, polled by competing consumers",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 2,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a queue hands each message to one consumer",
+        "no-broker": "a cloud service the program cannot start without: a storage account, the queues, credentials and a network path to them",
+        "ordered": "the service promises no order",
+        "replay": "a message is gone once it is deleted; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias azqueue)"
+      ],
+      "engine": "azure-queue",
+      "satisfies": {
+        "at-least-once": "a dequeued message is hidden, not removed: one that is not deleted before its visibility timeout appears again",
+        "consumer-groups": "consumers polling one queue share its messages",
+        "cross-process": "a service every process reaches over HTTPS",
+        "durable": "an enqueue that returns has been written to the storage account's replicas"
+      },
+      "cost_notes": {
+        "dependency": "the Azure SDK's core and storage modules",
+        "llm-work": "a polling loop with a pause and a clean stop, and delete-on-success, by hand",
+        "maintenance": "a queue to create per event type, visibility timeouts to tune, and poison messages to move aside by hand",
+        "operations": "nothing to patch; access policy and cost to watch",
+        "runtime": "an HTTPS round trip per message, and polling with no long poll",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1026,6 +1328,44 @@
       }
     },
     {
+      "name": "postgres-queue",
+      "pass": "select",
+      "doc": "a queue in a Postgres table: events are rows, taken one at a time with SKIP LOCKED",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 3,
+        "operations": 5,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a row goes to one consumer",
+        "no-broker": "a Postgres to run, though nothing beyond the one a project on a Postgres store already has",
+        "ordered": "SKIP LOCKED lets a second consumer take the next row while the first is still on its own",
+        "replay": "a handled event's row is deleted; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias pgqueue)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "at-least-once": "a row is deleted in the transaction that handled it, so a handler that fails or a consumer that dies leaves it to be taken again",
+        "consumer-groups": "consumers take different rows: SKIP LOCKED passes over one another's",
+        "cross-process": "every process connected to the database can publish and consume",
+        "durable": "an event is a row, committed before Publish returns"
+      },
+      "cost_notes": {
+        "dependency": "pgx only",
+        "llm-work": "a polling loop with a clean stop, and a transaction around every event",
+        "maintenance": "the events table is created outside this code, a slow handler holds a transaction open, and the poll interval is a trade between lag and load",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "a query per poll, whether or not there is anything to take",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "rabbitmq",
       "pass": "select",
       "doc": "RabbitMQ: exchanges, bindings and competing consumers",
@@ -1201,6 +1541,77 @@
         "maintenance": "a queue to create per event type, visibility timeouts to tune, and a dead-letter queue to watch",
         "operations": "nothing to patch; queues, IAM and cost to watch",
         "runtime": "an HTTPS round trip per send, and a long poll per batch",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "sqs-fifo",
+      "pass": "select",
+      "doc": "Amazon SQS FIFO: a queue per event type, in order within each entity's events",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 2,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a queue hands each message to one consumer; reaching several subscribers takes an SNS FIFO topic in front with a queue each",
+        "no-broker": "a cloud service the program cannot start without: an account, the queues, credentials and a network path to them",
+        "replay": "a message is gone once it is deleted; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias sqsfifo)"
+      ],
+      "engine": "sqs",
+      "satisfies": {
+        "at-least-once": "a message not deleted before its visibility timeout is delivered again",
+        "consumer-groups": "consumers polling one queue share its message groups",
+        "cross-process": "a regional service every process reaches over HTTPS",
+        "durable": "a SendMessage that returns has stored the message redundantly across availability zones",
+        "ordered": "a FIFO queue delivers the messages of one message group in the order they were sent"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "a polling loop with a clean stop, delete-on-success, and a group and a deduplication id for every message",
+        "maintenance": "a .fifo queue to create per event type, and a message that keeps failing holds back the rest of its group until it reaches the dead-letter queue",
+        "operations": "nothing to patch; queues, IAM and cost to watch",
+        "runtime": "an HTTPS round trip per send, a long poll per batch, and a lower throughput ceiling than a standard queue",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "watermill",
+      "pass": "select",
+      "doc": "Watermill: publish and subscribe through whichever Pub/Sub the caller built",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 3,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias watermill)"
+      ],
+      "unverified": {
+        "at-least-once": "it depends on the Pub/Sub this is given, which is the caller's",
+        "consumer-groups": "it depends on the Pub/Sub this is given, which is the caller's",
+        "cross-process": "it depends on the Pub/Sub this is given, which is the caller's",
+        "durable": "it depends on the Pub/Sub this is given, which is the caller's",
+        "fan-out": "it depends on the Pub/Sub this is given, which is the caller's",
+        "no-broker": "it depends on the Pub/Sub this is given, which is the caller's",
+        "ordered": "it depends on the Pub/Sub this is given, which is the caller's",
+        "replay": "it depends on the Pub/Sub this is given, which is the caller's"
+      },
+      "cost_notes": {
+        "dependency": "Watermill, and the Pub/Sub module the caller chooses",
+        "llm-work": "wrap and unwrap a message, and acknowledge by the handler's result",
+        "maintenance": "what the bus promises is decided where the Pub/Sub is built, away from this code",
+        "runtime": "a layer over the broker's own client",
         "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
@@ -1448,6 +1859,79 @@
       }
     },
     {
+      "name": "cockroach-json",
+      "pass": "select",
+      "doc": "CockroachDB through pgx: a table per entity, the value as one JSONB document",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 7,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a CockroachDB cluster to run or pay for"
+      },
+      "covers": [
+        "(alias cockroach)"
+      ],
+      "engine": "cockroachdb",
+      "satisfies": {
+        "cross-process": "a cluster other processes connect to over the network",
+        "durable": "a committed statement has been written by a majority of the range's replicas",
+        "lookup-by-field": "a WHERE on a key inside the JSONB document; it reads every row unless an inverted or computed-column index is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a transaction can hold both, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; a transaction can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "pgx only",
+        "llm-work": "six statements by hand, rows to scan, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code",
+        "operations": "a cluster of at least three nodes to run, or a managed one to pay for",
+        "runtime": "a round of consensus for every write",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "diskv",
+      "pass": "select",
+      "doc": "files on disk through diskv: one file per value, as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "nothing coordinates two processes writing one directory, and each would keep a cache of its own",
+        "lookup-by-field": "a value is found by its key, which is its file's name"
+      },
+      "covers": [
+        "(alias diskv)"
+      ],
+      "satisfies": {
+        "durable": "every write this tile asks for is synced to disk before it returns",
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; there are no transactions over two files",
+        "outbox": "an outbox is one transaction over the entity and the event; there are no transactions over two files"
+      },
+      "cost_notes": {
+        "dependency": "diskv and a small B-tree module",
+        "llm-work": "read, write, erase and a channel of keys, with the JSON and a sort by hand",
+        "maintenance": "a file per value in one directory unless a transform spreads them, a key must be a legal file name, and a list reads every file",
+        "runtime": "a file opened and synced on every write",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "dynamodb",
       "pass": "select",
       "doc": "DynamoDB: one table per entity keyed by id, items marshalled attribute by attribute",
@@ -1517,6 +2001,39 @@
         "maintenance": "no schema, and it is built for a little data that matters a great deal: a request is capped near 1.5 MiB and the whole keyspace at a few GiB by default, which a store of entities grows past",
         "operations": "a quorum to keep healthy: members, backups, compaction and defragmentation",
         "runtime": "every write is a round of consensus"
+      }
+    },
+    {
+      "name": "gorm",
+      "pass": "select",
+      "doc": "GORM: the entity as a model, on whatever database the caller opened",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias gorm)"
+      ],
+      "satisfies": {
+        "lookup-by-field": "a WHERE on the field's column, and an index when the model declares one"
+      },
+      "unverified": {
+        "cross-process": "it depends on the database the *gorm.DB was opened on, which is the caller's",
+        "durable": "it depends on the database the *gorm.DB was opened on, which is the caller's",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; db.Transaction can hold both, and this tile does not generate it",
+        "no-broker": "it depends on the database the *gorm.DB was opened on, which is the caller's",
+        "outbox": "an outbox is one transaction over the entity and the event; db.Transaction can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "GORM, and the driver the caller chooses",
+        "llm-work": "one call per method, and the errors to map",
+        "maintenance": "the table follows the struct by convention: a renamed field is a renamed column that AutoMigrate adds beside the old one, and what a query does is decided at run time",
+        "runtime": "reflection on every call, over the driver",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1651,6 +2168,82 @@
       }
     },
     {
+      "name": "mssql-json",
+      "pass": "select",
+      "doc": "SQL Server through database/sql: a table per entity, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 6,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a SQL Server to run, with backups, connections and upgrades"
+      },
+      "covers": [
+        "(alias mssqljson)"
+      ],
+      "engine": "mssql",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed statement is on disk, and on its replicas where there are any",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the driver and its few modules",
+        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "mysql-json",
+      "pass": "select",
+      "doc": "MySQL through database/sql: a table per entity, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a MySQL to run, with backups, connections and upgrades"
+      },
+      "covers": [
+        "(alias mysqljson)"
+      ],
+      "engine": "mysql",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed statement is on disk, and on its replicas where there are any",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the driver only",
+        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "nats-kv",
       "pass": "select",
       "doc": "NATS JetStream key-value: a bucket per entity, values as JSON",
@@ -1685,6 +2278,44 @@
         "maintenance": "no schema, a key may hold only letters, digits and - _ = . /, and a list or a count walks every key",
         "operations": "a NATS server with JetStream storage to run, size and back up",
         "runtime": "a round trip per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "nats-object-store",
+      "pass": "select",
+      "doc": "NATS JetStream object store: a bucket per entity, an object per value, as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "an object is found by its name; there is no index on what it holds",
+        "no-broker": "a NATS server with JetStream to run"
+      },
+      "covers": [
+        "(alias natsobj)"
+      ],
+      "engine": "nats",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "an object is acknowledged once the bucket's stream has stored it, and what survives a restart depends on the bucket: file or memory storage, and how many replicas",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two objects",
+        "outbox": "an outbox is one transaction over the entity and the event; JetStream has no transaction over two objects"
+      },
+      "cost_notes": {
+        "dependency": "nats.go and its few modules",
+        "llm-work": "put, get, delete and a listing, with the JSON by hand",
+        "maintenance": "no schema, an object store is built for large values and is heavy for small ones, and a list reads every object",
+        "operations": "a NATS server with JetStream storage to run, size and back up",
+        "runtime": "an object is chunked into messages on the way in and out",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
@@ -1789,6 +2420,44 @@
         "llm-work": "the LLM writes every query and scan by hand",
         "maintenance": "hand-written SQL drifts from the schema silently",
         "operations": "a server to run, with backups, connections and upgrades"
+      }
+    },
+    {
+      "name": "postgres-pq-json",
+      "pass": "select",
+      "doc": "Postgres through database/sql and lib/pq: a table per entity, the value as one JSONB document",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a Postgres to run, with backups, connections and upgrades"
+      },
+      "covers": [
+        "(alias pqjson)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed statement is on disk, and on its replicas where there are any",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the driver only",
+        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1902,6 +2571,44 @@
       }
     },
     {
+      "name": "redis-redigo",
+      "pass": "select",
+      "doc": "Redis through redigo: one string key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "a string key holds one value; a secondary index would be a second structure written and repaired by hand",
+        "no-broker": "a Redis to run, with memory to size and persistence to configure"
+      },
+      "covers": [
+        "(alias redigo)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "cross-process": "a server every process reaches over the network"
+      },
+      "unverified": {
+        "durable": "what survives a restart depends on the server's persistence (snapshots, or the append-only file and how often it is synced), which this tile does not configure",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "redigo only",
+        "llm-work": "a connection to take and return on every call, replies to convert by hand, a cursor scan, and JSON",
+        "maintenance": "no schema, and a list or a count walks the keyspace with SCAN",
+        "operations": "a server to run, with memory to size and persistence to configure",
+        "runtime": "a round trip per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "redis-rueidis",
       "pass": "select",
       "doc": "Redis through rueidis: one string key per entity under a prefix, values as JSON",
@@ -1974,6 +2681,76 @@
         "maintenance": "no schema and no query: a list or a count reads every key under the prefix, and tests need an emulator or a live bucket",
         "operations": "nothing to patch or back up by hand; a bucket policy, IAM and cost to watch",
         "runtime": "an HTTPS round trip per object, and a list is one per page of keys plus one per object",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "sqlite-cgo-json",
+      "pass": "select",
+      "doc": "SQLite through cgo: a table per entity in one file, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "a sqlite file serves one process; another would need its own connection to the same disk"
+      },
+      "covers": [
+        "(alias sqlitecgo)"
+      ],
+      "satisfies": {
+        "durable": "the database is a file on disk, and a committed statement is in it",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added",
+        "no-broker": "one file and a library; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the driver compiles SQLite's C source: a C compiler in every build, and cgo in the binary",
+        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "sqlite-json",
+      "pass": "select",
+      "doc": "SQLite without cgo: a table per entity in one file, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "a sqlite file serves one process; another would need its own connection to the same disk"
+      },
+      "covers": [
+        "(alias sqlitejson)"
+      ],
+      "satisfies": {
+        "durable": "the database is a file on disk, and a committed statement is in it",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added",
+        "no-broker": "one file and a library; there is no server"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "a SQLite translated to Go: a large module, and no C compiler needed",
+        "llm-work": "six statements by hand, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "runtime": "a statement per call",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
