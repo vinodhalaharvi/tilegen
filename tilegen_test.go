@@ -697,7 +697,15 @@ func TestWorkspaceRealGitAndTmux(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(root, "proj.wt", "feat", ".git")); err != nil {
 		t.Fatalf("worktree not created: %v", err)
 	}
-	out, err := exec.Command("tmux", "list-windows", "-t", "=tgtest", "-F", "#{window_name}:#{pane_current_path}").Output()
+	// tmux reports where a pane's shell is, and a shell just started takes
+	// a moment to be there: ask until it is, or two seconds have passed.
+	var out []byte
+	for deadline := time.Now().Add(2 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		out, err = exec.Command("tmux", "list-windows", "-t", "=tgtest", "-F", "#{window_name}:#{pane_current_path}").Output()
+		if (err == nil && strings.Contains(string(out), "feat:"+filepath.Join(root, "proj.wt", "feat"))) || time.Now().After(deadline) {
+			break
+		}
+	}
 	if err != nil || !strings.Contains(string(out), "feat:"+filepath.Join(root, "proj.wt", "feat")) {
 		t.Fatalf("tmux windows = %q, %v", out, err)
 	}
