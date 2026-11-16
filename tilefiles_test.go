@@ -15,44 +15,31 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/tiles"
 )
 
-// specTiles are the tiles that are data: the file, and the tile it holds.
-func specTiles(t *testing.T) map[string]string {
+// loaded reads each tile file as tilegen does when it starts.
+func loaded(t *testing.T) []*tiles.Tile {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join("internal", "tiles", "*.sexp"))
 	if err != nil || len(files) == 0 {
 		t.Fatalf("no tile files found: %v", err)
 	}
-	out := map[string]string{}
+	var out []*tiles.Tile
 	for _, file := range files {
 		src, err := os.ReadFile(file)
 		if err != nil {
 			t.Fatal(err)
 		}
 		read, err := tiles.LoadTiles(file, string(src))
-		if err != nil || len(read) != 1 {
+		if err != nil || len(read) == 0 {
 			t.Fatalf("%s: %d tiles, %v", file, len(read), err)
 		}
-		out[file] = read[0].Tile
+		out = append(out, read...)
 	}
-	return out
-}
-
-// loaded reads each tile file as tilegen does when it starts.
-func loaded(t *testing.T) []*tiles.Tile {
-	t.Helper()
-	var out []*tiles.Tile
-	for file := range specTiles(t) {
-		src, err := os.ReadFile(file)
-		if err != nil {
-			t.Fatal(err)
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Tile != out[j].Tile {
+			return out[i].Tile < out[j].Tile
 		}
-		read, err := tiles.LoadTiles(file, string(src))
-		if err != nil || len(read) != 1 {
-			t.Fatalf("%s: %d tiles, %v", file, len(read), err)
-		}
-		out = append(out, read[0])
-	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Tile < out[j].Tile })
+		return out[i].Offers < out[j].Offers
+	})
 	return out
 }
 
@@ -151,6 +138,9 @@ func TestSpecTilesCompileAgainstTheirLibraries(t *testing.T) {
 	// What a config says to pin a tile, by what the tile offers.
 	pin := map[string]string{"store": "storage", "event-bus": "events", "auth": "auth"}
 	for _, tile := range loaded(t) {
+		if tile.Offers == "transport" {
+			continue // an inbound edge's code is tilegen's own: the tile declares no type to build
+		}
 		t.Run(tile.Tile, func(t *testing.T) {
 			t.Parallel()
 			if pin[tile.Offers] == "" {

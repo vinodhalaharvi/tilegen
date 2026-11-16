@@ -658,11 +658,21 @@ its own, so its tile also gives the type's name and the two doc comments:
 context first and nothing otherwise, so a function type can follow the
 project: `func({ctx-type}string) (*Principal, error)`.
 
-A tile that has to do more than say how a library is used stays Go: one
-that writes finished code rather than leaving a method open (`memory`,
-`local-bus`, the secret sources), one that works out a schema (the SQL
-stores, the protobuf API styles), and one that checks the spec for
-something it needs (`session-store`).
+A tile may offer two things. Its file then says it once for each, under
+the one name: Kafka is an event bus and an inbound edge, and
+`bus_kafka.sexp` holds both, priced apart. An inbound edge
+(`(offers transport)`) is the plainest shape: its code is tilegen's own,
+so the tile gives a `type-name`, its library, what it claims and what it
+costs, and nothing to hold or hint.
+
+A tile is Go only when it has to work something out from the spec:
+
+- it writes finished code rather than leaving a method open: `memory`,
+  `local-bus`, `http-json`, and the secret sources;
+- it works out a schema: the SQL stores and the protobuf API styles;
+- it checks the spec for something it needs: `session-store`.
+
+Every other tile is a file.
 
 The same text without `holds`, `new` and the hints is a draft: it takes
 part in every decision and explanation, in the studio or a compile, and

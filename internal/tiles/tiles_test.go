@@ -31,8 +31,8 @@ func TestTheBuiltInTilesAreRegistered(t *testing.T) {
 	}
 	for capability, want := range map[string][]string{
 		// The tiles written in Go, and one for each file that offers the same.
-		"store":     append([]string{"memory", "mongo", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t, "store")...),
-		"event-bus": append([]string{"kafka", "local-bus", "nats-core"}, dataTiles(t, "event-bus")...),
+		"store":     append([]string{"memory", "postgres-pgx", "postgres-sqlc", "sqlite-sqlc"}, dataTiles(t, "store")...),
+		"event-bus": append([]string{"local-bus"}, dataTiles(t, "event-bus")...),
 		"auth":      append([]string{"session-store"}, dataTiles(t, "auth")...),
 		"api":       {"connect", "grpc", "http-json"},
 		"secrets":   {"aws-secrets-manager", "env-secrets", "file-secrets", "vault"},
@@ -101,9 +101,6 @@ func TestLoadable(t *testing.T) {
 	for _, capability := range Loadable() {
 		if compile.Capabilities[capability] == nil {
 			t.Errorf("a file can offer %q, which is not a capability", capability)
-		}
-		if filePrefix[capability] == "" {
-			t.Errorf("%q has no file prefix", capability)
 		}
 	}
 }
@@ -217,8 +214,14 @@ func TestOneFilePerTile(t *testing.T) {
 			t.Errorf("%v", err)
 			continue
 		}
-		if len(tiles) != 1 {
-			t.Errorf("%s holds %d tiles; one file holds one", file, len(tiles))
+		// One file holds one tile: once for each thing it offers.
+		for _, other := range tiles[1:] {
+			if other.Tile != tiles[0].Tile || other.Offers == tiles[0].Offers {
+				t.Errorf("%s holds %s offering %s and %s offering %s; one file holds one tile, once for each thing it offers",
+					file, tiles[0].Tile, tiles[0].Offers, other.Tile, other.Offers)
+			}
+		}
+		if len(tiles) == 0 {
 			continue
 		}
 		if want := filePrefix[tiles[0].Offers] + "_" + strings.ReplaceAll(tiles[0].Tile, "-", "_") + ".sexp"; file != want {

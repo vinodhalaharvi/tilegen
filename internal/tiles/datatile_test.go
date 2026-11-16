@@ -3,6 +3,7 @@ package tiles
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -177,12 +178,22 @@ func TestATileFileIsAlsoADraft(t *testing.T) {
 		t.Errorf("its costs: %+v", d.Cost)
 	}
 	// And every tile tilegen ships as a file reads as one, under a name
-	// of its own.
+	// of its own. An inbound edge is the exception: a draft cannot offer one.
 	files, _ := filepath.Glob("*.sexp")
 	for _, f := range files {
 		src, _ := os.ReadFile(f)
-		if got, err := compile.ParseDrafts(strings.Replace(string(src), "(tile ", "(tile my-", 1)); err != nil || len(got) != 1 {
-			t.Errorf("%s as a draft: %d, %v", f, len(got), err)
+		forms, err := sexp.Parse(f, string(src))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, form := range forms {
+			if form.Text("offers") == "transport" {
+				continue
+			}
+			text := strings.Replace(form.Flat(), "(tile ", "(tile my-", 1)
+			if got, err := compile.ParseDrafts(text); err != nil || len(got) != 1 {
+				t.Errorf("%s as a draft: %d, %v", f, len(got), err)
+			}
 		}
 	}
 }
@@ -249,5 +260,45 @@ func TestATileOfAnotherCapability(t *testing.T) {
 	if _, err := LoadTiles("rocks.sexp", strings.Replace(rocks, "(alias rk)", "(alias rk) (type-name RocksStore)", 1)); err == nil ||
 		!strings.Contains(err.Error(), "has a (type-name ...), and a store's type is named and described from the entity") {
 		t.Errorf("a store with a type name: %v", err)
+	}
+}
+
+// A tile may offer two things: its file says it once for each. An inbound
+// edge is the plainest shape there is: a name, a library, claims and cost.
+func TestATileThatOffersTwoThings(t *testing.T) {
+	src, err := os.ReadFile("bus_kafka.sexp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadTiles("bus_kafka.sexp", string(src))
+	if err != nil || len(got) != 2 || got[0].Tile != "kafka" || got[1].Tile != "kafka" || got[0].Offers != "event-bus" || got[1].Offers != "transport" {
+		t.Fatalf("%d tiles, %v", len(got), err)
+	}
+	edge, ok := got[1].Offer.Impl.(*compile.Transport)
+	if !ok || edge.Suffix != "KafkaSource" || edge.Import[0] != "kgo" || got[1].Offer.Capability != "transport" || len(got[1].Offer.Cost) == 0 {
+		t.Errorf("the edge: %+v", got[1].Offer)
+	}
+	// The two are priced apart: same cluster, different work.
+	if reflect.DeepEqual(got[0].Offer.Cost, got[1].Offer.Cost) {
+		t.Error("the bus and the edge cost the same")
+	}
+
+	forms, _ := sexp.Parse("bus_kafka.sexp", string(src))
+	edgeText := strings.Replace(forms[1].Flat(), "(tile kafka", "(tile inlet", 1)
+	if one, err := LoadTiles("inlet.sexp", edgeText); err != nil || len(one) != 1 {
+		t.Fatalf("an edge alone: %v", err)
+	}
+	for name, c := range map[string]struct{ old, new, want string }{
+		"something to hold": {"(type-name KafkaSource)", "(type-name KafkaSource) (holds (c string))", "has a (holds ...), and a source's code is written by tilegen"},
+		"a hint":            {"(type-name KafkaSource)", `(type-name KafkaSource) (hint on "x")`, "a hint is for one kind of method: ; got on"},
+		"no type name":      {"(type-name KafkaSource)", "", "needs a (type-name ...): the source it generates is a type of its own"},
+		"a doc for a type":  {"(type-name KafkaSource)", `(type-name KafkaSource) (about "x")`, "has a (about ...), and a source's code is written by tilegen"},
+	} {
+		if !strings.Contains(edgeText, c.old) {
+			t.Fatalf("the edge has no %q", c.old)
+		}
+		if _, err := LoadTiles("inlet.sexp", strings.Replace(edgeText, c.old, c.new, 1)); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: want %q, got %v", name, c.want, err)
+		}
 	}
 }

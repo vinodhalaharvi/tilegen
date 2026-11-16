@@ -172,3 +172,42 @@ func init() {
 		},
 	})
 }
+
+func init() {
+	// bson documents are not domain values: every read comes back as a
+	// document that has to be decoded into the entity, and the work is the
+	// entity's shape, not a constant. Same reasoning as the row mapper.
+	RegisterChain(&Chain{
+		Name: "doc-mapper",
+		From: "bson-docs",
+		To:   DomainForm,
+		Doc:  "decodes mongo documents into domain types, by hand",
+		CostRule: "1 per entity, +1 per enum field (a document stores it as a string), " +
+			"+1 per pointer field (a missing key and a null are not the same thing)",
+		Cost: func(e EntityShape) (Cost, string) {
+			units := 1
+			var enums, ptrs int
+			for _, f := range e.Fields {
+				if f.Enum {
+					enums++
+				}
+				if strings.HasPrefix(f.Type, "*") {
+					ptrs++
+				}
+			}
+			units += enums + ptrs
+			parts := []string{"1 entity"}
+			if enums > 0 {
+				parts = append(parts, fmt.Sprintf("%d enum field%s", enums, sIf(enums)))
+			}
+			if ptrs > 0 {
+				parts = append(parts, fmt.Sprintf("%d pointer field%s", ptrs, sIf(ptrs)))
+			}
+			return Cost{{Dim: "llm-work", Value: units}, {Dim: "maintenance", Value: (units + 1) / 2}},
+				strings.Join(parts, ", ")
+		},
+	})
+}
+
+// sIf pluralises a count in a cost breakdown.
+func sIf(n int) string { return map[bool]string{true: "s"}[n > 1] }
