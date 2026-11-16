@@ -2,7 +2,8 @@ name: release
 
 # Tags main and publishes a GitHub release. Homebrew builds from the tag's
 # source, so there are no binaries to attach. Before running, set
-# `const version` in main.go and add a "## vX.Y.Z" section to CHANGELOG.md.
+# `const Version` in internal/compile/compile.go and add a "## vX.Y.Z"
+# section to CHANGELOG.md.
 on:
   workflow_dispatch:
     inputs:
@@ -21,11 +22,11 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: The version in main.go must match
+      - name: The version in the source must match
         env:
           V: ${{ inputs.version }}
         run: |
-          grep -qx "const version = \"v$V\"" main.go || { echo "main.go does not say v$V"; exit 1; }
+          grep -qx "const Version = \"v$V\"" internal/compile/compile.go || { echo "internal/compile/compile.go does not say v$V"; exit 1; }
           grep -q "^## v$V" CHANGELOG.md || { echo "CHANGELOG.md has no section for v$V"; exit 1; }
       - run: make check
       - run: make demo

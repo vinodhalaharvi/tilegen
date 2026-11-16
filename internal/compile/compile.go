@@ -10,7 +10,7 @@ import (
 	"github.com/vinodhalaharvi/tilegen/internal/sexp"
 )
 
-const Version = "v0.3.5"
+const Version = "v0.3.6"
 
 // Pipeline is the ordered list of local tiling passes. Each maps
 // S-expressions to S-expressions; run with -dump to see every stage.
