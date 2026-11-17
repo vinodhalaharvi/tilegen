@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Eleven more stores, as files: couchbase, aerospike, arangodb, couchdb,
+  rqlite, libsql-json, nutsdb, rosedb, bun, sqlx, hazelcast.
+
 ## v0.3.6 - 2026-11-16
 
 - `tilegen mcp -root DIR` serves tilegen to an assistant over MCP:
