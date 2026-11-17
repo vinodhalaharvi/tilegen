@@ -1626,7 +1626,7 @@ func TestRegistryListsEveryTileAndBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{"expand      entity", "select      catch-all", "llm/task",
-		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by badger, bolt, "} {
+		"memory", "postgres-sqlc", "events", "event-bus", "capability store      offered by ", " badger, ", " bolt, "} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("tiles missing %q:\n%s", want, out.String())
 		}

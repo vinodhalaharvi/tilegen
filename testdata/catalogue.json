@@ -102,16 +102,23 @@
         "inbox"
       ],
       "offered_by": [
+        "aerospike",
+        "arangodb",
         "badger",
         "bolt",
+        "bun",
         "buntdb",
         "cassandra",
         "cockroach-json",
+        "couchbase",
+        "couchdb",
         "diskv",
         "dynamodb",
         "etcd",
         "gorm",
+        "hazelcast",
         "leveldb",
+        "libsql-json",
         "memory",
         "minio",
         "mongo",
@@ -119,6 +126,7 @@
         "mysql-json",
         "nats-kv",
         "nats-object-store",
+        "nutsdb",
         "pebble",
         "pogreb",
         "postgres-pgx",
@@ -128,10 +136,13 @@
         "redis-kv",
         "redis-redigo",
         "redis-rueidis",
+        "rosedb",
+        "rqlite",
         "s3",
         "sqlite-cgo-json",
         "sqlite-json",
         "sqlite-sqlc",
+        "sqlx",
         "tikv",
         "valkey",
         "zookeeper"
@@ -1721,6 +1732,82 @@
       }
     },
     {
+      "name": "aerospike",
+      "pass": "select",
+      "doc": "Aerospike: a set per entity, a record per value, as JSON in one bin",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 7,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "lookup-by-field": "the value is one bin of JSON, found by its key; a query on a field would need that field in a bin of its own and a secondary index",
+        "no-broker": "an Aerospike cluster to run"
+      },
+      "covers": [
+        "(alias aerospike)"
+      ],
+      "engine": "aerospike",
+      "satisfies": {
+        "cross-process": "a cluster other processes connect to over the network"
+      },
+      "unverified": {
+        "durable": "a write is acknowledged from memory unless the namespace is configured to commit to its device first, which is the cluster's setting",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; Aerospike has multi-record transactions on strongly consistent namespaces, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; Aerospike has multi-record transactions on strongly consistent namespaces, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the client and its few modules",
+        "llm-work": "keys to build, an error type of the client's own, a scan read from a channel, and the JSON",
+        "maintenance": "no schema, the namespace is fixed in the cluster's configuration, and a list or a count scans the whole set",
+        "operations": "a cluster to run, with namespaces sized to its memory and devices",
+        "runtime": "one round trip to the node that owns the key",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "arangodb",
+      "pass": "select",
+      "doc": "ArangoDB: a collection per entity, a document per value",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 6,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "an ArangoDB server or cluster to run"
+      },
+      "covers": [
+        "(alias arango)"
+      ],
+      "engine": "arangodb",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "lookup-by-field": "an AQL filter on the field; it reads every document unless an index on that attribute is added"
+      },
+      "unverified": {
+        "durable": "a write is acknowledged before it is synced to disk unless the collection was created with waitForSync, which is outside this code",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a stream transaction can hold both, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; a stream transaction can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the driver and its HTTP and encoding modules",
+        "llm-work": "document calls for one value, AQL with bind variables for the rest, a wrapper for the key, and a cursor to drain",
+        "maintenance": "no schema, the collection is created outside this code, and a filter reads every document until an index is added",
+        "operations": "a server or a cluster to run, with backups and upgrades",
+        "runtime": "an HTTP round trip per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "badger",
       "pass": "select",
       "doc": "embedded key-value: an LSM store, one keyspace, values as JSON",
@@ -1783,6 +1870,39 @@
         "dependency": "bbolt only, and no build-time tool",
         "llm-work": "every read, write and scan written by hand, including the key encoding",
         "maintenance": "no schema and no migrations: a field added to the struct changes stored documents silently, and nothing reports it"
+      }
+    },
+    {
+      "name": "bun",
+      "pass": "select",
+      "doc": "Bun: the entity as a model, on whatever SQL database the caller opened",
+      "produces": "store",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias bun)"
+      ],
+      "satisfies": {
+        "lookup-by-field": "a WHERE on the field's column, and an index when the table has one"
+      },
+      "unverified": {
+        "cross-process": "it depends on the database the *bun.DB was opened on, which is the caller's",
+        "durable": "it depends on the database the *bun.DB was opened on, which is the caller's",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; db.RunInTx can hold both, and this tile does not generate it",
+        "no-broker": "it depends on the database the *bun.DB was opened on, which is the caller's",
+        "outbox": "an outbox is one transaction over the entity and the event; db.RunInTx can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "Bun, its dialect module and the driver the caller chooses",
+        "llm-work": "a query builder call per method, and an upsert whose conflict clause is spelled differently on each database",
+        "maintenance": "the table follows the struct by convention and is created outside this code, and a renamed field is a column that no longer matches",
+        "runtime": "reflection on every call, over the driver",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1893,6 +2013,82 @@
         "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code",
         "operations": "a cluster of at least three nodes to run, or a managed one to pay for",
         "runtime": "a round of consensus for every write",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "couchbase",
+      "pass": "select",
+      "doc": "Couchbase through gocb: a collection per entity, a document per value",
+      "produces": "store",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 5,
+        "maintenance": 5,
+        "operations": 7,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a Couchbase cluster to run or pay for"
+      },
+      "covers": [
+        "(alias couchbase)"
+      ],
+      "engine": "couchbase",
+      "satisfies": {
+        "cross-process": "a cluster other processes connect to over the network",
+        "durable": "every write this tile asks for waits until a majority of the bucket's nodes have it on disk",
+        "lookup-by-field": "a SQL++ query on the field; it needs an index on the collection, created outside this code, and fails without one"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; Couchbase has multi-document transactions, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; Couchbase has multi-document transactions, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "gocb and the core client under it",
+        "llm-work": "key-value calls for one document, SQL++ for everything else, and two kinds of result to read",
+        "maintenance": "the collection and its indexes are created outside this code, and a list or a count fails until a primary index exists",
+        "operations": "a cluster to run, size and rebalance, or a managed one to pay for",
+        "runtime": "a write waits for disk on a majority of nodes",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "couchdb",
+      "pass": "select",
+      "doc": "CouchDB through kivik: a database per entity, a document per value",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 5,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a CouchDB server or cluster to run"
+      },
+      "covers": [
+        "(alias couchdb)"
+      ],
+      "engine": "couchdb",
+      "satisfies": {
+        "cross-process": "a server other processes reach over HTTP",
+        "durable": "CouchDB appends a write to the database file and syncs it before it answers",
+        "lookup-by-field": "a Mango selector on the field; it reads every document unless an index on that field is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; CouchDB has no transaction over two documents",
+        "outbox": "an outbox is one transaction over the entity and the event; CouchDB has no transaction over two documents"
+      },
+      "cost_notes": {
+        "dependency": "kivik and its CouchDB driver, which the caller imports to register it",
+        "llm-work": "every write needs the document's current revision first, deletes too, and a selector query comes back a page at a time",
+        "maintenance": "no schema, two writers to one document conflict and one must retry, and design documents share the database with the values",
+        "operations": "a server to run, with compaction, backups and upgrades",
+        "runtime": "an HTTP round trip per call, and two per write",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
@@ -2037,6 +2233,44 @@
       }
     },
     {
+      "name": "hazelcast",
+      "pass": "select",
+      "doc": "Hazelcast: a distributed map per entity, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 6,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "durable": "a map lives in its members' memory: a cluster that stops forgets it, unless a persistence feature this tile does not configure is licensed and turned on",
+        "no-broker": "a Hazelcast cluster to run"
+      },
+      "covers": [
+        "(alias hazelcast)"
+      ],
+      "engine": "hazelcast",
+      "satisfies": {
+        "cross-process": "a cluster every process connects to as a client",
+        "lookup-by-field": "a predicate on an attribute of the JSON value; it is evaluated on every entry unless the map has an index on it"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; Hazelcast has transactions over maps, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; Hazelcast has transactions over maps, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "the client and its few modules",
+        "llm-work": "map calls that take and return interface values, a JSON value type of the client's own, and predicates",
+        "maintenance": "no schema, and memory to size for everything the map holds",
+        "operations": "a cluster of JVMs to run, size and upgrade",
+        "runtime": "one round trip to the member that owns the key",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "leveldb",
       "pass": "select",
       "doc": "embedded key-value: LevelDB in pure Go, a directory of sorted tables, values as JSON",
@@ -2067,6 +2301,44 @@
         "llm-work": "key encoding, prefix iteration and JSON, all by hand",
         "maintenance": "no schema and no migrations, and a library that changes rarely: its last tagged release is v1.0.0",
         "runtime": "an LSM tree with background compaction"
+      }
+    },
+    {
+      "name": "libsql-json",
+      "pass": "select",
+      "doc": "libSQL or Turso through database/sql: a table per entity, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a libSQL server to run, or a Turso database to pay for"
+      },
+      "covers": [
+        "(alias libsql)"
+      ],
+      "engine": "libsql",
+      "satisfies": {
+        "cross-process": "a server other processes connect to over the network",
+        "durable": "a committed statement is on disk, and on its replicas where there are any",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the client and its websocket and protocol modules",
+        "llm-work": "SQL by hand in this database's own dialect: an upsert, lookups that reach inside the document, rows to scan and close, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, a renamed field leaves old rows behind, and the table is created outside this code",
+        "operations": "a libSQL server to run, or a hosted database with tokens to keep",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {
@@ -2316,6 +2588,41 @@
         "maintenance": "no schema, an object store is built for large values and is heavy for small ones, and a list reads every object",
         "operations": "a NATS server with JetStream storage to run, size and back up",
         "runtime": "an object is chunked into messages on the way in and out",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "nutsdb",
+      "pass": "select",
+      "doc": "NutsDB: an embedded key-value store, a bucket per entity, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "the directory is locked by the one process that opened it",
+        "lookup-by-field": "a value is found by its key; there is no index on what it holds"
+      },
+      "covers": [
+        "(alias nutsdb)"
+      ],
+      "satisfies": {
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "durable": "a committed transaction is synced to disk when the database was opened with SyncEnable, which is the caller's option",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; one Update transaction can hold both, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; one Update transaction can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "NutsDB and its few modules",
+        "llm-work": "a transaction closure around every call, several errors that all mean not found, and the JSON",
+        "maintenance": "no schema, the bucket must be created before first use, and every key is kept in memory",
+        "runtime": "an index in memory, and a write to the log",
         "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
@@ -2647,6 +2954,79 @@
       }
     },
     {
+      "name": "rosedb",
+      "pass": "select",
+      "doc": "RoseDB: an embedded log-structured key-value store, one key per entity under a prefix, values as JSON",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "cross-process": "the directory is locked by the one process that opened it",
+        "lookup-by-field": "a value is found by its key; there is no index on what it holds"
+      },
+      "covers": [
+        "(alias rosedb)"
+      ],
+      "satisfies": {
+        "no-broker": "a library and a directory; there is no server"
+      },
+      "unverified": {
+        "durable": "a write is synced to disk before it returns only when the database was opened with Sync, which is the caller's option",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; a Batch commits several writes atomically, and this tile does not generate one",
+        "outbox": "an outbox is one transaction over the entity and the event; a Batch commits several writes atomically, and this tile does not generate one"
+      },
+      "cost_notes": {
+        "dependency": "RoseDB and its write-ahead log",
+        "llm-work": "get, put and delete, a walk over the keys under a prefix, and the JSON",
+        "maintenance": "no schema, every key is kept in memory, and the log needs merging to give back space",
+        "runtime": "an index in memory, and one disk read per get",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "rqlite",
+      "pass": "select",
+      "doc": "rqlite: SQLite replicated by Raft, a table per entity, the value as one JSON document",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 5,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "an rqlite node or cluster to run"
+      },
+      "covers": [
+        "(alias rqlite)"
+      ],
+      "engine": "rqlite",
+      "satisfies": {
+        "cross-process": "a cluster other processes reach over HTTP",
+        "durable": "a write is answered once a majority of the cluster's nodes have it in their Raft logs",
+        "lookup-by-field": "a WHERE on a key inside the JSON document; it reads every row unless an index on that expression is added"
+      },
+      "unverified": {
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; rqlite can run several statements as one transaction in a single request, and this tile does not generate it",
+        "outbox": "an outbox is one transaction over the entity and the event; rqlite can run several statements as one transaction in a single request, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "the client only",
+        "llm-work": "SQL by hand, statements built as values, a result set with its own way of reading rows, and the JSON",
+        "maintenance": "one column holds the whole value: nothing checks a field's type or that it is there, and the table is created outside this code",
+        "operations": "a node, or a cluster of three, to run and back up",
+        "runtime": "an HTTP round trip per call, and a round of consensus for every write",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "s3",
       "pass": "select",
       "doc": "S3: one JSON object per entity under a prefix in a bucket",
@@ -2788,6 +3168,39 @@
       "cost_notes": {
         "dependency": "a driver and sqlc, but no server to run",
         "llm-work": "same as postgres-sqlc: sqlc writes the queries"
+      }
+    },
+    {
+      "name": "sqlx",
+      "pass": "select",
+      "doc": "sqlx over database/sql: a table per entity with a column per field, SQL by hand",
+      "produces": "store",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias sqlx)"
+      ],
+      "satisfies": {
+        "lookup-by-field": "a WHERE on the field's column, and an index when the table has one"
+      },
+      "unverified": {
+        "cross-process": "it depends on the database the *sqlx.DB was opened on, which is the caller's",
+        "durable": "it depends on the database the *sqlx.DB was opened on, which is the caller's",
+        "inbox": "an inbox is one transaction over a handler's writes and the record that it ran; db.BeginTxx can hold both, and this tile does not generate it",
+        "no-broker": "it depends on the database the *sqlx.DB was opened on, which is the caller's",
+        "outbox": "an outbox is one transaction over the entity and the event; db.BeginTxx can hold both, and this tile does not generate it"
+      },
+      "cost_notes": {
+        "dependency": "sqlx only, and the driver the caller chooses",
+        "llm-work": "every statement by hand, with a column list kept in step with the struct and an upsert spelled for one database",
+        "maintenance": "the table is created outside this code, a field with no column fails at run time, and nothing checks the SQL before it runs",
+        "runtime": "a statement per call",
+        "uncertainty": "written from the library's documentation; no store generated from this tile has been run against the real thing"
       }
     },
     {

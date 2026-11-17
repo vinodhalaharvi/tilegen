@@ -69,12 +69,24 @@
       ],
       "illegal": [
         {
+          "tile": "aerospike",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; Aerospike has multi-record transactions on strongly consistent namespaces, and this tile does not generate one"
+        },
+        {
+          "tile": "arangodb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a stream transaction can hold both, and this tile does not generate it"
+        },
+        {
           "tile": "badger",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
         },
         {
           "tile": "bolt",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "bun",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; db.RunInTx can hold both, and this tile does not generate it"
         },
         {
           "tile": "buntdb",
@@ -87,6 +99,14 @@
         {
           "tile": "cockroach-json",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a transaction can hold both, and this tile does not generate it"
+        },
+        {
+          "tile": "couchbase",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; Couchbase has multi-document transactions, and this tile does not generate one"
+        },
+        {
+          "tile": "couchdb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; CouchDB has no transaction over two documents"
         },
         {
           "tile": "diskv",
@@ -105,8 +125,16 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; db.Transaction can hold both, and this tile does not generate it"
         },
         {
+          "tile": "hazelcast",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; Hazelcast has transactions over maps, and this tile does not generate one"
+        },
+        {
           "tile": "leveldb",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Batch or a Transaction commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "libsql-json",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this database can hold both in one, and this tile does not generate it"
         },
         {
           "tile": "memory",
@@ -135,6 +163,10 @@
         {
           "tile": "nats-object-store",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; JetStream has no transaction over two objects"
+        },
+        {
+          "tile": "nutsdb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; one Update transaction can hold both, and this tile does not generate it"
         },
         {
           "tile": "pebble",
@@ -169,6 +201,14 @@
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
+          "tile": "rosedb",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "rqlite",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; rqlite can run several statements as one transaction in a single request, and this tile does not generate it"
+        },
+        {
           "tile": "s3",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; S3 has no transaction over two objects"
         },
@@ -183,6 +223,10 @@
         {
           "tile": "sqlite-sqlc",
           "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; this tile does not generate one"
+        },
+        {
+          "tile": "sqlx",
+          "reason": "unverified: an inbox is one transaction over a handler's writes and the record that it ran; db.BeginTxx can hold both, and this tile does not generate it"
         },
         {
           "tile": "tikv",
@@ -1071,12 +1115,24 @@
       ],
       "illegal": [
         {
+          "tile": "aerospike",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; Aerospike has multi-record transactions on strongly consistent namespaces, and this tile does not generate one"
+        },
+        {
+          "tile": "arangodb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a stream transaction can hold both, and this tile does not generate it"
+        },
+        {
           "tile": "badger",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
         },
         {
           "tile": "bolt",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "bun",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; db.RunInTx can hold both, and this tile does not generate it"
         },
         {
           "tile": "buntdb",
@@ -1089,6 +1145,14 @@
         {
           "tile": "cockroach-json",
           "reason": "unverified: an outbox is one transaction over the entity and the event; a transaction can hold both, and this tile does not generate it"
+        },
+        {
+          "tile": "couchbase",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; Couchbase has multi-document transactions, and this tile does not generate one"
+        },
+        {
+          "tile": "couchdb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; CouchDB has no transaction over two documents"
         },
         {
           "tile": "diskv",
@@ -1107,8 +1171,16 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; db.Transaction can hold both, and this tile does not generate it"
         },
         {
+          "tile": "hazelcast",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; Hazelcast has transactions over maps, and this tile does not generate one"
+        },
+        {
           "tile": "leveldb",
           "reason": "unverified: an outbox is one transaction over the entity and the event; a Batch or a Transaction commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "libsql-json",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; this database can hold both in one, and this tile does not generate it"
         },
         {
           "tile": "memory",
@@ -1137,6 +1209,10 @@
         {
           "tile": "nats-object-store",
           "reason": "unverified: an outbox is one transaction over the entity and the event; JetStream has no transaction over two objects"
+        },
+        {
+          "tile": "nutsdb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; one Update transaction can hold both, and this tile does not generate it"
         },
         {
           "tile": "pebble",
@@ -1171,6 +1247,14 @@
           "reason": "unverified: an outbox is one transaction over the entity and the event; MULTI/EXEC queues several commands atomically, and this tile does not generate one"
         },
         {
+          "tile": "rosedb",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; a Batch commits several writes atomically, and this tile does not generate one"
+        },
+        {
+          "tile": "rqlite",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; rqlite can run several statements as one transaction in a single request, and this tile does not generate it"
+        },
+        {
           "tile": "s3",
           "reason": "unverified: an outbox is one transaction over the entity and the event; S3 has no transaction over two objects"
         },
@@ -1185,6 +1269,10 @@
         {
           "tile": "sqlite-sqlc",
           "reason": "unverified: an outbox is one transaction over the entity and the event; this tile does not generate one"
+        },
+        {
+          "tile": "sqlx",
+          "reason": "unverified: an outbox is one transaction over the entity and the event; db.BeginTxx can hold both, and this tile does not generate it"
         },
         {
           "tile": "tikv",
