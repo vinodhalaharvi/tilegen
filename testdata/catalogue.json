@@ -27,14 +27,22 @@
       "offered_by": [
         "api-key",
         "basic-auth",
+        "branca",
+        "clerk",
+        "cognito",
         "cookie-session",
+        "gorilla-sessions",
         "hmac-signature",
+        "htpasswd",
         "jwt-jwks",
         "jwt-jwx",
         "jwt-local",
+        "kerberos",
         "ldap-bind",
         "mtls",
         "oidc",
+        "paseto",
+        "saml",
         "scs-session",
         "session-store",
         "spiffe",
@@ -555,6 +563,107 @@
       }
     },
     {
+      "name": "branca",
+      "pass": "select",
+      "doc": "Branca tokens: encrypted and timestamped with a key this service shares with whoever issues them",
+      "produces": "auth",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 3,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "revocable": "a token is trusted until it is too old: nothing is asked of anyone on a request",
+        "third-party-idp": "the tokens are your own, made by a service that holds the same key"
+      },
+      "covers": [
+        "(alias branca)"
+      ],
+      "satisfies": {
+        "expiring": "a token carries the time it was made, and one older than the lifetime given here is refused",
+        "offline-verify": "a token is decrypted and authenticated with a key held here, with no call per request"
+      },
+      "cost_notes": {
+        "dependency": "the library and its cipher module",
+        "llm-work": "decode, check the age, then read the payload",
+        "maintenance": "one 32-byte key that every verifier holds and could mint tokens with, and a payload format of your own",
+        "operations": "nothing to run",
+        "runtime": "one decryption per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "clerk",
+      "pass": "select",
+      "doc": "Clerk session tokens, verified against Clerk's published keys through its SDK",
+      "produces": "auth",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 2,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias clerk)"
+      ],
+      "engine": "clerk",
+      "satisfies": {
+        "expiring": "a session token lasts a minute and is refused after it; the browser keeps getting new ones while the session lives",
+        "third-party-idp": "people sign in with Clerk, which issues the session token"
+      },
+      "unverified": {
+        "offline-verify": "the signature is checked here, and the key it is checked with is fetched from Clerk unless the caller passes one in",
+        "revocable": "a session ended at Clerk stops getting new tokens, so it is refused within about a minute, not on the next request"
+      },
+      "cost_notes": {
+        "dependency": "the Clerk SDK and its JOSE module",
+        "llm-work": "one verify call, then take the subject from the claims",
+        "maintenance": "a secret key to keep and rotate, and the SDK to keep current",
+        "operations": "an identity provider to pay for, with its application and keys to keep right",
+        "runtime": "a signature check per request, and a key fetch now and then",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "cognito",
+      "pass": "select",
+      "doc": "Amazon Cognito access tokens, checked with the user pool on every request",
+      "produces": "auth",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 5,
+        "runtime": 4,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "offline-verify": "every request is a call to Cognito"
+      },
+      "covers": [
+        "(alias cognito)"
+      ],
+      "engine": "cognito",
+      "satisfies": {
+        "expiring": "the user pool refuses an access token past its expiry",
+        "revocable": "the user pool is asked on every request, so a token it has revoked, or whose user signed out everywhere, stops working on the next one",
+        "third-party-idp": "people sign in to the user pool, which issues the token"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "one call with the token, an error type to tell refusal from failure, and an attribute list to read",
+        "maintenance": "the region and credentials to keep right, and a request quota to stay under",
+        "operations": "an identity provider to pay for, with its user pool, app clients and quotas to keep right",
+        "runtime": "a call to Cognito on every request, and nothing works while it cannot be reached",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "cookie-session",
       "pass": "select",
       "doc": "a session in a signed cookie, read through gorilla/sessions",
@@ -590,6 +699,41 @@
       }
     },
     {
+      "name": "gorilla-sessions",
+      "pass": "select",
+      "doc": "a session through gorilla/sessions, in whichever store the caller chose",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 2,
+        "maintenance": 4,
+        "operations": 1,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "third-party-idp": "the session is one this service started, after a login of its own"
+      },
+      "covers": [
+        "(alias gorilla)"
+      ],
+      "satisfies": {
+        "expiring": "a session ends with the store's MaxAge, thirty days unless changed"
+      },
+      "unverified": {
+        "offline-verify": "it depends on the store: a cookie store verifies a signature here, and a server-side store is read on every request",
+        "revocable": "it depends on the store: a cookie store keeps the session in the browser, where nothing can end it early, and a server-side store can delete it"
+      },
+      "cost_notes": {
+        "dependency": "gorilla/sessions and securecookie",
+        "llm-work": "read the subject the session carries",
+        "maintenance": "keys to keep secret and rotate, a store to choose, and a login that puts the subject there",
+        "operations": "nothing to run with the cookie store",
+        "runtime": "a signature check per request, or a store read",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "hmac-signature",
       "pass": "select",
       "doc": "signed requests: an HMAC over a timestamp and the body, with a key per caller",
@@ -621,6 +765,41 @@
         "maintenance": "a key per caller to issue and rotate, and clients that must sign exactly the same bytes",
         "operations": "nothing to run",
         "runtime": "one hash per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "htpasswd",
+      "pass": "select",
+      "doc": "HTTP basic auth against an Apache htpasswd file",
+      "produces": "auth",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 2,
+        "maintenance": 3,
+        "operations": 1,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "expiring": "a line works until someone removes it",
+        "third-party-idp": "the users are lines in a file of your own"
+      },
+      "covers": [
+        "(alias htpasswd)"
+      ],
+      "satisfies": {
+        "offline-verify": "the file is held in memory, and a password is checked against it with no call"
+      },
+      "unverified": {
+        "revocable": "a removed user is refused once the file is read again, and reading it again is the caller's to trigger, with Reload"
+      },
+      "cost_notes": {
+        "dependency": "go-htpasswd and the hash modules it supports",
+        "llm-work": "take the credentials from the request and ask the file",
+        "maintenance": "a file to edit, distribute to every instance and reload",
+        "operations": "nothing to run",
+        "runtime": "a password hash on every request, slow by design when it is bcrypt",
         "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
       }
     },
@@ -721,6 +900,40 @@
       }
     },
     {
+      "name": "kerberos",
+      "pass": "select",
+      "doc": "Kerberos over HTTP (SPNEGO) through gokrb5: the identity its middleware verified",
+      "produces": "auth",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 2,
+        "maintenance": 4,
+        "operations": 6,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "revocable": "a ticket is good until it expires: a disabled account keeps working for as long as its ticket lasts"
+      },
+      "covers": [
+        "(alias spnego)"
+      ],
+      "engine": "kerberos",
+      "satisfies": {
+        "expiring": "a service ticket carries an end time, hours away, and is refused after it",
+        "offline-verify": "the ticket is verified with this service's keytab, with no call to the key distribution centre per request",
+        "third-party-idp": "the key distribution centre, often Active Directory, signs people in and issues the ticket"
+      },
+      "cost_notes": {
+        "dependency": "gokrb5 and its ASN.1 and cryptography modules",
+        "llm-work": "read the identity the middleware put on the request",
+        "maintenance": "a keytab to issue and renew, a service principal name that must match the host, and clocks that must agree",
+        "operations": "a key distribution centre, and every client joined to its realm",
+        "runtime": "a ticket decrypted per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "ldap-bind",
       "pass": "select",
       "doc": "a directory checks the password: HTTP Basic credentials, tried as an LDAP bind",
@@ -814,6 +1027,72 @@
         "llm-work": "verify with the provider's verifier, then map claims to a principal",
         "operations": "an identity provider to run or pay for, with clients, scopes and redirect URIs to keep right",
         "runtime": "keys are cached; a refresh is occasional"
+      }
+    },
+    {
+      "name": "paseto",
+      "pass": "select",
+      "doc": "PASETO v4 public tokens, verified against the issuer's Ed25519 public key",
+      "produces": "auth",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 3,
+        "maintenance": 2,
+        "operations": 1,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "revocable": "a token is trusted until it expires: nothing is asked of the issuer on a request",
+        "third-party-idp": "identity providers issue JWTs; a PASETO comes from a service of your own that holds the signing key"
+      },
+      "covers": [
+        "(alias paseto)"
+      ],
+      "satisfies": {
+        "expiring": "a token with no expiry, or one that has passed, is refused",
+        "offline-verify": "a signature check against a public key held here, with no call per request"
+      },
+      "cost_notes": {
+        "dependency": "go-paseto and its cryptography modules",
+        "llm-work": "a parser with the right rules, one parse, then map claims to a principal",
+        "maintenance": "the issuer's public key to distribute and replace when it rotates",
+        "operations": "nothing to run",
+        "runtime": "a signature check per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "saml",
+      "pass": "select",
+      "doc": "SAML single sign-on through crewjam/saml: the session its service-provider middleware keeps",
+      "produces": "auth",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 3,
+        "maintenance": 4,
+        "operations": 5,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "covers": [
+        "(alias saml)"
+      ],
+      "satisfies": {
+        "expiring": "the session cookie carries an expiry, an hour unless the middleware is told otherwise",
+        "offline-verify": "the session is a signed cookie, verified here with no call per request",
+        "third-party-idp": "people sign in at the identity provider, which asserts who they are"
+      },
+      "unverified": {
+        "revocable": "a session lasts until its cookie expires unless the middleware is given a store of revocations to consult, which is the caller's to set up"
+      },
+      "cost_notes": {
+        "dependency": "crewjam/saml and its XML signature modules",
+        "llm-work": "read the session the middleware keeps, and take the subject from its claims",
+        "maintenance": "metadata to exchange with the identity provider, a certificate that expires, and the middleware's own routes to mount",
+        "operations": "an identity provider to run or pay for, with its clients and keys to keep right",
+        "runtime": "a signature check per request",
+        "uncertainty": "written from the library's documentation; no authenticator generated from this tile has been run against the real thing"
       }
     },
     {
