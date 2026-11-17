@@ -56,10 +56,13 @@
         "no-broker"
       ],
       "offered_by": [
+        "amqp10",
         "asynq",
+        "azure-event-hubs",
         "azure-queue",
         "azure-service-bus",
         "kafka",
+        "kinesis",
         "local-bus",
         "mqtt",
         "nats-core",
@@ -70,10 +73,15 @@
         "rabbitmq",
         "redis-pubsub",
         "redis-streams",
+        "river",
+        "rmq",
+        "rocketmq",
         "sns-sqs",
         "sqs",
         "sqs-fifo",
-        "watermill"
+        "stomp",
+        "watermill",
+        "zeromq"
       ]
     },
     {
@@ -975,6 +983,45 @@
       }
     },
     {
+      "name": "amqp10",
+      "pass": "select",
+      "doc": "AMQP 1.0 through go-amqp: a queue per event type on whichever broker speaks it",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 5,
+        "maintenance": 4,
+        "operations": 5,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a broker that speaks AMQP 1.0 to run or pay for"
+      },
+      "covers": [
+        "(alias amqp10)"
+      ],
+      "satisfies": {
+        "at-least-once": "a message is accepted only after its handler returns nil, and released back to the broker when it does not",
+        "cross-process": "a broker every process connects to"
+      },
+      "unverified": {
+        "consumer-groups": "it depends on the broker and how the address is configured there: receivers on one queue share its messages",
+        "durable": "every message is sent marked durable, and whether it survives a restart depends on the broker and how the queue is configured there",
+        "fan-out": "it depends on the broker and how the address is configured there: a queue gives each message to one receiver, a topic to all",
+        "ordered": "it depends on the broker and how the queue is configured there, and a released message comes back out of order",
+        "replay": "it depends on the broker and how the address is configured there"
+      },
+      "cost_notes": {
+        "dependency": "go-amqp only",
+        "llm-work": "a sender to open once per event type and keep, a receive loop, and an accept or a release for every message",
+        "maintenance": "what an address means differs from broker to broker, and links and sessions to reopen when the connection drops",
+        "operations": "a broker to run, with its queues, storage and upgrades",
+        "runtime": "a connection held open, and a round trip per send",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "asynq",
       "pass": "select",
       "doc": "asynq: each event a task on a Redis queue, handled by one worker and retried when it fails",
@@ -1011,6 +1058,44 @@
         "maintenance": "handlers are registered before the server starts and cannot be removed, and retries, timeouts and the dead set need watching",
         "operations": "a Redis to run, and an asynq server process for the workers",
         "runtime": "a round trip per task, and workers polling",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "azure-event-hubs",
+      "pass": "select",
+      "doc": "Azure Event Hubs: one hub, every event a record, read partition by partition",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 3,
+        "llm-work": 6,
+        "maintenance": 5,
+        "operations": 3,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "consumer-groups": "sharing partitions among instances needs the SDK's Processor and a checkpoint store in Blob Storage, which this tile does not use; every instance of this consumer reads every partition",
+        "no-broker": "a cloud service the program cannot start without: a namespace, the hub, credentials and a network path to it"
+      },
+      "covers": [
+        "(alias eventhubs)"
+      ],
+      "engine": "azure-event-hubs",
+      "satisfies": {
+        "at-least-once": "the consumer this tile describes keeps its place in memory: after a restart it reads the hub again from the earliest event, so nothing is missed and much is handled twice",
+        "cross-process": "a service every process reaches over the network",
+        "durable": "a send that returns has been written to the hub's replicas",
+        "fan-out": "every reader of a partition sees every event in it",
+        "ordered": "events with one partition key go to one partition and are read in the order they were sent",
+        "replay": "an event stays for the hub's retention period, and a reader can start from the earliest"
+      },
+      "cost_notes": {
+        "dependency": "the Azure SDK's core, AMQP and Event Hubs modules",
+        "llm-work": "a batch for every send, a client per partition to follow, a deadline on every receive, and a clean stop",
+        "maintenance": "a position kept only in memory, a hub's partition count fixed when it is made, and event types told apart by a property",
+        "operations": "nothing to patch; throughput units, access policy and cost to watch",
+        "runtime": "a connection held open, and a batch per send",
         "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
@@ -1122,6 +1207,44 @@
       "cost_notes": {
         "dependency": "a client library with a large transitive graph",
         "operations": "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"
+      }
+    },
+    {
+      "name": "kinesis",
+      "pass": "select",
+      "doc": "Amazon Kinesis Data Streams: one stream, every event a record, read shard by shard",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 7,
+        "maintenance": 6,
+        "operations": 3,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "consumer-groups": "sharing shards among instances needs a lease table, as the Kinesis Client Library keeps; every instance of this consumer reads every shard",
+        "no-broker": "a cloud service the program cannot start without: an account, the stream, credentials and a network path to it"
+      },
+      "covers": [
+        "(alias kinesis)"
+      ],
+      "engine": "kinesis",
+      "satisfies": {
+        "at-least-once": "the consumer this tile describes keeps its place in memory: after a restart it reads the stream again from the oldest record, so nothing is missed and much is handled twice",
+        "cross-process": "a regional service every process reaches over HTTPS",
+        "durable": "a PutRecord that returns has stored the record in three availability zones",
+        "fan-out": "every reader of a shard sees every record in it",
+        "ordered": "records with one partition key go to one shard and are read in the order they were written",
+        "replay": "a record stays for the stream's retention period, a day unless raised, and a reader can start from the oldest"
+      },
+      "cost_notes": {
+        "dependency": "the AWS SDK's module tree",
+        "llm-work": "shards to list, an iterator per shard to follow, a pause between reads, an envelope to tell event types apart, and a clean stop",
+        "maintenance": "shards split and merge, an iterator expires after five minutes unused, read limits per shard, and a position kept only in memory",
+        "operations": "nothing to patch; shards or capacity mode, IAM and cost to watch",
+        "runtime": "an HTTPS round trip per record written, and polling every shard whether or not there is anything to read",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },
     {
@@ -1480,6 +1603,124 @@
       }
     },
     {
+      "name": "river",
+      "pass": "select",
+      "doc": "River: each event a job in Postgres, worked by one worker and retried when it fails",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 5,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a job goes to one worker, and a kind has one worker type",
+        "no-broker": "a Postgres to run, though nothing beyond the one a project on a Postgres store already has",
+        "ordered": "jobs are taken by whichever worker is free, and a retry runs later than the jobs behind it",
+        "replay": "a finished job is kept for a while and then deleted; it cannot be worked a second time"
+      },
+      "covers": [
+        "(alias river)"
+      ],
+      "engine": "postgres",
+      "satisfies": {
+        "at-least-once": "a job whose worker returns an error, or dies, is worked again, up to its attempt limit",
+        "consumer-groups": "the clients working a queue share its jobs",
+        "cross-process": "every process with a client on the database can insert and work jobs",
+        "durable": "a job is a row, committed before Publish returns"
+      },
+      "cost_notes": {
+        "dependency": "River, its pgx driver and their modules",
+        "llm-work": "a job type around each event, a typed worker to register, and an insert",
+        "maintenance": "River's own tables to migrate with each upgrade, workers registered before the client starts, and a kind that must never be renamed",
+        "operations": "a server to run, with backups, connections and upgrades",
+        "runtime": "an insert per event, and workers polling and listening",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "rmq",
+      "pass": "select",
+      "doc": "rmq: a Redis list per event type, with deliveries acknowledged or rejected one by one",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 5,
+        "operations": 4,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "fan-out": "a delivery goes to one consumer",
+        "no-broker": "a Redis to run",
+        "ordered": "deliveries are prefetched in batches and handled by whichever consumer has them",
+        "replay": "an acknowledged delivery is removed; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias rmq)"
+      ],
+      "engine": "redis",
+      "satisfies": {
+        "consumer-groups": "the consumers of a queue share its deliveries",
+        "cross-process": "consumers in other processes take deliveries from the same Redis"
+      },
+      "unverified": {
+        "at-least-once": "a rejected delivery moves to the queue's rejected list, and one held by a consumer that died stays in its unacked list; each comes back only when something returns it, with ReturnRejected or a Cleaner, which is the caller's to schedule",
+        "durable": "a delivery is an entry in a Redis list: what survives a restart depends on the server's persistence, which this tile does not configure"
+      },
+      "cost_notes": {
+        "dependency": "rmq and the Redis client under it",
+        "llm-work": "open a queue, publish bytes, and a consumer func that acknowledges or rejects",
+        "maintenance": "a cleaner to run on a schedule, rejected deliveries to return or purge, and a queue that can be set consuming only once",
+        "operations": "a Redis to run, with memory to size and persistence to configure",
+        "runtime": "a round trip per delivery, and consumers polling",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "rocketmq",
+      "pass": "select",
+      "doc": "Apache RocketMQ: a topic per event type, pushed to the consumers of a group",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 4,
+        "llm-work": 4,
+        "maintenance": 5,
+        "operations": 8,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "name servers and brokers to run",
+        "ordered": "this tile sends ordinary messages, which the consumers of a group handle concurrently; ordered delivery is a different send and a different listener"
+      },
+      "covers": [
+        "(alias rocketmq)"
+      ],
+      "engine": "rocketmq",
+      "satisfies": {
+        "at-least-once": "a batch whose handler asks for a retry is delivered again later, and one that keeps failing ends in the group's dead-letter topic",
+        "consumer-groups": "the consumers of one group share a topic's queues",
+        "cross-process": "brokers every process connects to",
+        "fan-out": "every consumer group subscribed to a topic gets every message"
+      },
+      "unverified": {
+        "durable": "SendSync returns once a broker has the message, and whether that means on disk and on a replica is the broker's flush and replication mode",
+        "replay": "a group's position can be reset to an earlier time with the admin tools while the messages are still within retention, which is not something this code does"
+      },
+      "cost_notes": {
+        "dependency": "the client and its module tree",
+        "llm-work": "a synchronous send, and a listener that answers success or retry for a batch",
+        "maintenance": "every subscription must be made before the consumer starts, topics and groups are created on the cluster, and retries and dead letters need watching",
+        "operations": "name servers and brokers to run, replicate and upgrade",
+        "runtime": "a round trip per send, and long polling",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "sns-sqs",
       "pass": "select",
       "doc": "Amazon SNS and SQS: a topic per event type, fanned out to a queue per subscriber",
@@ -1594,6 +1835,45 @@
       }
     },
     {
+      "name": "stomp",
+      "pass": "select",
+      "doc": "STOMP through go-stomp: a queue per event type on a broker such as ActiveMQ or RabbitMQ",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 4,
+        "operations": 5,
+        "runtime": 2,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "no-broker": "a broker that speaks STOMP to run"
+      },
+      "covers": [
+        "(alias stomp)"
+      ],
+      "satisfies": {
+        "cross-process": "a broker every process connects to"
+      },
+      "unverified": {
+        "at-least-once": "a message is acknowledged only after its handler returns nil, and what a broker does with one that is refused, or was held by a connection that dropped, is the broker's own rule",
+        "consumer-groups": "it depends on the broker and how the destination is configured there: subscribers to one /queue/ share its messages",
+        "durable": "it depends on the broker and how the destination is configured there; STOMP itself says nothing about storage",
+        "fan-out": "it depends on the broker and how the destination is configured there: a /queue/ gives each message to one subscriber, a /topic/ to all",
+        "ordered": "it depends on the broker and how the destination is configured there",
+        "replay": "it depends on the broker and how the destination is configured there"
+      },
+      "cost_notes": {
+        "dependency": "go-stomp only",
+        "llm-work": "send with a receipt, read a channel, and acknowledge or refuse each message",
+        "maintenance": "destination names and what they mean differ from broker to broker, and one connection carries every subscription",
+        "operations": "a broker to run, with its queues, storage and upgrades",
+        "runtime": "a connection held open, and a receipt awaited per send",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
       "name": "watermill",
       "pass": "select",
       "doc": "Watermill: publish and subscribe through whichever Pub/Sub the caller built",
@@ -1623,6 +1903,43 @@
         "llm-work": "wrap and unwrap a message, and acknowledge by the handler's result",
         "maintenance": "what the bus promises is decided where the Pub/Sub is built, away from this code",
         "runtime": "a layer over the broker's own client",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "zeromq",
+      "pass": "select",
+      "doc": "ZeroMQ publish and subscribe in pure Go: sockets between processes, with nothing in the middle",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 2,
+        "llm-work": 4,
+        "maintenance": 4,
+        "runtime": 1,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "at-least-once": "a publisher is never told whether anyone received a message, and a full buffer drops them",
+        "consumer-groups": "every subscriber gets every message; none are shared out",
+        "durable": "a message exists only on the wire and in socket buffers: one sent while a subscriber is away is never seen by it",
+        "replay": "nothing is kept once it is sent"
+      },
+      "covers": [
+        "(alias zmq)"
+      ],
+      "satisfies": {
+        "cross-process": "a subscriber in another process dials the publisher's socket",
+        "fan-out": "every subscriber connected at the time gets every message it subscribed to",
+        "no-broker": "a library and two sockets; there is no server between them"
+      },
+      "unverified": {
+        "ordered": "one publisher's messages arrive in the order it sent them over one connection, and nothing orders the messages of two publishers"
+      },
+      "cost_notes": {
+        "dependency": "zmq4 and its few modules",
+        "llm-work": "a topic frame and a payload frame, a socket per subscription, and a receive loop to stop cleanly",
+        "maintenance": "the publisher's address is configuration every subscriber must share, a slow subscriber silently loses messages, and nothing says when one has gone",
+        "runtime": "a write to a socket",
         "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },

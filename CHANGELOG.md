@@ -4,6 +4,8 @@
 
 - Eleven more stores, as files: couchbase, aerospike, arangodb, couchdb,
   rqlite, libsql-json, nutsdb, rosedb, bun, sqlx, hazelcast.
+- Eight more event buses, as files: kinesis, azure-event-hubs, river,
+  amqp10, stomp, zeromq, rocketmq, rmq.
 
 ## v0.3.6 - 2026-11-16
 

@@ -289,6 +289,49 @@
           ]
         },
         {
+          "tile": "zeromq",
+          "score": 41,
+          "own": 41,
+          "terms": "llm 4·4 + maint 4·3 + dep 2·1 + run 1·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "a topic frame and a payload frame, a socket per subscription, and a receive loop to stop cleanly"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "the publisher's address is configuration every subscriber must share, a slow subscriber silently loses messages, and nothing says when one has gone"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "zmq4 and its few modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "a write to a socket"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "nats-jetstream",
           "score": 47,
           "own": 47,
@@ -711,6 +754,106 @@
           ]
         },
         {
+          "tile": "stomp",
+          "score": 56,
+          "own": 56,
+          "terms": "llm 4·4 + maint 4·3 + dep 1·1 + run 2·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "send with a receipt, read a channel, and acknowledge or refuse each message"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "destination names and what they mean differ from broker to broker, and one connection carries every subscription"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-stomp only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a connection held open, and a receipt awaited per send"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a broker to run, with its queues, storage and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "rmq",
+          "score": 57,
+          "own": 57,
+          "terms": "llm 4·4 + maint 5·3 + dep 2·1 + run 2·1 + ops 4·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "open a queue, publish bytes, and a consumer func that acknowledges or rejects"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a cleaner to run on a schedule, rejected deliveries to return or purge, and a queue that can be set consuming only once"
+            },
+            {
+              "dimension": "dependency",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "rmq and the Redis client under it"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per delivery, and consumers polling"
+            },
+            {
+              "dimension": "operations",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "a Redis to run, with memory to size and persistence to configure"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "postgres-queue",
           "score": 58,
           "own": 58,
@@ -861,6 +1004,156 @@
           ]
         },
         {
+          "tile": "river",
+          "score": 59,
+          "own": 59,
+          "terms": "llm 4·4 + maint 4·3 + dep 4·1 + run 2·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "a job type around each event, a typed worker to register, and an insert"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "River's own tables to migrate with each upgrade, workers registered before the client starts, and a kind that must never be renamed"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "River, its pgx driver and their modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "an insert per event, and workers polling and listening"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a server to run, with backups, connections and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "amqp10",
+          "score": 60,
+          "own": 60,
+          "terms": "llm 5·4 + maint 4·3 + dep 1·1 + run 2·1 + ops 5·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 5,
+              "weight": 4,
+              "source": "derived",
+              "note": "a sender to open once per event type and keep, a receive loop, and an accept or a release for every message"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 4,
+              "weight": 3,
+              "source": "derived",
+              "note": "what an address means differs from broker to broker, and links and sessions to reopen when the connection drops"
+            },
+            {
+              "dimension": "dependency",
+              "value": 1,
+              "weight": 1,
+              "source": "derived",
+              "note": "go-amqp only"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a connection held open, and a round trip per send"
+            },
+            {
+              "dimension": "operations",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a broker to run, with its queues, storage and upgrades"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "azure-event-hubs",
+          "score": 63,
+          "own": 63,
+          "terms": "llm 6·4 + maint 5·3 + dep 3·1 + run 2·1 + ops 3·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 6,
+              "weight": 4,
+              "source": "derived",
+              "note": "a batch for every send, a client per partition to follow, a deadline on every receive, and a clean stop"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "a position kept only in memory, a hub's partition count fixed when it is made, and event types told apart by a property"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "the Azure SDK's core, AMQP and Event Hubs modules"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a connection held open, and a batch per send"
+            },
+            {
+              "dimension": "operations",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; throughput units, access policy and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
           "tile": "kafka",
           "score": 70,
           "own": 70,
@@ -894,6 +1187,106 @@
               "weight": 3,
               "source": "derived",
               "note": "the heaviest thing in the registry to run: brokers, partitions, rebalances, lag, and someone on call for them"
+            }
+          ]
+        },
+        {
+          "tile": "rocketmq",
+          "score": 71,
+          "own": 71,
+          "terms": "llm 4·4 + maint 5·3 + dep 4·1 + run 2·1 + ops 8·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "a synchronous send, and a listener that answers success or retry for a batch"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 5,
+              "weight": 3,
+              "source": "derived",
+              "note": "every subscription must be made before the consumer starts, topics and groups are created on the cluster, and retries and dead letters need watching"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the client and its module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 2,
+              "weight": 1,
+              "source": "derived",
+              "note": "a round trip per send, and long polling"
+            },
+            {
+              "dimension": "operations",
+              "value": 8,
+              "weight": 3,
+              "source": "derived",
+              "note": "name servers and brokers to run, replicate and upgrade"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "kinesis",
+          "score": 72,
+          "own": 72,
+          "terms": "llm 7·4 + maint 6·3 + dep 4·1 + run 3·1 + ops 3·3 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 7,
+              "weight": 4,
+              "source": "derived",
+              "note": "shards to list, an iterator per shard to follow, a pause between reads, an envelope to tell event types apart, and a clean stop"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 6,
+              "weight": 3,
+              "source": "derived",
+              "note": "shards split and merge, an iterator expires after five minutes unused, read limits per shard, and a position kept only in memory"
+            },
+            {
+              "dimension": "dependency",
+              "value": 4,
+              "weight": 1,
+              "source": "derived",
+              "note": "the AWS SDK's module tree"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "an HTTPS round trip per record written, and polling every shard whether or not there is anything to read"
+            },
+            {
+              "dimension": "operations",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "nothing to patch; shards or capacity mode, IAM and cost to watch"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
             }
           ]
         }
