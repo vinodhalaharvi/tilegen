@@ -74,7 +74,7 @@ func TestGoModsSayWhatIsAlreadyRun(t *testing.T) {
 
 func TestRunningEnginesCostNothingMoreToOperate(t *testing.T) {
 	spec := `(project notes (module example.com/notes) (go 1.22)
-  (package notes (events (durable) (event NoteSaved (field ID string)))))`
+  (package notes (events (durable) (cross-process) (event NoteSaved (field ID string)))))`
 	chosen := regexp.MustCompile(`chosen  (\S+)\s+score (\d+)`)
 	score := func(policy string) (string, int, string) {
 		sp, pp := writeSpec(t, t.TempDir(), spec, "")

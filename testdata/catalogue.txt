@@ -50,6 +50,7 @@ select      asynq                event-bus      llm 3, maint 4, dep 3, run 2, op
 select      azure-event-hubs     event-bus      llm 6, maint 5, dep 3, run 2, ops 3, unc 2                                                                           Azure Event Hubs: one hub, every event a record, read partition by partition
 select      azure-queue          event-bus      llm 5, maint 4, dep 3, run 3, ops 2, unc 2                                                                           Azure Queue Storage: a queue per event type, polled by competing consumers
 select      azure-service-bus    event-bus      llm 5, maint 4, dep 3, run 3, ops 2, unc 2                                                                           Azure Service Bus: a topic per event type, a subscription per service
+select      goqite               event-bus      llm 4, maint 3, dep 1, run 3, unc 2                                                                                  goqite: a queue in a SQLite table, one per event type, with no server
 select      kafka                event-bus      llm 5, maint 5, dep 4, run 4, ops 9                                                                                  Kafka: a partitioned log, ordered per key, read back at will
 select      kinesis              event-bus      llm 7, maint 6, dep 4, run 3, ops 3, unc 2                                                                           Amazon Kinesis Data Streams: one stream, every event a record, read shard by shard
 select      local-bus            event-bus      llm 0, maint 0, dep 0, run 1                                                                                         in-process bus: synchronous delivery, ordered, errors joined
@@ -124,10 +125,10 @@ select      nats-core            transport      llm 2, maint 1, dep 2, run 1, op
 select      doc-mapper           domain                                                                                                                              decodes mongo documents into domain types, by hand
 select      row-mapper           domain                                                                                                                              converts sqlc's row types to domain types, by hand
 
-124 tile(s).
+125 tile(s).
 capability api        offered by connect, grpc, http-json
 capability auth       offered by api-key, basic-auth, branca, clerk, cognito, cookie-session, gorilla-sessions, hmac-signature, htpasswd, jwt-jwks, jwt-jwx, jwt-local, kerberos, ldap-bind, mtls, oidc, paseto, saml, scs-session, session-store, spiffe, token-introspection, trusted-header
-capability event-bus  offered by amqp10, asynq, azure-event-hubs, azure-queue, azure-service-bus, kafka, kinesis, local-bus, mqtt, nats-core, nats-jetstream, nsq, postgres-notify, postgres-queue, rabbitmq, redis-pubsub, redis-streams, river, rmq, rocketmq, sns-sqs, sqs, sqs-fifo, stomp, watermill, zeromq
+capability event-bus  offered by amqp10, asynq, azure-event-hubs, azure-queue, azure-service-bus, goqite, kafka, kinesis, local-bus, mqtt, nats-core, nats-jetstream, nsq, postgres-notify, postgres-queue, rabbitmq, redis-pubsub, redis-streams, river, rmq, rocketmq, sns-sqs, sqs, sqs-fifo, stomp, watermill, zeromq
 capability secrets    offered by aws-secrets-manager, env-secrets, file-secrets, vault
 capability store      offered by aerospike, arangodb, badger, bolt, bun, buntdb, cassandra, cockroach-json, couchbase, couchdb, diskv, dynamodb, etcd, gorm, hazelcast, leveldb, libsql-json, memory, minio, mongo, mssql-json, mysql-json, nats-kv, nats-object-store, nutsdb, pebble, pogreb, postgres-pgx, postgres-pq-json, postgres-sqlc, redis-hash, redis-kv, redis-redigo, redis-rueidis, rosedb, rqlite, s3, sqlite-cgo-json, sqlite-json, sqlite-sqlc, sqlx, tikv, valkey, zookeeper
 capability transport  offered by kafka, nats-core
