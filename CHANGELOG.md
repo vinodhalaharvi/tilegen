@@ -6,6 +6,8 @@
   rqlite, libsql-json, nutsdb, rosedb, bun, sqlx, hazelcast.
 - Eight more event buses, as files: kinesis, azure-event-hubs, river,
   amqp10, stomp, zeromq, rocketmq, rmq.
+- Eight more auth schemes, as files: paseto, saml, kerberos,
+  gorilla-sessions, cognito, htpasswd, branca, clerk.
 
 ## v0.3.6 - 2026-11-16
 
