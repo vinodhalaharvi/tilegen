@@ -256,49 +256,6 @@
           ]
         },
         {
-          "tile": "goqite",
-          "score": 39,
-          "own": 39,
-          "terms": "llm 4·4 + maint 3·3 + dep 1·1 + run 3·1 + unc 2·5",
-          "cost": [
-            {
-              "dimension": "llm-work",
-              "value": 4,
-              "weight": 4,
-              "source": "derived",
-              "note": "a queue per event type, a receive loop with a clean stop, and delete-on-success"
-            },
-            {
-              "dimension": "maintenance",
-              "value": 3,
-              "weight": 3,
-              "source": "derived",
-              "note": "the goqite table is created outside this code from the library's schema, and messages past their receive limit stay in it until someone looks"
-            },
-            {
-              "dimension": "dependency",
-              "value": 1,
-              "weight": 1,
-              "source": "derived",
-              "note": "goqite only, and the SQLite driver the caller chooses"
-            },
-            {
-              "dimension": "runtime",
-              "value": 3,
-              "weight": 1,
-              "source": "derived",
-              "note": "a query per poll, whether or not there is anything to take"
-            },
-            {
-              "dimension": "uncertainty",
-              "value": 2,
-              "weight": 5,
-              "source": "derived",
-              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
-            }
-          ]
-        },
-        {
           "tile": "redis-pubsub",
           "score": 39,
           "own": 39,
@@ -338,6 +295,49 @@
               "weight": 3,
               "source": "derived",
               "note": "a server to run"
+            },
+            {
+              "dimension": "uncertainty",
+              "value": 2,
+              "weight": 5,
+              "source": "derived",
+              "note": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+            }
+          ]
+        },
+        {
+          "tile": "goqite",
+          "score": 41,
+          "own": 41,
+          "terms": "llm 4·4 + maint 3·3 + dep 3·1 + run 3·1 + unc 2·5",
+          "cost": [
+            {
+              "dimension": "llm-work",
+              "value": 4,
+              "weight": 4,
+              "source": "derived",
+              "note": "a queue per event type, a receive loop with a clean stop, and delete-on-success"
+            },
+            {
+              "dimension": "maintenance",
+              "value": 3,
+              "weight": 3,
+              "source": "derived",
+              "note": "the goqite table is created outside this code from the library's schema, and messages past their receive limit stay in it until someone looks"
+            },
+            {
+              "dimension": "dependency",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "goqite, and a SQLite driver: a large module, or a C compiler in every build"
+            },
+            {
+              "dimension": "runtime",
+              "value": 3,
+              "weight": 1,
+              "source": "derived",
+              "note": "a query per poll, whether or not there is anything to take"
             },
             {
               "dimension": "uncertainty",

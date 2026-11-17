@@ -25,7 +25,7 @@
   (cost
     (llm-work 4 (source derived "a queue per event type, a receive loop with a clean stop, and delete-on-success"))
     (maintenance 3 (source derived "the goqite table is created outside this code from the library's schema, and messages past their receive limit stay in it until someone looks"))
-    (dependency 1 (source derived "goqite only, and the SQLite driver the caller chooses"))
+    (dependency 3 (source derived "goqite, and a SQLite driver: a large module, or a C compiler in every build"))
     (runtime 3 (source derived "a query per poll, whether or not there is anything to take"))
     (uncertainty 2 (source derived "written from the library's documentation; no bus generated from this tile has been run against the real thing")))
 

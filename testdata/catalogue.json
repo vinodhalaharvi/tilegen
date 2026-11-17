@@ -1463,7 +1463,7 @@
       "doc": "goqite: a queue in a SQLite table, one per event type, with no server",
       "produces": "event-bus",
       "cost": {
-        "dependency": 1,
+        "dependency": 3,
         "llm-work": 4,
         "maintenance": 3,
         "runtime": 3,
@@ -1487,7 +1487,7 @@
         "ordered": "messages are received oldest first, and one that timed out comes back behind those sent after it"
       },
       "cost_notes": {
-        "dependency": "goqite only, and the SQLite driver the caller chooses",
+        "dependency": "goqite, and a SQLite driver: a large module, or a C compiler in every build",
         "llm-work": "a queue per event type, a receive loop with a clean stop, and delete-on-success",
         "maintenance": "the goqite table is created outside this code from the library's schema, and messages past their receive limit stay in it until someone looks",
         "runtime": "a query per poll, whether or not there is anything to take",
