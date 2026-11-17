@@ -69,6 +69,7 @@
         "azure-event-hubs",
         "azure-queue",
         "azure-service-bus",
+        "goqite",
         "kafka",
         "kinesis",
         "local-bus",
@@ -1453,6 +1454,43 @@
         "maintenance": "topics, subscriptions, lock durations and a dead-letter queue to keep right",
         "operations": "nothing to patch; the namespace, access policy and cost to watch",
         "runtime": "an AMQP round trip per message",
+        "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
+      }
+    },
+    {
+      "name": "goqite",
+      "pass": "select",
+      "doc": "goqite: a queue in a SQLite table, one per event type, with no server",
+      "produces": "event-bus",
+      "cost": {
+        "dependency": 1,
+        "llm-work": 4,
+        "maintenance": 3,
+        "runtime": 3,
+        "uncertainty": 2
+      },
+      "illegal_when": {
+        "consumer-groups": "receivers on one queue take different messages, but only inside the one process that has the file: the instances of a service cannot share it",
+        "cross-process": "a sqlite file serves one process; another would need its own connection to the same disk",
+        "fan-out": "a message goes to one receiver",
+        "replay": "a handled message's row is deleted; nothing can be read a second time"
+      },
+      "covers": [
+        "(alias goqite)"
+      ],
+      "satisfies": {
+        "at-least-once": "a message that is not deleted before its timeout is received again, up to the queue's receive limit of three unless raised; after that it stays in the table and is not delivered",
+        "durable": "an event is a row in the database file, committed before Publish returns",
+        "no-broker": "a library and the SQLite file the program already has; there is no server"
+      },
+      "unverified": {
+        "ordered": "messages are received oldest first, and one that timed out comes back behind those sent after it"
+      },
+      "cost_notes": {
+        "dependency": "goqite only, and the SQLite driver the caller chooses",
+        "llm-work": "a queue per event type, a receive loop with a clean stop, and delete-on-success",
+        "maintenance": "the goqite table is created outside this code from the library's schema, and messages past their receive limit stay in it until someone looks",
+        "runtime": "a query per poll, whether or not there is anything to take",
         "uncertainty": "written from the library's documentation; no bus generated from this tile has been run against the real thing"
       }
     },

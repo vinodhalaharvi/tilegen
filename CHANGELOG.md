@@ -8,6 +8,9 @@
   amqp10, stomp, zeromq, rocketmq, rmq.
 - Eight more auth schemes, as files: paseto, saml, kerberos,
   gorilla-sessions, cognito, htpasswd, branca, clerk.
+- goqite, an event bus in a SQLite table with no server. It is what
+  `(events (durable))` now gets when nothing asks for cross-process;
+  that was nats-jetstream.
 
 ## v0.3.6 - 2026-11-16
 
